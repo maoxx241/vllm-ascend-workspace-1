@@ -8,7 +8,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Current contracts
 
-- [forks-and-updates.md](forks-and-updates.md) — Skill-independent first use, personal forks and upstream preparation in native new-worktree setup before the Agent starts.
+- [forks-and-updates.md](forks-and-updates.md) — requested setup and managed identity, personal forks and upstream preparation in native new-worktree setup; ordinary review and explicit endpoints need no first-use setup.
 - [identity-and-agent-coordination.md](identity-and-agent-coordination.md) — shared-root user attribution, opportunistic message delivery and compiled-output reuse; first-version boundaries are explicit.
 
 - [platform-contract.md](platform-contract.md) — common Windows/macOS/Linux entry points, literal process arguments, native owners and immutable environments.
@@ -25,12 +25,16 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [dependency-plane.md](dependency-plane.md) — `uv.lock` is the only pin; `vaws_deps.py status|doctor|sync`. Covers immutable preparation and capability reporting.
 - [npu-fleet-monitor.md](npu-fleet-monitor.md) — local deploy and lifecycle of the standalone vaws-top fleet monitor.
 - [property-testing.md](property-testing.md) — property-based tests for the deterministic cores.
-- [remote-dev-consumption.md](remote-dev-consumption.md) — how this scaffold consumes the installed vaws-remote-dev package.
+- [remote-dev-consumption.md](remote-dev-consumption.md) — direct existing-container/code/script work, full-ID endpoint reuse, unsupported boundaries and installed remote-dev wiring.
 - [target-state.md](target-state.md) — current component ownership and runtime contracts, including the single minimal knowledge contract: optional reference, plain Markdown and no per-task bookkeeping.
 - [tracked-leak-guard.md](tracked-leak-guard.md) — tracked-file leak scanner, hook, and CI.
 - [tracked-path-guard.md](tracked-path-guard.md) — anti-rot guard against dead in-tree paths in tracked docs.
 
 ## Dated design and validation evidence
+
+- [existing-container-design.md](existing-container-design.md) — reviewed design for existing-container I/O, use-driven knowledge maintenance and lightweight native sessions; acceptance requirements are separate from results.
+- [existing-container-review-2026-09-13.md](existing-container-review-2026-09-13.md) — redacted Kimi K3 max/Never Ask review, its sole required correction and approved design scope; no runtime acceptance claim.
+- [existing-container-validation-2026-09-13.md](existing-container-validation-2026-09-13.md) — anonymized installed-candidate container, knowledge and native-review evidence, measured read costs and explicit pending final acceptance.
 
 - [native-client-validation-2026-09-12.md](native-client-validation-2026-09-12.md) — native worktree preparation, real client tasks and resume behavior, plus supported client extension boundaries.
 

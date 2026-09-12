@@ -2,8 +2,8 @@
 
 Status: current
 
-目标是首次真正使用仓库时即可建立个人开发配置，在原生客户端的新 worktree
-交给 Agent 前跟上主仓。
+目标是在用户明确初始化，或受管操作真正需要尚未确认的个人容器身份时，
+建立所需的个人开发配置；已配置的原生新 worktree 在交给 Agent 前跟上主仓。
 不要求知道或调用某个 Skill。仅将身份校验、Git fast-forward、锁定依赖准备
 这些边界明确的操作工具化。常规更新由客户端生命周期回调消化；只有需要处理的
 特殊 remote、分叉历史或版本切换取舍才交给 Agent。遵循[九条设计原则](design-principles.md)。
@@ -12,7 +12,8 @@ Status: current
 
 | 使用方式 | 首次发现 | 更新方式 |
 |---|---|---|
-| 首次直接打开仓库使用 Agent | 根 AGENTS.md 说明一次身份确认 | 初始化接通所选客户端的 Worktree 模式和环境；已打开的目录保持原版本 |
+| 明确请求初始化，或 managed 操作实际需要缺失的个人容器身份 | 根 AGENTS.md 说明一次身份确认，复用已确认选择 | 初始化接通所选客户端的 Worktree 模式和环境；已打开的目录保持原版本 |
+| 普通本地文件、Git/PR review 或显式 remote-dev endpoint（含现有容器） | 不因缺少 github.json 询问身份或触发 setup | 直接完成任务；不建 Fork、不同步源码、不准备受管环境 |
 | 已配置的 Codex / Cursor 原生 Worktree 会话 | 客户端创建目录并调用 setup | Agent 开始前检查主仓、准备新目录及配套环境；SessionStart 自动关联 VAWS |
 | 已有目录、恢复会话或普通 Local 会话 | 客户端提供原生 ID 和实际 cwd | 保留代码和环境；不会由 session hook 另建目录或切换目录 |
 | 可选 CLI 入口 | 本地配置检查，缺身份时一次可见提示 | 新建编辑副本前检查和准备一次；已有目录复用原版本 |
@@ -25,9 +26,11 @@ MCP 启用是不同的初始化状态，不能仅凭写文件宣称接通。实�
 [原生客户端验收](native-client-validation-2026-09-12.md)，各客户端的能力边界见
 [原生客户端与编辑隔离](native-workspace-isolation.md)。
 身份待确认、离线或准备失败时，保留可用的本地版本；轻量 Review、目录查询
-和其他独立本地工作不需要先完成更新。
+和其他独立本地工作不需要先完成更新。仅打开工作区不触发首次初始化。
+用户给定 host、现有 container、cwd 和启动脚本时，直接使用 remote-dev；该
+endpoint 不依赖 GitHub 身份、个人 Fork 或 coordinator 的固定用户容器。
 
-首次确认个人 GitHub 用户名。`gh` 登录是候选，不能静默代替用户选择。
+需要首次初始化时，确认个人 GitHub 用户名。`gh` 登录是候选，不能静默代替用户选择。
 确认结果位于未跟踪的 `.vaws-local/github.json`，不包含凭据。
 coordinator 自动读取它并绑定 native session 的用户归属，SSH 仍使用 root；
 具体行为见[用户与协调](identity-and-agent-coordination.md)。GitHub 为新 Fork

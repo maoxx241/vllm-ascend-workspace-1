@@ -2,8 +2,8 @@
 
 Status: current
 
-默认接入客户端自己的会话生命周期。初始化时一次选好原生 Worktree 模式和
-环境；之后用户正常创建会话，客户端创建目录并运行 setup，再让 Agent 开始
+已配置的工作区接入客户端自己的会话生命周期。明确初始化时一次选好原生 Worktree 模式和
+环境；之后用户创建该模式的会话，客户端创建目录并运行 setup，再让 Agent 开始
 操作。setup 为符合条件的新目录检查主仓、采用准备好的代码，并固定配套依赖
 和客户端接线。SessionStart 自动关联实际会话与 cwd，Agent 不需要先调用
 VAWS 启动 CLI 或填写会话记录。已有目录和恢复会话保留代码、任务身份和环境。
@@ -11,6 +11,12 @@ VAWS 启动 CLI 或填写会话记录。已有目录和恢复会话保留代码�
 普通 Local 会话仍在客户端选定的目录中，不会由 hook 强制变成 worktree。
 客户端选目录，setup 准备这个尚未开始工作的目录，session hook 记录原生身份；
 三个时点各自承担明确职责。
+
+普通 PR review 和显式 remote-dev endpoint 工作（包括用户给定的现有容器）
+不会因缺少 `.vaws-local/github.json` 而询问身份、创建 Fork 或运行初始化。
+只有明确 setup 请求，或 managed 操作实际需要尚未确认的个人容器身份时才进入
+首次配置流程。显式新建原生 Worktree 保留既有 setup 成本；这不是每条 review
+或已有目录恢复的前置流程。
 
 首次初始化统一运行 `vaws_client_setup.py --client all --apply`。它按已安装的客户端
 配置接线和原生支持的默认偏好，保存逐客户端结果，并在同一次初始化中列出仍需
@@ -39,6 +45,13 @@ Codex 按配置来源和定义内容记录 hook 信任。初始化将本仓生�
 固定入口只处理同一 Git 公共目录的原生 cwd，读取该目录已经选好的环境和任务
 设置，再运行组件 hook。新目录和依赖版本不会改变这条入口定义，正常会话无需
 重复信任。配置生成本身不授予信任；新定义仍需按原生机制审阅。
+
+PreToolUse 仅为 task tools 执行归属路由。生成的 workspace-owned 组保留其
+task matcher；兼容旧的宽泛 trusted hook 时，adapter 在任何 Git、registry、
+selected-environment import 或 forward 前排除普通 native/remote-dev 工具。
+已有自定义 hook 和条件保留。Prompt hook 先刷新变化的 cwd，再在原生 context
+可用时静默返回；legacy Kimi 缺少该元数据时保留文字兜底。SessionStart/End、
+subagent 归属和 task tools 的输入关联继续由原有生命周期处理。
 
 Grok 的原生补丁让普通新会话也消费自动 worktree 偏好，恢复沿用原目录；
 官方版本的相同偏好只覆盖 /new 和 /fork。Git 创建回调只处理 Grok

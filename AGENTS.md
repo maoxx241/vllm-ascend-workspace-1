@@ -18,10 +18,17 @@ remotes, not replacements for community upstreams.
 
 ## First use, forks and updates
 
-This applies without invoking a Skill. On first use, if no confirmed
-`.vaws-local/github.json` exists, inspect `.agents/scripts/workspace_forks.py`
-and ask once for the user's personal GitHub username, explaining that setup
-creates personal development forks and configures the installed native clients
+Begin first-use setup only when the user requests initialization/client setup,
+or a managed operation actually needs a missing confirmed identity for its user
+container.
+Ordinary local files, Git/PR review and explicit remote-dev endpoints, including
+an existing container, do not require `.vaws-local/github.json`. Its absence is
+not a reason to ask for identity, create forks or run client/dependency setup.
+
+When that setup is needed and no confirmed identity exists, inspect
+`.agents/scripts/workspace_forks.py` and ask once for the user's personal GitHub
+username, explaining that setup creates personal development forks and configures
+the installed native clients
 once for upstream updates and worktree sessions. The current
 authenticated login is a suggestion, not consent. Reuse an explicit answer;
 do not infer identity from the OS account or remotes. Continue independent
@@ -70,10 +77,10 @@ Explicit maintenance of an existing checkout can use
 Dirty sources and divergence stay for judgment when an update is needed.
 See [forks and updates](docs/forks-and-updates.md).
 
-Servers use shared root access. The coordinator binds the
+Managed servers use shared root access. The coordinator binds the
 initialized GitHub user to a fixed `vaws-<github-login>` container, with naming,
 ownership records, notifications and reuse checks handled inside the packages.
-Do not add per-task identity fields, container selection, inbox polling or
+Do not add per-task identity fields, selection of managed containers, inbox polling or
 bookkeeping to Agent workflows. Native task ownership still applies; messages
 do not grant control over someone else's execution. Optional messages use
 `vaws_message` with a returned coordination reference and text; incoming messages
@@ -88,15 +95,28 @@ adding personal/public categories, sharing permissions or publication steps.
 | Task | Entry |
 |---|---|
 | Local files, shell, Git | Native client tools |
-| Explicit remote endpoint I/O | remote-dev companion tools with ordinary host/port/user/cwd |
-| Managed environments, NPU runs and services | `vaws_session`, `vaws_run`, `vaws_execution`, `vaws_finish` |
+| Explicit remote endpoint I/O, including an existing container | remote-dev tools with ordinary host/port/user, optional container, and cwd |
+| Managed preparation, device allocation and supervised runs/services | `vaws_session`, `vaws_run`, `vaws_execution`, `vaws_finish` |
 | Workspace initialization or client wiring | `.agents/skills/repo-init/SKILL.md` |
 | Local fleet monitor lifecycle | `.agents/skills/npu-fleet-monitor/SKILL.md`; observation is not allocation |
 | Knowledge lookup and capture | `knowledge_query`, `knowledge_explain`, `knowledge_capture` |
 
+If the user supplies an existing container, its code directory and a startup
+script, pass them directly to remote-dev. For example, `remote_bash` accepts
+`{"host":"lab-host","port":22,"container":"repro-case","cwd":"/work/vllm","command":"bash /work/start-case.sh"}`.
+The same container coordinate applies to reads, edits, search, artifacts and
+owned jobs. Keep the existing code, interpreter, container user and script
+semantics. No binding call, source synchronization, managed run or setup is
+required. `target.container` returns the full Docker ID for convenient reuse;
+old job references stay pinned to that container generation. See
+[remote-dev consumption](docs/remote-dev-consumption.md) for prerequisites and
+operations that explicitly reject a container endpoint.
+
 Native attachments automatically bind their actual working directory as the
 default source. `vaws_session` is optional for inspection or explicit source
 overrides; a run can also pass `sources`, with an empty map using no project sources.
+An empty source map still uses managed execution; it is not a way to reuse an
+arbitrary container's code and startup environment.
 Admission fixes source inputs for each execution. Coordinator
 prepares managed sources, environments, devices and ports through one `run`.
 Read status, tail or stop an owned execution through its package reference;
@@ -108,6 +128,9 @@ Task identity comes from the native attachment's `context_file` or
 `VAWS_CONTEXT_FILE`. New native sessions create new tasks; resume keeps the
 original. Joining another task requires explicit association. Never infer
 identity or resource access from cwd, recent chats or a local report.
+Ordinary PR review needs no `vaws_session`, `vaws_run`, `vaws_finish` or knowledge
+call. Native hooks retain local identity/cwd association; task-tool routing
+does not make ordinary local or remote-dev tools enter the managed workflow.
 
 Do not create per-task containers, local NPU leases, workspace request/recovery
 ledgers, or remote-dev resolver plugins. Shared resources and their ownership
@@ -128,6 +151,9 @@ conditions, evidence and uncertainty in the text without a schema. Configured
 hooks reuse the normal summary; manual capture can reuse useful existing text.
 No second summary or publishing follow-up is required. Storage and maintenance
 details are in the [knowledge contract](docs/target-state.md#54-knowledge).
+An unused knowledge connection does not start backend/index maintenance. Real
+knowledge use activates preparation when needed; unavailable knowledge leaves
+local review and explicit container work usable.
 For explicit knowledge maintenance, the optional package skill is available
 through its configured interpreter with `python -m vaws_knowledge skill`.
 

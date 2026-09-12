@@ -14,6 +14,7 @@ from vaws_claude_config import owned_entry, same_repository
 from vaws_local_owner import accessible_windows_path, managed_path, managed_receipt, windows_mounted_workspace
 
 EVENTS = ("SessionStart", "SessionEnd", "SubagentStart", "SubagentStop", "PreToolUse", "UserPromptSubmit", "Stop")
+TASK_TOOL_MATCHER = r"(?:^|:|__)vaws_(session|run|execution|finish|message)$"
 
 
 def document(path: Path, files: dict) -> dict:
@@ -58,6 +59,14 @@ def items(groups):
             yield from group["hooks"]
 
 
+def conditions(group: dict, event: str) -> dict:
+    """Preserve native conditions when relocating generated hook entries."""
+    result = {key: value for key, value in group.items() if key != "hooks"}
+    if event == "PreToolUse":
+        result.setdefault("matcher", TASK_TOOL_MATCHER)
+    return result
+
+
 def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shell_command,
                     parse_command, enable: bool = False, user_path: Path | None = None) -> None:
     """Adapt an already-merged project plan, after its MCP entries are prepared."""
@@ -87,9 +96,10 @@ def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shel
     local_changed = False
     for event in EVENTS:
         groups = events.get(event, [])
-        covered = any(hook_kind(item, root, parse_command) == "adapter" for item in items(shared.get(event, [])))
-        wanted = any(hook_kind(item, root, parse_command) in {"session", "summary", "adapter"}
-                     for item in items(groups))
+        covered = [conditions(group, event) for group in shared.get(event, [])
+                   if isinstance(group, dict) and isinstance(group.get("hooks"), list)
+                   and any(hook_kind(item, root, parse_command) == "adapter" for item in group["hooks"])]
+        wanted = []
         # Earlier explicit user configuration may contain the same generated
         # direct hook. Replace those entries alongside the project migration.
         kept_shared = []
@@ -101,20 +111,13 @@ def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shel
                          if hook_kind(item, root, parse_command) not in {"session", "summary"}]
             if remaining != group["hooks"]:
                 global_changed = True
-                wanted = True
+                wanted.append(conditions(group, event))
             if remaining == group["hooks"]:
                 kept_shared.append(group)
             elif remaining:
                 kept_shared.append({**group, "hooks": remaining})
         if event in shared:
             shared[event] = kept_shared
-        if not covered and wanted:
-            shared.setdefault(event, []).append({"hooks": [{"type": "command", "command": command,
-                "timeout": 3 if event == "SessionEnd" else 5 if event == "Stop" else 12}]})
-            covered = True
-            global_changed = True
-        if not covered:
-            continue
         kept = []
         for group in groups:
             if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
@@ -123,6 +126,7 @@ def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shel
             remaining = [item for item in group["hooks"] if hook_kind(item, root, parse_command) is None]
             if remaining != group["hooks"]:
                 local_changed = True
+                wanted.append(conditions(group, event))
             if remaining == group["hooks"]:
                 kept.append(group)
             elif remaining:
@@ -131,6 +135,13 @@ def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shel
             events[event] = kept
         else:
             events.pop(event, None)
+        for condition in wanted:
+            if condition in covered:
+                continue
+            shared.setdefault(event, []).append({**condition, "hooks": [{"type": "command", "command": command,
+                "timeout": 3 if event == "SessionEnd" else 5 if event == "Stop" else 12}]})
+            covered.append(condition)
+            global_changed = True
     if global_changed:
         user["hooks"] = shared
         files[user_path] = json.dumps(user, ensure_ascii=False, indent=2) + "\n"

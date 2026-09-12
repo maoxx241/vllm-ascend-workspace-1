@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -17,15 +18,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
 sys.path.insert(0, str(ROOT / ".agents/scripts"))
 
-from vaws_environment import PIN_ENV, saved_ready
-from vaws_local_owner import accessible_windows_path
-from vaws_native_task_env import task_env
-from vaws_workspace_update import common_dir, git
-from vaws_worktree_setup import unpinned_environment
-
-
 def scoped_workspace(payload: dict, source: Path) -> Path | None:
     """Use only native cwd, including a subdirectory of a linked worktree."""
+    from vaws_local_owner import accessible_windows_path
+    from vaws_workspace_update import common_dir, git
+
     value = payload.get("cwd")
     if not isinstance(value, str) or not value:
         return None
@@ -40,6 +37,10 @@ def scoped_workspace(payload: dict, source: Path) -> Path | None:
 
 
 def forward(target: Path, payload: dict) -> int:
+    from vaws_environment import PIN_ENV, saved_ready
+    from vaws_native_task_env import task_env
+    from vaws_worktree_setup import unpinned_environment
+
     receipt = saved_ready(target)
     environment = unpinned_environment()
     environment.update(task_env("codex", target))
@@ -65,6 +66,13 @@ def main() -> int:
         payload = json.load(sys.stdin)
         if not isinstance(payload, dict):
             raise ValueError("Codex hook input must be an object")
+        event = str(payload.get("hook_event_name") or payload.get("hookEventName") or "")
+        if re.sub(r"[^a-z]", "", event.lower()) == "pretooluse":
+            name = str(payload.get("tool_name") or payload.get("toolName") or "")
+            arguments = payload.get("tool_input", payload.get("toolInput", {}))
+            if (not re.search(r"(?:^|:|__)vaws_(session|run|execution|finish|message)$", name)
+                    or not isinstance(arguments, dict) or arguments.get("context_file")):
+                return 0
         target = scoped_workspace(payload, ROOT)
         if target is None:
             return 0

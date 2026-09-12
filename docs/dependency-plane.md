@@ -151,8 +151,20 @@ downloads. A repository change alone preserves the existing contribution choice.
 Then refresh selected clients with `vaws_client_setup.py --apply` so MCP receives
 `.vaws-local/knowledge/service.json` and supported final-response hooks.
 
-Knowledge MCP starts its internal model/index maintenance while alive, independent
-of public contribution. Shared synchronization is enabled by default and consumes
+Knowledge MCP activates internal model/index maintenance only on a valid query
+or successful capture when needed, independent of public contribution.
+Initialize, tools/list, ping, invalid requests and unused EOF do not start a
+backend or maintenance/network work. Explain reads Markdown, and automatic
+summary capture remains a local non-indexing write. An unused provider therefore
+does not prepare knowledge for a plain PR review or explicit remote operation.
+Maintenance respects existing `next_check` and `next_verify` receipts; the
+verification interval is 3,600 seconds while maintenance is active and usable.
+A stopped/unused provider resumes overdue work on its next actual use; backend
+failures may defer repair. Explicit prepare retains its verification behavior.
+See the [knowledge contract](target-state.md#54-knowledge) for vector-loss bounds.
+
+Shared synchronization is enabled by default, runs with use-driven maintenance,
+and consumes
 GitHub Releases from `vllm-ascend-workspace/vaws-knowledge-corpus`. Shared updates
 verify the exact Git identity, model files and dense OVPack before switching;
 project and candidate knowledge stay local. Knowledge PRs currently require

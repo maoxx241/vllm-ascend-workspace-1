@@ -55,6 +55,7 @@ from vaws_environment import PIN_ENV, native_ready, windows_ready, read_receipt
 from vaws_local_state import agent_sessions_root
 from vaws_native_task_env import user_task_env
 from vaws_remote_dev import state_dir
+from vaws_codex_config import TASK_TOOL_MATCHER
 
 CLIENTS = {"claude", "grok", "kimi", "codex", "cursor"}
 EVENTS = ("SessionStart", "SessionEnd", "SubagentStart", "SubagentStop", "PreToolUse", "UserPromptSubmit")
@@ -63,7 +64,6 @@ TASK_SERVER_NAME = "vaws-task"
 REMOTE_DEV_SERVER_NAME = "remote-dev"
 KNOWLEDGE_SERVER_NAME = "vaws-knowledge"
 HOOK_TIMEOUT_SECONDS = 12
-TASK_TOOL_MATCHER = r"(?:^|:|__)vaws_(session|run|execution|finish|message)$"
 
 
 def remote_dev_server_args():

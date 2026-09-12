@@ -6,11 +6,19 @@ An Agent-only workspace for developing [vLLM](https://github.com/vllm-project/vl
 
 ## Start with a task
 
-Open this checkout in an Agent client and ask:
+Open this checkout in an Agent client and describe the task:
+
+> Review this PR for error handling and compatibility.
+
+> Use the existing container `repro-case` on the specified host, with code in `/work/vllm`, and reproduce the issue using `/work/start-case.sh`.
+
+PR review uses native Git and file tools. Existing-container work passes host, container, cwd and the original command directly to remote-dev, preserving that code and environment. Neither task needs a mode binding, source sync, managed execution, knowledge preparation or GitHub identity setup. Knowledge is optional reference. See [remote-dev consumption](docs/remote-dev-consumption.md) for examples and explicit limitations.
+
+When you need the complete development configuration, ask:
 
 > Initialize this workspace for vLLM Ascend development.
 
-Initialization reuses configuration, installs locked packages and runs `vaws_client_setup.py --client all --apply` to detect and configure installed Agent clients together. Invoking a Skill is optional. The result identifies supported native defaults and any remaining native choices, which can be completed once through client tools or computer use. Configured clients create worktrees and run setup before Agent work; ordinary sessions need no VAWS launcher command. Versions and real acceptance boundaries are in [native client acceptance](docs/native-client-validation-2026-09-12.md) and [native workspace isolation](docs/native-workspace-isolation.md). Installation and platform behavior are in [dependency-plane.md](docs/dependency-plane.md) and [platform-contract.md](docs/platform-contract.md).
+Initialization reuses configuration, installs locked packages and runs `vaws_client_setup.py --client all --apply` to detect and configure installed Agent clients together. Invoking a Skill is optional. The result identifies supported native defaults and any remaining native choices, which can be completed once through client tools or computer use. Configured Worktree sessions create directories and run setup before Agent work; Local and resumed sessions retain their directories. Ordinary sessions need no VAWS launcher command. Versions and real acceptance boundaries are in [native client acceptance](docs/native-client-validation-2026-09-12.md) and [native workspace isolation](docs/native-workspace-isolation.md). Installation and platform behavior are in [dependency-plane.md](docs/dependency-plane.md) and [platform-contract.md](docs/platform-contract.md).
 
 For daily work, describe the outcome and the inputs that matter:
 
@@ -37,7 +45,7 @@ The workspace owns project materials, client wiring and business skills. `remote
 
 | Skill                  | Purpose                                                                                      | When to use                                                |
 | ---------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **repo-init**          | Install GitHub CLI, authenticate, initialize submodules, install locked platform dependencies, configure forks and remote topology | After first clone                                          |
+| **repo-init**          | Install GitHub CLI, authenticate, initialize submodules, install locked platform dependencies, configure forks and remote topology | When initialization or a related repair is requested |
 | **npu-fleet-monitor**  | Start, inspect, or stop the local NPU dashboard using the published vaws-top package | When continuously monitoring fleet resources and history |
 | **modelscope**       | Download, resume, status-check, and SHA256-verify ModelScope model weights                  | When model weights need to be downloaded into an explicit local directory |
 | **vllm-ascend-serving** | Launch a vLLM Ascend inference service on a remote container, through coordinator-owned execution | When you need an inference service on a remote machine |
@@ -62,7 +70,7 @@ Skill selection follows the task. Detailed inputs and procedures live beside the
 
 ## Repository and local state
 
-The canonical repository is `vllm-ascend-workspace/vllm-ascend-workspace`. Git submodules `vllm/` and `vllm-ascend/` remain on their community upstreams. Personal forks are development remotes; setup preserves established remote choices.
+The canonical repository is `vllm-ascend-workspace/vllm-ascend-workspace`. Git submodules `vllm/` and `vllm-ascend/` remain on their community upstreams. First-use identity confirmation applies to requested setup or a managed operation that actually needs a missing personal-container identity. Ordinary review and explicit remote I/O do not trigger it. Personal forks are development remotes; setup preserves established remote choices.
 
 `.agents/skills/` contains business skills, `.agents/lib/` contains shared consumer code, and `.agents/scripts/` contains client wiring and maintenance tools. Client projections route to canonical skills. Runtime state and private configuration stay under untracked `.vaws-local/`; credentials are never committed. Public knowledge uses only package-prepared redacted copies.
 

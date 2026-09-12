@@ -10,13 +10,24 @@ own request association, and does not tick the pool.
 
 See [target-state.md](target-state.md) and [dependency-plane.md](dependency-plane.md).
 
+Coordinator participates when the task needs managed preparation, resource
+allocation or execution supervision. Native Git/PR review and explicit remote-dev
+I/O do not require a session/run/finish sequence or confirmed GitHub identity.
+When the user specifies an existing container's code and startup script, pass
+host/container/cwd/command directly to remote-dev; see the
+[existing-container entry](remote-dev-consumption.md#1-start-from-the-users-endpoint).
+That operation does not create a managed execution or acquire its resources.
+
 ## 1. Public actions
 
-Configure clients with `uv run --no-project python .agents/scripts/vaws_client_setup.py --client CLIENT --apply`.
+During requested client setup, use `uv run --no-project python .agents/scripts/vaws_client_setup.py --client CLIENT --apply`.
 Native hooks attach the session automatically. Codex, Claude, Cursor and Grok
 task-tool hooks inject `context_file`; an Agent does not need a preliminary
-session call. Kimi Code currently supplies context in its prompt hook but has
-no tool-input rewrite, so it is not equivalent to those adapters. Local Codex
+session call. Kimi Code with native agent metadata uses its native association;
+legacy Kimi without it retains prompt context and has no tool-input rewrite.
+Repeated prompts do not re-append task instructions when native context is
+available. Ordinary native and remote-dev tools bypass task-tool routing before
+workspace discovery, registry access or forwarding. Local Codex
 commands can resolve the actual `CODEX_THREAD_ID`, and Claude exports context
 through its session environment. Never guess the task from cwd or history.
 See [MCP and shell context](native-workspace-isolation.md#context-in-mcp-and-shell)
@@ -49,6 +60,9 @@ MCP: `python -m vaws_coordinator task-server`.
 
 `sources` omitted uses the attachment's selected worktrees; `sources={}` runs
 without project sources. An explicit map selects sources for that execution.
+Even with an empty source map, coordinator selects a managed runtime and command
+environment. It does not preserve an arbitrary existing container or choose the
+interpreter used by a user's custom startup script.
 Names are not restricted to vLLM repositories. Admission captures fixed Git
 commits including dirty edits without modifying HEAD or the user's index.
 Later local edits and changes to session defaults affect future runs only.
@@ -112,9 +126,9 @@ include the `WSLENV` forwarding list so explicit state and custom environment
 values reach a Windows process launched from WSL. A Linux daemon refuses
 a state directory already owned through Windows IPC.
 
-## 3. User container
+## 3. Managed user container
 
-Each host has one persistent container per user, named `vaws-<github-login>`
+Managed hosts use one persistent container per user, named `vaws-<github-login>`
 by default. Initialization supplies the user automatically; SSH still uses root.
 Bootstrap, recipe execution, and runtime registration belong to the
 coordinator (`python -m vaws_coordinator provision --host ... --image ...
@@ -122,6 +136,11 @@ coordinator (`python -m vaws_coordinator provision --host ... --image ...
 business skills do not create or delete that container, and the
 launcher does not copy project `machine-inventory.json` over coordinator
 `machines.json`.
+
+First-use identity/setup is needed only for explicit initialization or when a
+managed operation actually requires a missing confirmed identity. Reuse an
+existing explicit confirmation. The naming and ownership rules above do not
+turn an ordinary remote-dev endpoint into a managed container selection.
 
 ## 4. Public TaskClient
 

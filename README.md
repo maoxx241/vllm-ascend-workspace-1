@@ -6,11 +6,19 @@
 
 ## 从任务开始
 
-在 Agent 客户端中打开工作区，直接提出：
+在 Agent 客户端中打开工作区，直接说明目标，例如：
+
+> Review 这个 PR，重点检查错误处理和兼容性。
+
+> 这次用指定机器上的现有容器 `repro-case`，代码在 `/work/vllm`，按 `/work/start-case.sh` 复现问题。
+
+PR review 直接使用原生 Git 和文件工具。已有容器任务直接把 host、container、cwd 和原启动命令交给 remote-dev，保留容器内代码和环境；无需先绑定模式、同步源码、拉起受管服务或准备知识库。两类任务都不因缺少 GitHub 身份配置而要求初始化。知识按需参考，缺失或未就绪不阻止独立工作。容器调用示例和边界见 [remote-dev 消费说明](docs/remote-dev-consumption.md)。
+
+需要完整开发配置时，再明确提出：
 
 > 初始化这个工作区，配好 vLLM Ascend 的开发环境。
 
-初始化复用已有配置，安装锁定依赖，并通过 `vaws_client_setup.py --client all --apply` 一次检测和配置已安装的 Agent 客户端；不以调用 `repo-init` Skill 为前提。原生支持的默认模式由配置处理，仍需客户端界面完成的选择会在初始化时明确列出，由可用的客户端工具或 computer use 完成。配置后的新会话由客户端创建 worktree、运行 setup，再让 Agent 开始工作；日常无需 Agent 运行启动 CLI。已验证版本及实际边界见[原生客户端验收](docs/native-client-validation-2026-09-12.md)和[原生客户端与编辑隔离](docs/native-workspace-isolation.md)。安装与平台行为见 [dependency-plane.md](docs/dependency-plane.md) 和 [platform-contract.md](docs/platform-contract.md)。
+初始化复用已有配置，安装锁定依赖，并通过 `vaws_client_setup.py --client all --apply` 一次检测和配置已安装的 Agent 客户端；不以调用 `repo-init` Skill 为前提。原生支持的默认模式由配置处理，仍需客户端界面完成的选择会在初始化时明确列出，由可用的客户端工具或 computer use 完成。配置后的原生 Worktree 会话由客户端创建目录、运行 setup，再让 Agent 开始工作；普通 Local 和恢复会话保持原目录，日常无需 Agent 运行启动 CLI。已验证版本及实际边界见[原生客户端验收](docs/native-client-validation-2026-09-12.md)和[原生客户端与编辑隔离](docs/native-workspace-isolation.md)。安装与平台行为见 [dependency-plane.md](docs/dependency-plane.md) 和 [platform-contract.md](docs/platform-contract.md)。
 
 日常工作只需说明目标和影响结果的输入，例如：
 
@@ -37,7 +45,7 @@ Agent 按任务选择工具或技能；执行引用、状态推进和报告由�
 
 | 技能                       | 用途                                             | 何时使用               |
 | ------------------------ | ---------------------------------------------- | ------------------ |
-| **repo-init**            | 安装 GitHub CLI、登录 GitHub、初始化子模块、安装锁定的平台依赖、配置 Fork 和远程仓库拓扑 | 首次 clone 后初始化工作区   |
+| **repo-init**            | 安装 GitHub CLI、登录 GitHub、初始化子模块、安装锁定的平台依赖、配置 Fork 和远程仓库拓扑 | 明确请求工作区初始化或相关修复时   |
 | **npu-fleet-monitor**    | 使用已发布的 vaws-top 包拉起、检查或停止本地 NPU 监控页面            | 需要持续查看设备、主机和历史资源状态时 |
 | **modelscope**           | 下载、续传、查看进度并 SHA256 校验 ModelScope 模型权重                  | 需要把模型权重下载到明确目录时 |
 | **vllm-ascend-serving**  | 在远程容器上一键拉起 vLLM Ascend 推理服务，由 coordinator 管理执行和资源 | 需要在远程机器上起推理服务时     |
@@ -62,7 +70,7 @@ Agent 按任务选择工具或技能；执行引用、状态推进和报告由�
 
 ## 仓库与本地状态
 
-规范仓库是 `vllm-ascend-workspace/vllm-ascend-workspace`。`vllm/`、`vllm-ascend/` 是指向社区上游的 Git 子模块。首次使用由 `AGENTS.md` 和原生客户端入口提示 GitHub 身份，无需调用 `repo-init`；开发 Fork 必须属于个人账号，`origin` 指向个人 Fork，`upstream` 保留官方来源。
+规范仓库是 `vllm-ascend-workspace/vllm-ascend-workspace`。`vllm/`、`vllm-ascend/` 是指向社区上游的 Git 子模块。明确初始化，或受管操作真正需要尚未确认的个人容器身份时，入口才进行一次 GitHub 身份确认；普通 review 和显式远端 I/O 不触发这套流程。开发 Fork 必须属于个人账号，`origin` 指向个人 Fork，`upstream` 保留官方来源。
 
 配置后，原生客户端的新 worktree setup 检查一次 VAWS 主仓，为符合条件的新目录采用该提交、锁定依赖和客户端接线，并同步个人 Fork，无需等待 Release。新会话固定代码和环境；已有目录与恢复会话沿用原版本，工作中不检查或切换更新。普通 Local 会话不会被 hook 自动换成 worktree。见[个人 Fork 与自动更新](docs/forks-and-updates.md)。第一版已接通共享 root 下的用户容器命名、随正常调用投递的留言和算子产物缓存；权重沿用服务器现有路径，初始化后无需 Agent 填写身份、轮询或登记成果。见[身份与协调](docs/identity-and-agent-coordination.md)。
 

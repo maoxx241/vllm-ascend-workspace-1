@@ -40,9 +40,23 @@ describe observations and never authorize access or recover executions.
 ### 3.1 Explicit remote operations
 
 An explicit remote endpoint uses remote-dev directly. Its inputs are ordinary
-`host`, `port`, `user`, `root` and `cwd` plus the requested operation. It does not
-interpret VAWS task names or allocate NPUs. Local native files, Git and shell do
-not depend on coordinator or knowledge availability.
+`host`, `port`, `user`, optional Docker `container`, `root` and `cwd` plus the
+requested operation. A user-specified existing container keeps its own code,
+interpreter, configured user and startup script. No session/mode binding, source
+synchronization or environment initialization is required. An existing container
+SSH endpoint remains an ordinary host/port endpoint.
+
+Container names and short IDs resolve to a full ID before worker, read-ledger or
+job access. `target.container` returns it for ordinary reuse; retained jobs stay
+pinned to that generation. Supported transports act inside the container.
+Public Endpoint entries without container semantics, including interactive SSH
+bootstrap and local forwarding, reject it rather than fall back to the host.
+The package retains its normal worker scratch and job logs; tools do not claim
+that reusing a container creates zero filesystem writes.
+
+These operations do not interpret VAWS task names, require GitHub identity,
+allocate NPUs or acquire another task's managed resources. Local native files,
+Git/PR review and shell do not depend on coordinator or knowledge availability.
 
 See [remote-dev consumption](remote-dev-consumption.md).
 
@@ -68,7 +82,9 @@ reports are not identity or resource-access evidence.
 Session sources are defaults for future runs. Admission captures each run's
 fixed inputs, including dirty edits; later worktree edits cannot change accepted
 inputs. Runs may supply their own source map, including an empty map for generic
-commands. Device allocation defaults to zero. Source views are execution-local;
+commands. An empty source map still selects a managed runtime and command
+environment; it is not an existing-container reproduction mode. Device allocation
+defaults to zero. Source views are execution-local;
 compatible dependency environments and native build artifacts can be reused.
 
 Source and build checks follow their actual input scopes. A business Python edit
@@ -100,6 +116,11 @@ This is a `package = false` uv project. Dependency preparation uses
 inspect it. Prepared environments have permanent content addresses; an update
 prepares a new environment without modifying one used by a running client or daemon.
 
+First-use setup runs only for requested initialization/client setup or a managed
+operation that actually requires a missing confirmed personal-container identity.
+Missing `.vaws-local/github.json` does not prompt identity confirmation, fork
+creation or setup for local review or explicit remote-dev work.
+
 Native client lifecycle integration is the default. Initialization wires the
 selected client once; its Worktree mode and environment are selected in the native
 UI. Codex local-environment setup and Cursor worktree setup prepare the new
@@ -108,6 +129,11 @@ upstream once and fixes an eligible revision, dependencies and client wiring.
 SessionStart automatically creates or resumes the VAWS attachment; Cursor
 preToolUse injects context internally and handles hook ordering idempotently.
 Existing directories and resumed sessions retain their code and selected environment.
+Native task association remains local. Prompt hooks refresh changed cwd before
+returning quietly when native context is available; legacy Kimi without that
+metadata retains its text fallback. Task-tool PreToolUse routing excludes ordinary
+native and remote-dev tools before workspace discovery or registry/forwarding
+work, including when a previously trusted broad hook is still installed.
 Ordinary Local chats are not silently moved into worktrees. Codex/Cursor setup
 wiring has contract tests; real GUI new-session acceptance remains pending.
 Other clients' capabilities are recorded in the editing-isolation contract.
@@ -148,7 +174,9 @@ setup, before its first Agent operation. Component pins are reused and existing
 editing directories/processes remain unchanged. There is no periodic updater;
 session hooks record the application's selected cwd rather than replacing it.
 The [identity and coordination implementation](identity-and-agent-coordination.md)
-uses shared root access and fixed per-user container names. Packages consume the
+uses shared root access and fixed per-user container names for managed execution.
+This personal identity is separate from an explicit remote-dev endpoint, including
+a user-specified existing container. Packages consume the
 initialized user and handle container binding, notifications and routine reuse
 internally, with no per-task Agent identity or bookkeeping steps. Attribution
 and existing task ownership prevent accidental misuse through managed calls;
@@ -203,10 +231,25 @@ local captures and package state stay under `.vaws-local/knowledge/`. The packag
 indexes content. Hooks reuse the normal task summary, and manual capture can
 reuse useful existing text without an extra summary or publishing follow-up.
 
-Dependency sync asks the package to prepare its model and index. MCP maintains
-readiness and configured shared updates while alive. Pending knowledge is
-reported separately and leaves ordinary tools usable. Windows/WSL clients of
-one mounted workspace share its Windows knowledge process.
+Explicit dependency sync asks the package to prepare its model and index.
+An unused knowledge MCP connection performs no backend startup, maintenance,
+model verification, index reconciliation or shared-release network request;
+initialize, tools/list, ping, invalid requests and unused EOF do not activate it.
+A valid query or successful capture activates maintenance when needed. Explain
+reads Markdown without index preparation, and automatic final-response capture
+remains a local non-indexing write. Query uses ready data or reports pending;
+background preparation is not a prerequisite for unrelated work.
+
+Maintenance reuses persisted `next_check` and `next_verify` deadlines instead of
+auditing on every connection. The verification interval is 3,600 seconds. With
+maintenance active and the backend available, silently lost vectors whose ledger
+survives are detected at the next due audit; explicit prepare can verify sooner.
+An unused or stopped provider does not promise background repair within an hour:
+the next real use resumes due work. Backend failures can defer repair and remain
+observable. An empty search alone is not evidence of vector loss. Shared-release
+synchronization is likewise driven by actual knowledge use and its existing
+schedule. Windows/WSL clients of one mounted workspace share its Windows knowledge
+process. Pending knowledge remains separate from local review and remote work.
 
 Public sharing follows existing authorization/configuration and uses only a
 package-prepared redacted copy. Public review and merge remain human; failed

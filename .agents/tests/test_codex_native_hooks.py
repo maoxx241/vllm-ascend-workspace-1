@@ -267,3 +267,69 @@ def test_client_setup_installs_once_and_next_native_target_only_removes_project_
     assert user_path.read_text() == reviewed
     assert json.loads(second["files"][target / ".codex/hooks.json"]) == {"hooks": {}}
     assert target / ".codex/environments/environment.toml" in second["files"]
+
+
+@pytest.mark.parametrize("fields", [
+    {"tool_name": "exec_command", "tool_input": {"cmd": "git diff"}},
+    {"toolName": "mcp__remote_dev__remote_bash", "toolInput": {"command": "vaws_run"}},
+    {"tool_name": "vaws_run_extra"},
+    {"tool_name": "vaws_run", "tool_input": []},
+    {"tool_name": "vaws_run", "tool_input": {"context_file": "explicit"}},
+])
+def test_unrelated_pretool_is_silent_without_environment_or_scope(monkeypatch, capsys, fields):
+    def forbidden(*args):
+        pytest.fail("ordinary native work must not scope Git or select a runtime")
+    monkeypatch.setattr(adapter, "scoped_workspace", forbidden)
+    monkeypatch.setattr(adapter, "forward", forbidden)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"hook_event_name": "PreToolUse", **fields})))
+    assert adapter.main() == 0
+    assert capsys.readouterr() == ("", "")
+
+
+def test_real_unrelated_adapter_does_not_import_workspace_runtime(tmp_path):
+    # A local review works with no selected environment, identity, or task store.
+    # Check the actual bootstrap in a fresh process, where imports are uncached.
+    code = """import io,json,runpy,sys
+class DenyRuntime:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.startswith(('vaws_', 'remote_dev', 'knowledge')):
+            raise AssertionError('unrelated tool imported runtime: ' + fullname)
+sys.meta_path.insert(0, DenyRuntime())
+sys.stdin=io.StringIO(json.dumps({'hook_event_name':'PreToolUse','tool_name':'exec_command','cwd':sys.argv[2],'tool_input':{'cmd':'git diff'}}))
+runpy.run_path(sys.argv[1], run_name='__main__')
+"""
+    result = subprocess.run([sys.executable, "-c", code, str(ROOT / ".agents/scripts/vaws_codex_session.py"), str(tmp_path)],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == result.stderr == ""
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_pretool_migration_keeps_matcher_and_custom_conditions(family, tmp_path, monkeypatch):
+    source, target = family
+    user_path, project_path = tmp_path / "home/hooks.json", target / ".codex/hooks.json"
+    project = generated(source, target)
+    custom = {"type": "command", "command": "echo custom"}
+    base = project["hooks"]["PreToolUse"][0]
+    extra = {"matcher": "my-task-filter", "if": "native-condition", "hooks": [*base["hooks"], custom]}
+    project["hooks"]["PreToolUse"].append(extra)
+    files = {project_path: json.dumps(project)}
+    plan(files, source, target, user_path.parent, monkeypatch, enable=True)
+    groups = json.loads(files[user_path])["hooks"]["PreToolUse"]
+    assert [{k: v for k, v in group.items() if k != "hooks"} for group in groups] == [
+        {"matcher": config.TASK_TOOL_MATCHER}, {"matcher": "my-task-filter", "if": "native-condition"}]
+    assert json.loads(files[project_path])["hooks"]["PreToolUse"] == [{**extra, "hooks": [custom]}]
+    reviewed = files[user_path]
+    plan(files, source, target, user_path.parent, monkeypatch)
+    assert files[user_path] == reviewed
+
+
+def test_existing_reviewed_broad_adapter_definition_is_not_rewritten(family, tmp_path, monkeypatch):
+    source, target = family
+    user_path, project_path = tmp_path / "home/hooks.json", target / ".codex/hooks.json"
+    item = {"type": "command", "command": shlex.join(["/reviewed/python", str(source / ".agents/scripts/vaws_codex_session.py")])}
+    reviewed = json.dumps({"hooks": {"PreToolUse": [{"hooks": [item]}]}})
+    files = {user_path: reviewed, project_path: json.dumps({"hooks": {"PreToolUse": generated(source, target)["hooks"]["PreToolUse"]}})}
+    plan(files, source, target, user_path.parent, monkeypatch)
+    assert files[user_path] == reviewed
+    assert json.loads(files[project_path]) == {"hooks": {}}

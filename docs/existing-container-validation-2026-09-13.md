@@ -24,6 +24,20 @@ the final workspace lock. Its receipt key begins `ae5c963342bd`; package-only
 preparation skipped knowledge maintenance. Final execution and aggregate checks
 then passed using that installed environment.
 
+The implementation was fast-forwarded into the current checkout, which then
+selected this environment. Explicit client setup updated the installed clients.
+Reading the actual Codex/Kimi provider commands and resolving all three Cursor
+stable-provider entries confirmed that all nine select this saved environment.
+This prepares new connections; it does not hot-update existing MCP processes or
+replace unrelated running coordinator services. An older knowledge provider's
+successful owner reuse does not give that process the new lazy-activation code.
+
+This round did not grant or re-certify native UI hook trust or default Worktree
+selection. The installed Kimi 0.42.0 client still lacks the native SessionSetup
+extension. Provider configuration and direct container tools work independently
+of that missing new-worktree preparation capability. Setup reports these
+boundaries explicitly; writing configuration does not establish native trust.
+
 Earlier live functional, knowledge and performance probes loaded built wheels
 from an independent environment's `site-packages`, without source injection.
 The remote-dev performance samples precede the final shell-quoting adjustment.
@@ -189,18 +203,34 @@ directories were created.
 The necessary native attachment remained intact. The package's in-process
 SessionStart handler took 140.48 ms. Five repeated prompt handlers had a 2.91 ms
 median and emitted zero additional context bytes. Five separate invocations of
-the actual ordinary-tool hook bootstrap returned silent success with a 116.64 ms
-median, including process startup. That last measurement exercises the early
-exit if the native client dispatches the hook; it does not assert that every
-client dispatches it for every ordinary tool.
+the candidate Python adapter returned silent success with a 116.64 ms median,
+including Python process startup. The harness launched the candidate interpreter
+directly; that timing excludes the generated PowerShell wrapper and native-client
+event dispatch.
+
+The current installed Codex global hook had a legacy VAWS-only PreToolUse group
+without a matcher. Explicit setup added the task-tool matcher while preserving
+every command object and every other group. The actual resulting matcher
+excluded eight ordinary/remote/knowledge names and included 15 task-tool names
+across unqualified and MCP-qualified forms. Ordinary tools therefore do not
+dispatch this group under the configured matching contract.
+
+Three forced calls to the actual configured PowerShell command also tested the
+fallback if a client still dispatches an ordinary tool. They returned silent
+success in 530.09, 238.12 and 241.40 ms, including the wrapper and Python startup.
+A loaded fail-on-use probe recorded zero VAWS/remote/knowledge runtime imports
+and zero subsequent child processes, including Git or hook forwarding. These
+forced-dispatch timings are separate from the direct-Python samples above and
+do not describe normal filtered tool calls.
 
 This is an actual local package/hook and Git/file harness, not a new end-to-end
 native client UI certification. It supports no additional Agent workflow steps,
 remote dependency or knowledge gate for ordinary review. It does not imply zero
 hook cost or change the separate native new-worktree preparation contract.
 
-Evidence labels: `lightweight_acceptance.py` and
-`lightweight-review-result.json`.
+Evidence labels: `lightweight_acceptance.py`, `lightweight-review-result.json`,
+`current_entry_acceptance.py`, `current-entry-acceptance.json` and
+`current-client-setup.json`.
 
 ## Local checks and final acceptance
 
@@ -213,6 +243,7 @@ Evidence labels: `lightweight_acceptance.py` and
 | Coordinator final native Windows full suite | 652 passed, 29 skipped, 52 subtests passed |
 | Coordinator WSL affected checks | 101 passed |
 | Workspace final affected checks | 137 passed, 58 subtests passed |
+| Explicit legacy global-matcher repair checks | 33 passed |
 | Final installed four-machine acceptance | 4 passed, all preservation and owned-cleanup checks passed |
 
 The initial coordinator Windows full-suite attempt recorded 652 passed,
@@ -226,8 +257,9 @@ Windows run passed with 29 explicit platform skips as listed above.
 Raw JUnit/log evidence includes `remote-dev-windows.xml`, `remote-dev-posix.xml`,
 `container-posix.xml`, `knowledge-full-tests.xml`, `coordinator-tests.txt`,
 `coordinator-posix-tests.xml`, `coordinator-final-tests.xml` and
-`workspace-final-tests.xml`, with their complete logs. The remote-dev owner's
-validation record documents its follow-up container/endpoint checks, distinct
+`workspace-final-tests.xml` and `global-matcher-repair-tests.xml`, with their
+complete logs. The remote-dev owner's validation record documents its follow-up
+container/endpoint checks, distinct
 from the earlier full-suite runs. A dependency doctor also confirmed the final
 installed package selection.
 

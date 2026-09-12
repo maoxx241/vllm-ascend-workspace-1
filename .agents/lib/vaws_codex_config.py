@@ -107,6 +107,13 @@ def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shel
             if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
                 kept_shared.append(group)
                 continue
+            if (enable and event == "PreToolUse" and set(group) == {"hooks"} and group["hooks"]
+                    and all(hook_kind(item, root, parse_command) == "adapter" for item in group["hooks"])):
+                # Explicit global setup/repair can narrow a generated legacy
+                # group. Normal worktree setup never rewrites reviewed bytes.
+                # Keep the command and native trust untouched.
+                group = {**group, "matcher": TASK_TOOL_MATCHER}
+                global_changed = True
             remaining = [item for item in group["hooks"]
                          if hook_kind(item, root, parse_command) not in {"session", "summary"}]
             if remaining != group["hooks"]:

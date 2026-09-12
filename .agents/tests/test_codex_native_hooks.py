@@ -333,3 +333,20 @@ def test_existing_reviewed_broad_adapter_definition_is_not_rewritten(family, tmp
     plan(files, source, target, user_path.parent, monkeypatch)
     assert files[user_path] == reviewed
     assert json.loads(files[project_path]) == {"hooks": {}}
+
+
+def test_explicit_global_repair_narrows_only_generated_unconditional_adapter(family, tmp_path, monkeypatch):
+    source, target = family
+    user_path = tmp_path / "home/hooks.json"
+    item = {"type": "command", "command": shlex.join(["/reviewed/python", str(source / ".agents/scripts/vaws_codex_session.py")])}
+    custom = {"type": "command", "command": "echo user-custom"}
+    mixed = {"hooks": [item, custom]}
+    conditional = {"hooks": [item], "if": "user-condition"}
+    original = {"hooks": {"PreToolUse": [{"hooks": [item]}, mixed, conditional]}}
+    files = {user_path: json.dumps(original)}
+    plan(files, source, target, user_path.parent, monkeypatch, enable=True)
+    groups = json.loads(files[user_path])["hooks"]["PreToolUse"]
+    assert groups == [{"hooks": [item], "matcher": config.TASK_TOOL_MATCHER}, mixed, conditional]
+    fixed = files[user_path]
+    plan(files, source, target, user_path.parent, monkeypatch, enable=True)
+    assert files[user_path] == fixed

@@ -124,7 +124,9 @@ def test_cli_drops_inherited_location_and_uses_selected_runtime(family, monkeypa
     assert command == [sys.executable, "-c", knowledge.PREPARE_CODE]
     assert kwargs["env"]["VAWS_ENV_RECEIPT"] == "/selected-environment"
     assert kwargs["env"]["VAWS_KNOWLEDGE_CONFIG"] == str(path)
-    assert all(key not in kwargs["env"] for key in knowledge.LOCATION_ENV if key != "VAWS_KNOWLEDGE_CONFIG")
+    assert kwargs["env"]["VAWS_COMMUNITY_POLICY"] == str(path.parents[1] / "community.json")
+    assert all(key not in kwargs["env"] for key in knowledge.LOCATION_ENV
+               if key not in {"VAWS_KNOWLEDGE_CONFIG", "VAWS_COMMUNITY_POLICY"})
 
 
 def test_startup_uses_package_incremental_maintenance_without_forced_model_audit(family, monkeypatch):

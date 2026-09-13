@@ -120,7 +120,10 @@ def test_result_envelope_uses_real_start_and_null_when_not_observed(observed):
     assert attempt["duration_ms"] >= 0
 
 
-def test_bootstrap_before_dependency_import_keeps_one_safe_failure_record(tmp_path):
+@pytest.mark.parametrize("consent", ["enabled", "disabled"])
+def test_bootstrap_before_dependency_import_keeps_one_safe_failure_record(tmp_path, consent):
+    from vaws_community import write_choice
+    write_choice(tmp_path, consent)
     script = tmp_path / "broken.py"
     script.write_text("import sys,importlib.abc\n"
                       "class Missing(importlib.abc.MetaPathFinder):\n"
@@ -133,7 +136,8 @@ def test_bootstrap_before_dependency_import_keeps_one_safe_failure_record(tmp_pa
                       "raise ImportError('password=never-include-this-body')\n")
     root = tmp_path / "diagnostics"
     result = subprocess.run([sys.executable, "-I", str(script)], capture_output=True, text=True,
-                            env={**os.environ, "VAWS_DIAGNOSTICS_ROOT": str(root)}, check=False)
+                            env={**os.environ, "VAWS_DIAGNOSTICS_ROOT": str(root),
+                                 "VAWS_COMMUNITY_POLICY": str(tmp_path / ".vaws-local/community.json")}, check=False)
     assert result.returncode != 0
     assert result.stdout == ""
     rows = events(root)
@@ -147,7 +151,8 @@ def test_bootstrap_before_dependency_import_keeps_one_safe_failure_record(tmp_pa
     bundle = collect_bundle(root)
     assert len(bundle["events"]) == 1 and bundle["events"][0]["status"] == "error"
     queue = Outbox(tmp_path / "private-outbox.sqlite")
-    assert ingest(root, queue)["enqueued"] == 1
+    assert "community" not in bundle["events"][0]
+    assert ingest(root, queue)["enqueued"] == (1 if consent == "enabled" else 0)
     assert ingest(root, queue)["enqueued"] == 0
 
 
@@ -199,7 +204,12 @@ def test_updater_error_log_failure_does_not_mask_original(observed, tmp_path):
 def test_cli_inventory_actual_main_calls_use_one_bootstrap():
     # Detect future entry omissions using source structure, without executing tools.
     for path in ROOT.joinpath(".agents").rglob("*.py"):
-        if "tests" in path.parts or ".vaws-local" in path.parts:
+        relative = path.relative_to(ROOT)
+        if "tests" in relative.parts or ".vaws-local" in relative.parts:
+            continue
+        if relative.as_posix() == ".agents/lib/vaws_git_credential.py":
+            # Its only output is Git's private credential pipe. Auth tests prove
+            # it does not record or print credentials into diagnostic channels.
             continue
         source = path.read_text(encoding="utf-8-sig")
         tree = ast.parse(source)
@@ -312,6 +322,7 @@ def test_mcp_preserves_explicit_owner_error_classification(observed, details, ex
     from vaws_mcp_runtime import Provider
     provider = object.__new__(Provider)
     provider.kind = "fixture"
+    provider.root = observed.parent
     provider._call_tool = AsyncMock(return_value=CallToolResult(isError=True,
         structuredContent={"error_details": details}, content=[]))
     result = asyncio.run(provider.call_tool("fixture", {}))
@@ -327,6 +338,7 @@ def test_persistent_mcp_calls_have_independent_traces_and_accept_upstream_ids(ob
     from vaws_mcp_runtime import Provider
     provider = object.__new__(Provider)
     provider.kind = "fixture"
+    provider.root = observed.parent
     provider._call_tool = AsyncMock(side_effect=lambda *args: CallToolResult(content=[]))
     async def run():
         with diagnostics.operation("server"):

@@ -1,6 +1,6 @@
 # Documentation index
 
-Status: current, 2026-09-13
+Status: current, 2026-09-14
 
 Every file under `docs/` is listed here. `Status: current` is a
 contract. Dated validation evidence records the tested state; it is not a current
@@ -8,6 +8,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Current contracts
 
+- [community-collaboration.md](community-collaboration.md) — first-use choices, contribution consent and revocation, GitHub authentication and token boundaries.
 - [source-workspace.md](source-workspace.md) — exact development/release source pairs, independent multi-repository directories, automatic native source defaults and client lifecycle boundaries.
 - [forks-and-updates.md](forks-and-updates.md) — requested setup and managed identity, personal forks and upstream preparation for independent local editing or managed work; ordinary review and explicit endpoints need no first-use setup.
 - [identity-and-agent-coordination.md](identity-and-agent-coordination.md) — shared-root user attribution, opportunistic message delivery and compiled-output reuse; first-version boundaries are explicit.
@@ -34,6 +35,8 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [tracked-path-guard.md](tracked-path-guard.md) — anti-rot guard against dead in-tree paths in tracked docs.
 
 ## Dated design and validation evidence
+
+- [first-use-validation-2026-09-14.md](first-use-validation-2026-09-14.md) — fresh clone and actual Agent initialization, token-only Git, contribution choices, detached resume and supervised diagnostic workers; timing boundaries and earlier failed candidates are explicit.
 
 - [diagnostics-validation-2026-09-13.md](diagnostics-validation-2026-09-13.md) — logging and timing coverage, local failure injection, protocol and process tests, measured instrumentation costs and explicit deployment/device limits.
 - [legacy-retirement-2026-09-13.md](legacy-retirement-2026-09-13.md) — bounded consumer/Skill retirement, historical domain-note migration, retained live mechanisms and regression scope.

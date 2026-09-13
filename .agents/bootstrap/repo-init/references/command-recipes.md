@@ -3,10 +3,17 @@
 Read only the operation needed by a first-use failure. The normal sequence is in
 [the initialization reference](../SKILL.md); no whole-repository probe is needed.
 
-## GitHub CLI
+## GitHub authentication
 
-The fork command reports whether `gh` or authentication is missing. Authenticate
-with the user's chosen personal account through `gh auth login`. If `gh` is not
+The setup command uses `GH_TOKEN` / `GITHUB_TOKEN` when present, including without
+`gh`; otherwise it reuses `gh` authentication. HTTPS Git uses a host-scoped
+credential helper that reads the token from the process, not from a remote URL.
+Do not print tokens, put them in command arguments, or request them in chat.
+An Agent connector can report a candidate identity, but it does not establish
+local Git or unattended-worker authentication. Restricted tokens may allow clone
+while denying Fork, Star, push or issues; report the actual failed operation.
+
+If choosing GitHub CLI, authenticate through `gh auth login`. If `gh` is not
 installed and a normal package install is unavailable, the user-local fallback
 installers are:
 

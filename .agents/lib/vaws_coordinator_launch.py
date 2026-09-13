@@ -60,6 +60,8 @@ def coordinator_environment(base: Mapping[str, str] | None = None, *, repo_root:
         if snapshot.is_file():
             env["VAWS_GITHUB_IDENTITY_FILE"] = str(snapshot)
     env.pop("VAWS_HOST_QUEUE_MODULE", None)
+    from vaws_community import community_environment
+    env = community_environment(repo_root, env)
     return env
 
 

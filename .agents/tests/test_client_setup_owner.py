@@ -16,7 +16,7 @@ SOURCE = Path(__file__).resolve().parents[2]
 
 def git(root, *arguments):
     return subprocess.run(["git", "-C", str(root), *arguments], check=True,
-                          capture_output=True, text=True).stdout.strip()
+                          capture_output=True, text=True, encoding="utf-8").stdout.strip()
 
 
 @pytest.fixture

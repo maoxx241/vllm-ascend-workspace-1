@@ -46,7 +46,10 @@ def test_all_clients_share_one_agents_block_and_resume_contract(tmp_path):
         assert ".agents/scripts/vaws_start.py --client CLIENT" in text
         assert "--context-file PATH" in text
         assert all(name in text for name in CLIENTS)
-        assert ".agents/bootstrap/repo-init/SKILL.md" not in text
+        assert ".agents/bootstrap/repo-init/SKILL.md" in text
+        assert "a new task is not a new user" in text
+        assert "github.json` confirms a username, not Fork, Star or community choices" in text
+        assert "Ordinary local review uses native tools" in text
         assert "absolute paths under W" in text
         assert "`cwd` and `repository`" in text
         assert "local fixed commit" in text and "`--latest` explicitly checks upstream" in text

@@ -1,54 +1,70 @@
 ---
 name: repo-init
-description: Initialize this repository once when explicitly requested or required preparation reports missing first-use setup. Read through AGENTS.md; established repositories use the relevant maintenance command directly.
+description: "First entry to a fresh clone: discover authentication and confirm personal Fork, optional Star and community collaboration. Existing tasks reuse saved choices."
 ---
 
 # First repository setup
 
-This reference lives outside automatic skill discovery. Use it only for a
-repository that has not completed first-use setup, when the user requests it or
-required preparation reports missing setup. Ordinary local work, PR review and
-explicit remote endpoints, including existing containers, need no initialization
-or identity confirmation. Later sessions, updates and repairs use their specific
-entries without loading this reference again.
+Read this reference on first entry to a fresh clone, explicit initialization, or
+reported incomplete setup. It stays outside automatic business skill discovery.
+Later tasks, updates and resumes reuse recorded choices and completed stages.
+Independent local work can continue while answers or authentication are pending.
 
-Ask once for the user's personal GitHub username, explaining that setup creates
-personal development forks and configures installed clients for upstream updates
-and worktree sessions. Reuse an explicit answer. The authenticated `gh` login is
-a suggestion, not the user's choice; OS accounts and remotes do not establish it.
-Independent local/read-only work can continue while the answer is pending.
-
-After the user accepts setup, run the following from the repository:
+Discover the available GitHub identity once:
 
 ```text
-uv run --no-project python .agents/scripts/workspace_forks.py --github-user USER --apply
-uv run --no-project python .agents/scripts/vaws_deps.py sync
-uv run --no-project python .agents/scripts/vaws_client_setup.py --client all --apply
+uv run --no-project python .agents/scripts/vaws_init.py status --detect-auth
 ```
 
-The fork tool initializes missing source repositories at their locked revisions, creates
-or reuses verified personal forks, and preserves existing work. It reports any
-conflicting remote configuration for judgment. Dependency setup installs or
-reuses package environments; knowledge activates on actual use. Client setup
-detects installed clients, preserves unrelated
-configuration and records its result in the shared repository state.
+An authenticated `gh`, `GH_TOKEN` / `GITHUB_TOKEN`, or the Agent's GitHub connector
+can suggest a personal username. Reuse an explicit username already supplied by
+the user; authentication does not replace that choice. Connector credentials are
+not automatically available to local Git or the unattended worker. Never request
+a token in conversation or write one into a URL.
 
-The committed `sources.lock.json` records both upstream-declared vLLM baselines
-for one Ascend commit. Initialization uses the development baseline; existing
-source repositories retain their current work and intentional revisions. These
-source declarations do not establish NPU runtime validation. Read the selected
-pair without network access using `.agents/scripts/workspace_sources.py show`.
-Refreshing the lock is explicit repository maintenance, never a first-use or
-per-task prerequisite.
+Ask once for missing choices together:
 
-Complete the running client's native trust prompts. If it has not loaded the
-new providers/hooks, reopen the project or start a new native session once.
-Configuration alone is not proof that a client has loaded it. Prepare through
-`vaws_start.py` when independent editing or managed preparation is needed; reuse
-a workspace already supplied by native setup. Resume keeps its existing workspace
-and environment. Official Kimi passes the hook context to startup and task tools;
-remote-dev and knowledge accept it optionally to select that task's environment.
+1. Use the confirmed account and create/reuse its personal development Fork?
+   Recommended. Declining preserves upstream remotes and records the identity.
+2. Star the VAWS main repository? Optional and independent of other choices.
+3. Enable **community collaboration**? Recommended. Link the
+   [complete rules on GitHub](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/blob/main/docs/community-collaboration.md).
+   Explain that it contributes redacted development knowledge and failure evidence,
+   helps maintain central knowledge, and enables automatic issue reporting and
+   configured Grok diagnosis. Central reference downloads and local diagnostics
+   remain available when declined. Automatic repair is not currently implemented;
+   do not promise automatic code changes, merges or deployments.
 
-For missing installer prerequisites, see [bootstrap prerequisites](references/command-recipes.md).
-Fork behavior and targeted later repairs are documented in
-[forks and updates](../../../docs/forks-and-updates.md).
+An unanswered question is not consent. Do not couple Star to features or silently
+enable contributions because authentication exists. Apply only the actual answers;
+the following is an example, not authorization:
+
+```text
+uv run --no-project python .agents/scripts/vaws_init.py apply --github-user USER --fork yes --star no --community enabled
+```
+
+Setup prepares only the workspace Fork, locked dependencies, installed-client
+wiring and selected contribution services. Business repositories are prepared on
+demand by the first real task. Knowledge models/indexes are not downloaded just
+for onboarding. Business Forks use `workspace_forks.py --repo vllm` or
+`--repo vllm-ascend` when contributing to those repositories.
+
+Failure remains incomplete even if identity was saved. Resume with
+`vaws_init.py apply`; completed stages and answers are reused. `status` without
+`--detect-auth` is a local read. Change only community choice with
+`apply --community disabled` or `enabled`; revocation precedes further setup.
+Optional contribution-service failures are reported separately as pending and
+can be retried with `apply`; they do not block an otherwise ready local task.
+Declining Star does not unstar an existing repository; declining Fork does not
+delete existing forks or rewrite their remotes.
+
+Complete the running client's native trust prompts. If the client has not loaded
+the new configuration, reopen the project or start a new native session once.
+Configuration files do not prove that native tools or hooks loaded. Record the
+actual client, directory, and source/environment selection during acceptance.
+Prepare a task with `vaws_start.py`, reusing an existing native context and any
+already prepared W. Resumes retain the actual code and environment.
+
+For authentication and prerequisites, read only the relevant part of
+[bootstrap prerequisites](references/command-recipes.md). Later targeted repairs
+use [forks and updates](../../../docs/forks-and-updates.md).

@@ -81,12 +81,33 @@ def workspace_entry(root: Path, *, announce: bool = True) -> dict:
     root = root.resolve()
     state = root / ".vaws-local/updates"
     try:
+        # A task's explicit preparation is sufficient for reuse. Identity
+        # snapshots alone never imply that first-use choices were completed.
+        preparation = read_preparation(root)
+        if preparation is not None:
+            for source in preparation["sources"].values():
+                if not Path(source).is_dir() or not (Path(source) / ".git").exists():
+                    raise ValueError(f"prepared repository is unavailable: {source}")
+            return {"state": "configured", "evidence": str(root / ".vaws-local/native-workspace.json")}
+        from vaws_github import ForkPolicyError
+        from vaws_onboarding import read_identity, read_record
+
+        onboarding_path = root / ".vaws-local/onboarding.json"
+        try:
+            onboarding = read_record(root, path=onboarding_path)
+        except (ValueError, TypeError) as exc:
+            return {"state": "configuration_invalid", "path": str(onboarding_path),
+                    "message": str(exc)}
+        if onboarding is not None:
+            if onboarding.get("state") != "ready":
+                return {"state": "setup_pending", "reference": FIRST_USE_REFERENCE,
+                        "path": str(onboarding_path), "phase": onboarding.get("phase"),
+                        "message": "First-use setup is incomplete. Resume vaws_init.py apply; reuse saved choices and completed stages."}
         identity_path = root / ".vaws-local/github.json"
         if not identity_path.is_file():
-            initialized = root / ".vaws-local/client-initialization.json"
-            if initialized.is_file():
+            if onboarding is not None:
                 return {"state": "identity_missing", "path": str(identity_path),
-                        "evidence": str(initialized), "reference": MAINTENANCE_REFERENCE,
+                        "evidence": str(onboarding_path), "reference": MAINTENANCE_REFERENCE,
                         "message": "Saved GitHub identity is missing from an initialized repository. "
                                    "Restore its prior snapshot or inspect workspace_forks.py's plan using "
                                    "the already confirmed username; do not restart first-use setup."}
@@ -105,13 +126,25 @@ def workspace_entry(root: Path, *, announce: bool = True) -> dict:
                     "First use: provide your personal GitHub username to configure personal forks and upstream updates. "
                     f"Read {FIRST_USE_REFERENCE} for this repository's one-time initialization. "
                     "Local work remains available.", "reference": FIRST_USE_REFERENCE}
-        identity = json.loads(identity_path.read_text(encoding="utf-8"))
-        if (not isinstance(identity, dict) or identity.get("schema") != "vaws.github.v1"
-                or not isinstance(identity.get("login"), str) or not identity["login"].strip()):
+        try:
+            identity = read_identity(root)
+        except ForkPolicyError as exc:
             return {"state": "identity_invalid", "path": str(identity_path),
                     "reference": MAINTENANCE_REFERENCE,
-                    "message": "Saved GitHub identity has no login. Restore its prior snapshot or inspect "
+                    "message": f"{exc}. Restore its prior snapshot or inspect "
                                "workspace_forks.py's plan using the already confirmed username."}
+        if identity is None:
+            raise ValueError("Saved GitHub identity disappeared while reading first-use state")
+        if onboarding is not None and identity["login"].casefold() != onboarding["choices"]["github_user"].casefold():
+            return {"state": "identity_invalid", "path": str(identity_path),
+                    "reference": MAINTENANCE_REFERENCE,
+                    "message": "Saved GitHub identity differs from the confirmed onboarding username; "
+                               "repair the existing snapshot without repeating first-use choices."}
+        if onboarding is None:
+            return {"state": "setup_pending", "reference": FIRST_USE_REFERENCE,
+                    "path": str(onboarding_path), "phase": "choices", "github_user": identity["login"],
+                    "message": "Saved GitHub identity confirms the username only. Read repo-init and ask only "
+                               "missing Fork, Star and community collaboration choices, then run vaws_init.py apply."}
         config_path = state / "config.json"
         config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.is_file() else {}
         if not isinstance(config, dict):

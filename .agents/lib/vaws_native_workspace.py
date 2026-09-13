@@ -256,6 +256,9 @@ def create_prepared_workspace(prepared: dict, destination: Path) -> dict:
         git(target, "switch", "-c", task_branch)
         if not any(key == "push.autosetupremote" for key, _ in _configuration_entries(target)):
             git(target, "config", "--local", "push.autoSetupRemote", "true")
+        if os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
+            from vaws_github import configure_token_git
+            configure_token_git(target)
         return name, str(target), time.monotonic()-started
     name, target, seconds = copy(("workspace", roots.pop("workspace")))
     result_sources[name], copy_seconds[name] = target, seconds
@@ -478,4 +481,8 @@ def create_workspace(source: Path, destination: Path, *, sources: dict[str, Path
                "state": "ready", "ignored_files": "excluded"}
     # Preparation owners publish the native receipt only after environment and
     # wiring succeed. A completed file copy alone does not bind a task.
+    if os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
+        from vaws_github import configure_token_git
+        for value in receipt["sources"].values():
+            configure_token_git(Path(value))
     return receipt

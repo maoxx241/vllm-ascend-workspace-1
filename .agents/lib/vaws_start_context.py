@@ -47,8 +47,17 @@ def preparation_hint(root: Path, context: dict) -> str:
         if str(exc) != ("This new task has no prepared workspace. Run the project "
                         "vaws_start.py entry once, then reuse its context."):
             raise
-        # A native attachment does not select workspace preparation. Review and
-        # explicit endpoint work need neither preparation nor personal identity.
+        # An installed native hook can expose first-use guidance without doing
+        # network work or consuming answers on behalf of the user.
+        from vaws_workspace_entry import workspace_entry, FIRST_USE_REFERENCE
+        first = workspace_entry(root, announce=False)
+        if first["state"] in {"identity_pending", "needs_github_user", "setup_pending"}:
+            return (f"VAWS first-use setup is incomplete. Read {FIRST_USE_REFERENCE}; "
+                    "reuse confirmed GitHub username and saved choices. Ask only missing Fork, Star and "
+                    "community collaboration choices, then resume vaws_init.py apply. Local work remains available.")
+        if first["state"] not in {"configured", "disabled"}:
+            raise ValueError(first.get("message") or first.get("error") or
+                             f"First-use configuration is {first['state']}; inspect its saved record")
         return ""
     cwd = Path(getattr(selected, "cwd", None) or selected.workspace).resolve()
     workspace = Path(selected.workspace).resolve()

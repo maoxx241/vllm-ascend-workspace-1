@@ -25,9 +25,12 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
+import sys
 import tempfile
 import time
+from urllib import error as urlerror, parse as urlparse, request as urlrequest
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,9 +53,90 @@ class GitHubAPIError(ForkPolicyError):
         self.evidence = evidence
 
 
+def _safe_text(value: object) -> str:
+    """Redact known credentials even when their shape is not a GitHub PAT."""
+    from vaws_workspace_update import redact
+    text = value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value or "")
+    for name in ("GH_TOKEN", "GITHUB_TOKEN"):
+        secret = os.environ.get(name)
+        if secret:
+            text = text.replace(secret, "[redacted]")
+    text = redact(text)
+    return re.sub(r"(?im)^([ \t]*[<>*]?[ \t]*(?:authorization|proxy-authorization):)[^\r\n]*",
+                  r"\1 [redacted]", text)
+
+
+class _GitHubRedirect(urlrequest.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # urllib otherwise forwards Authorization to a different origin.
+        target = urlparse.urlsplit(newurl)
+        if target.scheme != "https" or target.netloc != "api.github.com":
+            raise GitHubAPIError("GitHub API redirected outside its HTTPS origin", code)
+        if req.get_method() not in {"GET", "HEAD"}:
+            raise GitHubAPIError("GitHub write request redirected; inspect its result before retrying", code)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class GitHubClient:
+    """Use an environment PAT directly, or the CLI's existing secure login."""
+
+    @property
+    def provider(self) -> str:
+        return next((name for name in ("GH_TOKEN", "GITHUB_TOKEN") if os.environ.get(name)), "gh")
+
     @_diagnostic_measured('source.github_request')
     def api(self, endpoint: str, method: str = "GET", fields: dict | None = None) -> dict:
+        if not isinstance(endpoint, str) or not re.fullmatch(r"[A-Za-z0-9_./-]+", endpoint) or endpoint.startswith("/"):
+            raise GitHubAPIError("GitHub API endpoint must be a relative repository or user path")
+        method = method.upper()
+        if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
+            raise GitHubAPIError("Unsupported GitHub API method")
+        if self.provider != "gh":
+            return self._token_api(endpoint, method, fields)
+        return self._gh_api(endpoint, method, fields)
+
+    @staticmethod
+    def _decode(body: str, endpoint: str, evidence: dict) -> dict:
+        if not body.strip() and endpoint.startswith("user/starred/"):
+            return {}  # The star endpoints use HTTP 204 with no response body.
+        try:
+            value = json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise GitHubAPIError("GitHub returned invalid JSON", evidence=evidence) from exc
+        if not isinstance(value, dict):
+            raise GitHubAPIError("GitHub returned an unexpected response", evidence=evidence)
+        return value
+
+    def _token_api(self, endpoint: str, method: str, fields: dict | None) -> dict:
+        token = os.environ[self.provider]
+        if not token.strip() or any(character.isspace() or ord(character) < 32 for character in token):
+            raise GitHubAPIError("GitHub token environment variable contains invalid whitespace")
+        headers = {"Accept": "application/vnd.github+json", "Authorization": "Bearer " + token,
+                   "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "vaws-workspace"}
+        data = None
+        if fields is not None:
+            data = json.dumps(fields).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urlrequest.Request("https://api.github.com/" + endpoint, data=data, headers=headers, method=method)
+        evidence = {"provider": self.provider, "endpoint": endpoint, "method": method, "status": None}
+        try:
+            with urlrequest.build_opener(_GitHubRedirect()).open(request, timeout=60) as response:
+                evidence["status"] = response.status
+                body = response.read(1024 * 1024 + 1)
+        except urlerror.HTTPError as exc:
+            # Error bodies may echo submitted values. Keep only the HTTP fact;
+            # no headers, token, response body or proxy URL enters evidence.
+            evidence["status"] = exc.code
+            exc.close()
+            raise GitHubAPIError(f"GitHub request failed (HTTP {exc.code})", exc.code, evidence=evidence) from None
+        except (OSError, ValueError) as exc:
+            evidence["error_type"] = type(exc).__name__
+            raise GitHubAPIError("GitHub request could not complete: " + _safe_text(exc), evidence=evidence) from None
+        if len(body) > 1024 * 1024:
+            raise GitHubAPIError("GitHub response exceeded 1 MiB", evidence=evidence)
+        return self._decode(body.decode("utf-8", "replace"), endpoint, evidence)
+
+    def _gh_api(self, endpoint: str, method: str, fields: dict | None) -> dict:
         from vaws_workspace_update import redact
 
         command = ["gh", "api", "--hostname", "github.com", endpoint, "--method", method]
@@ -65,15 +149,10 @@ class GitHubClient:
         environment.pop("GH_FORCE_TTY", None)
 
         def evidence(result=None, **extra):
-            def output(value):
-                text = value.decode("utf-8", "replace") if isinstance(value, bytes) else value or ""
-                text = redact(text)
-                return re.sub(r"(?im)^([ \t]*[<>*]?[ \t]*(?:authorization|proxy-authorization):)[^\r\n]*",
-                              r"\1 [redacted]", text)
             return {"command": [redact(item) for item in command], "endpoint": redact(endpoint),
                     "method": method, "returncode": getattr(result, "returncode", None),
-                    "stdout": output(getattr(result, "stdout", None)),
-                    "stderr": output(getattr(result, "stderr", None)), **extra}
+                    "stdout": _safe_text(getattr(result, "stdout", None)),
+                    "stderr": _safe_text(getattr(result, "stderr", None)), **extra}
 
         try:
             result = subprocess.run(command, input=json.dumps(fields) if fields is not None else None,
@@ -87,13 +166,86 @@ class GitHubClient:
             facts = evidence(result)
             raise GitHubAPIError(facts["stderr"].strip() or "GitHub request failed",
                                  int(status[1]) if status else None, evidence=facts)
-        try:
-            value = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            raise GitHubAPIError("GitHub returned invalid JSON", evidence=evidence(result)) from exc
-        if not isinstance(value, dict):
-            raise GitHubAPIError("GitHub returned an unexpected response", evidence=evidence(result))
-        return value
+        return self._decode(result.stdout, endpoint, evidence(result))
+
+    def ensure_star(self, repository: str) -> dict:
+        """Apply an explicitly accepted star, leaving an existing star intact."""
+        return ensure_star(repository, client=self)
+
+
+def detect_github_auth(*, client: GitHubClient | None = None) -> dict:
+    """Read one authenticated account as a candidate, never as user consent."""
+    client = client or GitHubClient()
+    result = {"provider": getattr(client, "provider", "external"), "authenticated": False}
+    try:
+        account = client.api("user")
+        login = validate_github_user(account, account.get("login", ""))
+        return {**result, "authenticated": True, "login": login, "github_user_id": account["id"], "type": "User"}
+    except (ForkPolicyError, OSError, TypeError) as exc:
+        return {**result, "error": _safe_text(exc), "status": getattr(exc, "status", None)}
+
+
+def ensure_star(repository: str, *, client: GitHubClient | None = None) -> dict:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise ForkPolicyError("Star repository must be an owner/name pair")
+    client = client or GitHubClient()
+    endpoint = "user/starred/" + repository
+    try:
+        client.api(endpoint)
+        return {"status": "already_starred", "repository": repository}
+    except GitHubAPIError as exc:
+        if exc.status != 404:
+            raise
+    client.api(endpoint, method="PUT")
+    return {"status": "starred", "repository": repository}
+
+
+def _credential_command() -> str:
+    helper = Path(__file__).with_name("vaws_git_credential.py").resolve()
+    # Git executes ! helpers with its POSIX shell, also on Windows. The command
+    # contains interpreter/script paths only; credentials remain in the process.
+    return "!" + " ".join(shlex.quote(str(value).replace("\\", "/")) for value in (sys.executable, helper))
+
+
+def github_git_environment(environment: dict | None = None) -> dict:
+    """Return a single Git process's token authentication, including first clone."""
+    environment = dict(os.environ if environment is None else environment)
+    environment["GIT_TERMINAL_PROMPT"] = "0"
+    if not any(environment.get(name) for name in ("GH_TOKEN", "GITHUB_TOKEN")):
+        return environment
+    # Git tracing can dump arbitrary environment variables and bypass the
+    # product redactor. Explicit credentials must not enter those trace sinks.
+    for key in tuple(environment):
+        if key.upper().startswith("GIT_TRACE") or key.upper() == "GIT_CURL_VERBOSE":
+            environment.pop(key)
+    try:
+        count = int(environment.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError:
+        raise ForkPolicyError("GIT_CONFIG_COUNT must be an integer") from None
+    if not 0 <= count <= 100:
+        raise ForkPolicyError("GIT_CONFIG_COUNT is outside the supported range")
+    # An empty helper resets previous helpers for this host. Do not allow an
+    # unrelated cached account to silently replace the explicitly provided PAT.
+    for value in ("", _credential_command()):
+        environment[f"GIT_CONFIG_KEY_{count}"] = "credential.https://github.com.helper"
+        environment[f"GIT_CONFIG_VALUE_{count}"] = value
+        count += 1
+    environment["GIT_CONFIG_COUNT"] = str(count)
+    return environment
+
+
+def configure_token_git(repo: Path) -> str:
+    """Save only a helper path in this repository; never persist a token."""
+    if GitHubClient().provider == "gh":
+        return "unchanged"
+    key, helper = "credential.https://github.com.helper", _credential_command()
+    values = config_values(repo, key, local=True)
+    if values == ["", helper]:
+        return "reused"
+    if values:
+        return "existing_helper_preserved"
+    replace_values(repo, key, ["", helper])
+    return "configured"
 
 
 def validate_github_user(payload: dict, requested_login: str) -> str:
@@ -163,9 +315,9 @@ def atomic_json(path: Path, payload: dict) -> None:
 
 def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
-                            text=True, encoding="utf-8", errors="replace")
+                            text=True, encoding="utf-8", errors="replace", env=github_git_environment(), timeout=120)
     if check and result.returncode:
-        raise ForkPolicyError(result.stderr.strip() or "Git command failed")
+        raise ForkPolicyError(_safe_text(result.stderr).strip() or "Git command failed")
     return result
 
 
@@ -200,6 +352,10 @@ def remote_plan(repo: Path, origin: str, upstream: str, replace: bool = False) -
     plan = {}
     for name, target in (("origin", origin), ("upstream", upstream)):
         current = {kind: config_values(repo, f"remote.{name}.{kind}") for kind in ("url", "pushurl")}
+        if any("@" in urlparse.urlsplit(value).netloc for values in current.values() for value in values
+               if value.startswith(("https://", "http://"))):
+            raise ForkPolicyError("Remote URL contains embedded credentials; move authentication to a Git credential "
+                                  "helper or environment-backed askpass and save a credential-free URL before setup")
         local = {kind: config_values(repo, f"remote.{name}.{kind}", local=True) for kind in ("url", "pushurl")}
         if current != local:
             raise ForkPolicyError(f"{repo.name}/{name} inherits remote URLs; configure them locally before setup")
@@ -427,6 +583,7 @@ def setup(repo_root: Path, github_user: str | None = None, *, apply: bool = Fals
         # Recheck after network calls and initialization before any remote edit.
         item["remotes"] = remote_plan(path, item["personal"], item["upstream"], replace_primary_remotes)
         item["backup"] = configure_remotes(path, item["remotes"], state_root)
+        item["git_authentication"] = configure_token_git(path)
     result["status"] = "configured"
     return result
 

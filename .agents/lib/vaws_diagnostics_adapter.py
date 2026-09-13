@@ -23,6 +23,9 @@ import time
 import uuid
 
 _active = ContextVar("vaws_workspace_observation", default=None)
+_UNSCOPED = object()
+_community_policy = ContextVar("vaws_workspace_community_policy", default=_UNSCOPED)
+_suspend_core = ContextVar("vaws_workspace_suspend_core", default=False)
 _entry = None
 _module = None
 _loaded = False
@@ -78,6 +81,8 @@ def _warn(category):
 
 def _api():
     global _module, _loaded
+    if _suspend_core.get():
+        return None
     if not _loaded:
         _loaded = True
         try:
@@ -118,6 +123,18 @@ def _fallback_failure(observation, error_type, category):
                "started_at": observation.started_at, "duration_ms": observation.duration_ms,
                "attributes": {"error_type": error_type if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]{0,79}", error_type) else "Error",
                               "category": category, "logging_failed": True}}
+    try:
+        from vaws_community import read_policy_file
+        selected = _community_policy.get()
+        policy_file = (os.environ.get("VAWS_COMMUNITY_POLICY", "") if selected is _UNSCOPED else selected) or ""
+        policy = Path(policy_file)
+        if policy.is_absolute() and not policy_file.startswith(("\\\\", "//")) and len(policy_file) <= 4096:
+            choice = read_policy_file(policy)
+            if choice and choice["decision"] == "enabled":
+                payload["community"] = {"policy_file": str(policy), "workspace_id": choice["workspace_id"],
+                                        "revision": choice["revision"]}
+    except Exception:
+        pass  # Local evidence remains available; no consent is inferred.
     reference = None
     try:
         folder = base / "events/vaws-workspace"
@@ -307,6 +324,41 @@ def context_metadata(metadata=None):
         except Exception:
             _warn("context_unavailable")
     return result
+
+
+@contextmanager
+def community_context(root):
+    """Bind a configured gateway's workspace without changing process-global env."""
+    scope = None
+    path = None
+    try:
+        from vaws_community import local_policy_path
+        path = str(local_policy_path(root))
+    except Exception:
+        _warn("community_scope_unavailable")
+    # Explicit None suppresses inherited process consent even when the source
+    # receipt is broken or the diagnostics owner has not been installed yet.
+    token = _community_policy.set(path)
+    suspended = None
+    try:
+        api = _api()
+        if api is not None:
+            try:
+                scope = api.bind_community_policy(path)
+                scope.__enter__()
+            except Exception:
+                scope = None
+                suspended = _suspend_core.set(True)
+                _warn("community_scope_unavailable")
+        yield
+    finally:
+        try:
+            if scope is not None:
+                scope.__exit__(None, None, None)
+        finally:
+            if suspended is not None:
+                _suspend_core.reset(suspended)
+            _community_policy.reset(token)
 
 
 @contextmanager
@@ -526,6 +578,14 @@ def _quiet_scope():
 def bootstrap(entry_file):
     global _entry
     source = Path(entry_file).absolute()
+    try:
+        agent_root = next((parent for parent in source.parents if parent.name == ".agents"), None)
+        if agent_root is not None:
+            from vaws_community import local_policy_path
+            os.environ["VAWS_COMMUNITY_POLICY"] = str(local_policy_path(agent_root.parent))
+    except Exception:
+        # An unreadable policy must not inherit another project's upload choice.
+        os.environ.pop("VAWS_COMMUNITY_POLICY", None)
     quiet = False
     for value in sys.argv[1:]:
         if value in {"--", "--serve-args", "--bench-args", "--extra-serve-args"}:

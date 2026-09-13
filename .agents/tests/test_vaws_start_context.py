@@ -110,9 +110,11 @@ def payload(client, event, native, cwd, **extra):
 def run_hook(root, client, event_payload, *, package=False):
     entry = (["-m", "vaws_coordinator.hooks.vaws_session"] if package else
              [str(ROOT / ".agents/hooks/vaws_session.py")])
-    return subprocess.run([sys.executable, "-X", "utf8", *entry, "--client", client, "--project", str(root)],
+    result = subprocess.run([sys.executable, "-X", "utf8", *entry, "--client", client, "--project", str(root)],
                           input=json.dumps(event_payload), capture_output=True, text=True,
-                          encoding="utf-8", cwd=root, timeout=15, check=True)
+                          encoding="utf-8", cwd=root, timeout=15, check=False)
+    assert result.returncode == 0, result.stderr
+    return result
 
 
 @pytest.mark.parametrize("client", ["claude", "codex", "cursor", "grok", "kimi"])
@@ -159,6 +161,7 @@ def task_record(root, context, target, receipt):
 
 @pytest.mark.parametrize("client", ["claude", "codex", "cursor", "grok", "kimi"])
 def test_real_hook_unprepared_then_repeated_prepared_resume(project, client):
+    from vaws_workspace_entry import write_preparation
     root, target, store, receipt = project
     native = "native-exact-" + client
     first = run_hook(root, client, payload(client, "SessionStart", native, root))
@@ -170,10 +173,15 @@ def test_real_hook_unprepared_then_repeated_prepared_resume(project, client):
     assert "Client startup owns" not in message
     assert not (root / ".vaws-local/tasks").exists()
 
-    store.bind_sources(context, {root.name: str(target)})
+    sources = {"workspace": str(target)}
+    write_preparation(target, project_root=root, native_workspace=target, workspace=target, sources=sources)
+    store.bind_native_sources(context, sources=sources)
     record = task_record(root, context, target, receipt)
     original = record.read_bytes()
     for event in ("UserPromptSubmit", "SessionStart", "UserPromptSubmit"):
+        if event == "SessionStart":
+            run_hook(root, client, payload(client, "SessionEnd", native, root))
+            assert store.context(context["attachment"]["id"])["attachment"]["state"] == "detached"
         result = run_hook(root, client, payload(client, event, native, root, source="resume"))
         message = hint(client, event, result.stdout)
         if message:
@@ -184,12 +192,18 @@ def test_real_hook_unprepared_then_repeated_prepared_resume(project, client):
             assert event == "UserPromptSubmit" and client != "kimi"
         assert "First repository action" not in message
         assert record.read_bytes() == original
+        current = store.native_context(client, native)
+        assert current["attachment"]["source_mode"] == "native-prepared"
+        assert {name: row["path"] for name, row in current["source_defaults"]["sources"].items()} == sources
         if client == "cursor":
             assert "hookSpecificOutput" not in json.loads(result.stdout)
     current = store.native_context(client, native)
     assert current["session"]["id"] == context["session"]["id"]
     assert current["attachment"]["cwd"] == str(root)
-    assert current["source_defaults"]["sources"][root.name]["path"] == str(target)
+    assert current["source_defaults"]["sources"]["workspace"]["path"] == str(target)
+    store.bind_sources(current, {})
+    run_hook(root, client, payload(client, "SessionStart", native, root, source="resume"))
+    assert store.native_context(client, native)["source_defaults"] == {"origin": "explicit", "sources": {}}
 
 
 def test_prepared_native_worktree_and_broken_selection(project):
@@ -240,16 +254,33 @@ def test_ordinary_hooks_do_not_inject_preparation_or_identity_gate(project, monk
         result = run_hook(root, client, event_payload, package=True)
         assert result.stderr == ""
         projected = hints.project_output(client, event_payload, result.stdout, root=root)
-        for instruction in ("First repository action", "vaws_start.py", "first-use setup",
+        for instruction in ("First repository action", "vaws_start.py",
                             "ask once", "personal GitHub username", "NOT prepared"):
             assert instruction not in projected
         message = hint(client, event, projected)
         if message:
+            assert "first-use setup" in projected
+            assert "Fork, Star and" in projected
             assert store.native_context(client, native)["context_file"] in message
             assert "workspace is prepared" not in message
     context = store.native_context(client, native)
     assert bool(context["session"].get("github_identity")) == confirmed_identity
     assert not (root / ".vaws-local/tasks").exists()
+
+
+def test_unprepared_hook_reports_damaged_onboarding_without_replacing_it(project):
+    root, _, store, _ = project
+    record = root / ".vaws-local/onboarding.json"
+    record.write_text('{"schema":"vaws.onboarding.v1","state":"ready","steps":{}}')
+    original = record.read_bytes()
+    context = store.attach("codex", "damaged-onboarding", str(root))
+    result = hints.project_output("codex", payload("codex", "SessionStart", "damaged-onboarding", root),
+                                  '{"hookSpecificOutput":{"additionalContext":"native context"}}', root=root)
+    assert "workspace selection could not be read" in result
+    assert "workspace is prepared" not in result
+    assert "Ask only missing" not in result
+    assert record.read_bytes() == original
+    assert store.native_context("codex", "damaged-onboarding")["attachment"]["id"] == context["attachment"]["id"]
 
 
 def test_prepared_facts_do_not_require_personal_identity(project, monkeypatch):

@@ -212,9 +212,13 @@ corpus. Actual knowledge use prepares its local model and index on demand. For a
 explicit retry or configuration change, `uv run --no-project python .agents/scripts/knowledge_setup.py`
 uses the same package preparation entry. New setup enables local knowledge and
 shared downloads; it does not create a fork or enable public contribution.
-Existing publishing configuration is preserved. `--contribute` explicitly enables
-authorized contribution; `--read-only` disables contribution while keeping shared
-downloads. A repository change alone preserves the existing contribution choice.
+Existing publishing configuration is preserved. Community participation is chosen
+only with `vaws_init.py apply --community enabled` or `disabled`. The knowledge
+setup entry has no separate contribution switch. `--repository OWNER/NAME` changes
+the corpus and retains publishing only when the current community decision,
+confirmed identity and existing publishing configuration authorize it; otherwise
+the corpus is configured for reference reads. The owner rechecks live consent
+before creating a contribution fork or performing an external write.
 Then refresh selected clients with `vaws_client_setup.py --apply` to install the
 MCP wiring and supported final-response hooks.
 

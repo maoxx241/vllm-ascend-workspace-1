@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare local knowledge; public contribution is an explicit setup choice."""
+"""Prepare knowledge references or maintain their corpus; reuse community consent."""
 from __future__ import annotations
 
 # Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
@@ -22,30 +22,39 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
 from vaws_knowledge_service import knowledge_config_path, knowledge_owner_path, prepare_knowledge, run_knowledge_cli  # noqa: E402
+from vaws_community import policy_path, read_choice  # noqa: E402
+from vaws_github import load_github_identity  # noqa: E402
+from vaws_local_state import shared_workspace_root  # noqa: E402
 from vaws_venv import configure_windows_stdio  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
     configure_windows_stdio()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository", help="change the shared corpus while retaining the contribution choice")
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--read-only", action="store_true", help="enable shared updates and disable public contribution")
-    mode.add_argument("--contribute", action="store_true", help="explicitly enable public contribution and prepare its fork")
+    parser.add_argument("--repository", help="change the shared corpus while retaining currently authorized publishing")
     args = parser.parse_args(argv)
     config = knowledge_config_path(ROOT)
     configured = None
-    if args.repository is not None or args.read_only or args.contribute:
+    if args.repository is not None:
         existing = json.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
         if not isinstance(existing, dict):
             raise ValueError("existing knowledge configuration must be a JSON object")
-        settings = existing.get("publishing") or {}
-        shared = existing.get("shared_sync") or {}
-        repository = args.repository or shared.get("repository") or settings.get("repository")
-        contribute = args.contribute or bool(settings.get("enabled") and settings.get("fork") and not args.read_only)
-        command = ["publishing", "configure", "--config", knowledge_owner_path(ROOT, config)]
-        if repository:
-            command.extend(["--repository", repository])
+        settings = existing.get("publishing", {})
+        if not isinstance(settings, dict):
+            raise ValueError("existing knowledge publishing configuration must be a JSON object")
+        owner = shared_workspace_root(ROOT)
+        try:
+            choice = read_choice(owner)
+        except (OSError, ValueError):
+            choice = None  # Invalid consent cannot authorize contribution.
+        identity = (load_github_identity(owner) or {}) if choice and choice["decision"] == "enabled" else {}
+        login = identity.get("login")
+        contribute = bool(choice and choice["decision"] == "enabled" and login
+                          and settings.get("enabled") is True and settings.get("fork"))
+        command = ["publishing", "configure", "--config", knowledge_owner_path(ROOT, config),
+                   "--repository", args.repository, "--consent-file", knowledge_owner_path(ROOT, policy_path(owner))]
+        if login:
+            command.extend(["--github-user", login])
         if not contribute:
             command.append("--read-only")
         code, configured = run_knowledge_cli(ROOT, command)

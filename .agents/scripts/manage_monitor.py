@@ -56,7 +56,7 @@ VAWS_TOP_REPO = "vllm-ascend-workspace/vaws-top"
 VAWS_TOP_SKILL_PATH = ".agents/skills/vaws-top/SKILL.md"
 # Single version constant: the release tag. The wheel filename below is derived
 # from it so the tag and the wheel version cannot drift apart.
-VAWS_TOP_REF = "v0.1.5"
+VAWS_TOP_REF = "v0.1.6"
 VAWS_TOP_VERSION = VAWS_TOP_REF.removeprefix("v")
 # The console script is named after the repository and the import package uses
 # underscores; derive both so the only literal naming the extracted project is

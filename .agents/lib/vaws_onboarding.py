@@ -79,6 +79,11 @@ def configure_knowledge(root: Path, decision: str, login: str, *, receipt: dict 
     from vaws_knowledge_service import knowledge_config_path, knowledge_owner_path, run_knowledge_cli, _run_knowledge
     command = ["publishing", "configure", "--config", knowledge_owner_path(root, knowledge_config_path(root)),
                "--consent-file", knowledge_owner_path(root, policy_path(root)), "--github-user", login]
+    config = knowledge_config_path(root)
+    saved = json.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
+    repository = (saved.get("shared_sync") or {}).get("repository") or (saved.get("publishing") or {}).get("repository")
+    if repository:
+        command.extend(["--repository", repository])
     code, result = (_run_knowledge(root, ["-m", "vaws_knowledge", *command], receipt=receipt) if receipt else
                     run_knowledge_cli(root, command))
     if code:
@@ -93,7 +98,7 @@ def configure_reporting(root: Path, receipt: dict, environment: dict) -> dict:
     log_root = Path(environment.get("VAWS_DIAGNOSTICS_ROOT") or base / "vaws/diagnostics")
     state = log_root.parent / "diagnostics-worker"
     save_token = ["--save-token"] if environment.get("GH_TOKEN") or environment.get("GITHUB_TOKEN") else []
-    return run_json([receipt["python"], "-m", "vaws_diagnostics.cli", "service", "install",
+    return run_json([receipt["python"], "-m", "vaws_diagnostics.cli", "service", "ensure",
                      "--root", str(log_root), "--state", str(state), "--python", receipt["python"], *save_token],
                     root, environment)
 

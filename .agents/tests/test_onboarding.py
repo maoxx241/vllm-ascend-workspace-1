@@ -224,3 +224,15 @@ def test_disabled_knowledge_does_not_prepare_or_launch_an_owner(tmp_path, monkey
     config.write_text('{"publishing":{"enabled":true}}')
     onboarding.configure_knowledge(tmp_path, "disabled", "alice")
     assert json.loads(config.read_text())["publishing"]["enabled"] is False
+
+
+@pytest.mark.parametrize("section", ["shared_sync", "publishing"])
+def test_reenabling_community_keeps_selected_knowledge_corpus(tmp_path, monkeypatch, section):
+    import vaws_knowledge_service
+    config = tmp_path / ".vaws-local/knowledge/service.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(json.dumps({section: {"repository": "example/selected-corpus"}}))
+    calls = []
+    monkeypatch.setattr(vaws_knowledge_service, "run_knowledge_cli", lambda root, command: calls.append(command) or (0, {"ready": True}))
+    onboarding.configure_knowledge(tmp_path, "enabled", "alice")
+    assert calls[0][calls[0].index("--repository") + 1] == "example/selected-corpus"

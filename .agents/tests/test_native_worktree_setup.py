@@ -19,8 +19,8 @@ spec.loader.exec_module(setup)
 
 
 def git(root, *args):
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
-                            env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1"})
+    result = subprocess.run(["git", "-c", "core.longpaths=true", "-C", str(root), *args], capture_output=True, text=True,
+                            encoding="utf-8", env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1"})
     assert result.returncode == 0, result.stderr
     return result.stdout.strip()
 
@@ -40,51 +40,44 @@ def make_repository(tmp_path, monkeypatch, *, submodule=False, detached=False, m
     source, target, stage = [tmp_path / name for name in ("source 用户", "native worktree", "prepared")]
     source.mkdir()
     git(source, "init", "-b", "main")
-    (source / ".gitignore").write_text(".vaws-local/\n")
+    (source / ".gitignore").write_text(".vaws-local/\nvllm/\nvllm-ascend/\n.claude/settings.local.json\n.mcp.json\n")
     (source / "README").write_text("old code\n")
     (source / "pyproject.toml").write_text("[tool.uv]\npackage = false\n")
     (source / "uv.lock").write_text("version = 1\n")
-    module = None
-    module_old = module_new = None
-    if submodule:
-        module = tmp_path / "module"
-        module.mkdir()
-        git(module, "init", "-b", "main")
-        (module / "operator.py").write_text("old operator\n")
-        module_old = commit(module, "old module")
-        git(source, "-c", "protocol.file.allow=always", "submodule", "add", str(module), "vllm")
-        git(source / "vllm", "checkout", "--detach", module_old)
     old = commit(source, "old workspace")
-    git(source, "worktree", "add", *( ["--detach"] if detached else ["-b", "cursor/new-task"]), str(target), old)
-    if submodule:
-        # Initialize before the new component commit exists, so adoption must
-        # import that commit from preparation's local object cache.
-        git(target, "-c", "protocol.file.allow=always", "submodule", "update", "--init", "vllm")
-    git(source, "worktree", "add", "--detach", str(stage), old)
+    git(source, "worktree", "add", *(["--detach"] if detached else ["-b", "cursor/new-task"]), str(target), old)
+    git(source, "clone", "--local", str(source), str(stage))
     (stage / "README").write_text("new code\n")
     (stage / "uv.lock").write_text("version = 1\n# new pinned components\n")
-    if submodule:
-        (module / "operator.py").write_text("new operator\n")
-        module_new = commit(module, "new module")
-        git(stage, "-c", "protocol.file.allow=always", "submodule", "update", "--init", "vllm")
-        git(stage / "vllm", "checkout", "--detach", module_new)
     new = commit(stage, "upstream workspace update")
+    module_old = module_new = None
+    if submodule:
+        child = source / "vllm"
+        child.mkdir()
+        git(child, "init", "-b", "operator-work")
+        (child / "operator.py").write_text("old operator\n")
+        module_old = commit(child, "old operator")
+        git(child, "clone", "--local", str(child), str(stage / "vllm"))
+        (stage / "vllm/operator.py").write_text("new operator\n")
+        module_new = commit(stage / "vllm", "new operator")
     receipt_old = {"key": "old-environment", "input_id": setup._inputs(source)[3],
                    "python": sys.executable, "receipt": str(tmp_path / "old-receipt.json")}
     receipt_new = {"key": "new-environment", "input_id": setup._inputs(stage)[3],
                    "python": sys.executable, "receipt": str(tmp_path / "new-receipt.json")}
-    calls = {"prepare": [], "configure": [], "select": [], "knowledge": []}
+    calls = {"prepare": [], "configure": [], "select": []}
 
-    def prepare(path, baseline=None):
+    def prepare(path, baseline=None, **kwargs):
         calls["prepare"].append(path)
-        return {"status": "ready", "target": new}, stage
+        return {"status": "ready", "target": new}, {"stage": str(stage),
+            "sources": {"vllm": str(stage / "vllm")} if submodule else {},
+            "revisions": {"workspace": new, **({"vllm": module_new} if submodule else {})}}
 
     def native(path):
         return receipt_new if setup._inputs(path)[3] == receipt_new["input_id"] else receipt_old
 
-    def configure(client, path, receipt, environment):
+    def configure(client, path, receipt, environment, **options):
         calls["configure"].append({"client": client, "path": path, "receipt": receipt,
-                                   "head": git(path, "rev-parse", "HEAD"), "env": environment})
+                                   "head": git(path, "rev-parse", "HEAD"), "env": environment, **options})
 
     def select(path, receipt):
         calls["select"].append((path, receipt))
@@ -92,15 +85,18 @@ def make_repository(tmp_path, monkeypatch, *, submodule=False, detached=False, m
         selection.parent.mkdir(parents=True, exist_ok=True)
         selection.write_text(json.dumps(receipt))
 
+    def saved(path):
+        selection = path / ".vaws-local/environment-selection" / f"{sys.platform}.json"
+        if not selection.is_file():
+            raise setup.EnvironmentError("not selected")
+        return json.loads(selection.read_text())
+
     if mock_update:
         monkeypatch.setattr(setup, "prepare_canonical", prepare)
     monkeypatch.setattr(setup, "native_ready", native)
-    monkeypatch.setattr(setup, "saved_ready", lambda path: json.loads(
-        (path / ".vaws-local/environment-selection" / f"{sys.platform}.json").read_text()))
+    monkeypatch.setattr(setup, "saved_ready", saved)
     monkeypatch.setattr(setup, "configure_target", configure)
     monkeypatch.setattr(setup, "select_environment", select)
-    monkeypatch.setattr(setup, "prepare_knowledge", lambda path, **kwargs:
-                        calls["knowledge"].append((path, kwargs["receipt"])) or {"status": "ready", "ready": True})
     monkeypatch.setattr("vaws_local_owner.windows_mounted_workspace", lambda _: False)
     return SimpleNamespace(source=source, target=target, stage=stage, old=old, new=new,
                            module_old=module_old, module_new=module_new,
@@ -112,295 +108,221 @@ def fixture(tmp_path, monkeypatch):
     return make_repository(tmp_path, monkeypatch)
 
 
-@pytest.mark.parametrize("client,detached", [("codex", True), ("cursor", False)])
-def test_native_new_worktree_updates_code_and_environment_only(tmp_path, monkeypatch, client, detached):
-    f = make_repository(tmp_path, monkeypatch, detached=detached)
-    before, index = snapshot(f.source), (f.source / ".git/index").read_bytes()
-    result = setup.prepare_worktree(client, f.source, f.target)
-    assert result["head"] == f.new and result["environment"] == "new-environment"
-    assert git(f.source, "rev-parse", "HEAD") == f.old
-    assert snapshot(f.source) == before
-    assert (f.source / ".git/index").read_bytes() == index
-    assert f.calls["prepare"] == [f.source]
-    assert f.calls["configure"][0]["head"] == f.new
-    assert f.calls["configure"][0]["receipt"] == f.receipt_new
-    assert f.calls["select"] == [(f.target, f.receipt_new)]
-    assert f.calls["knowledge"] == [(f.target, f.receipt_new)]
-    assert result["knowledge"] == {"status": "ready", "ready": True}
-
-
-def test_explicit_old_revision_is_not_updated(fixture):
-    f = fixture
-    # The creation source is now ahead of the explicitly selected target.
-    second = f.target.parent / "explicit old"
-    git(f.source, "worktree", "add", "--detach", str(second), f.old)
-    result = setup.prepare_worktree("codex", f.stage, second)
-    assert result["head"] == f.old
-    assert result["update"] == {"status": "kept", "reason": "explicit_source"}
-    assert not f.calls["prepare"]
-
-
-def default_snapshot_fixture(tmp_path, monkeypatch):
-    f = make_repository(tmp_path, monkeypatch, detached=True, mock_update=False)
-    git(f.source, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
-    git(f.source, "checkout", "-b", "feature/current-task")
-    (f.source / "README").write_text("current business work\n")
-    commit(f.source, "business source ahead of main")
-    calls = []
-    class Updater:
-        def __init__(self, source):
-            assert source == f.source
-            self.state = {"phase": "ready", "target": f.new, "prepared": {"stage": str(f.stage)}}
-        def step(self, **options):
-            calls.append(options)
-            # Preparation may cache upstream while the editing source is on
-            # a business branch; neither activate nor for_session may be true.
-            assert options == {"apply": True, "activate": False}
-            return {"status": "ready", "branch": "main", "target": f.new}
-        def validate_prepared(self, state, prepared):
-            assert state is self.state and prepared == self.state["prepared"]
-            return f.stage
-    monkeypatch.setattr(setup, "workspace_entry", lambda _: {"state": "configured"})
-    monkeypatch.setattr(setup, "WorkspaceUpdater", Updater)
-    return f, calls
-
-
-@pytest.mark.parametrize("source_at_default_tip", [False, True])
-def test_codex_default_main_updates_while_source_has_unfinished_business_work(tmp_path, monkeypatch, source_at_default_tip):
-    f, calls = default_snapshot_fixture(tmp_path, monkeypatch)
-    if source_at_default_tip:
-        git(f.source, "update-ref", "refs/heads/feature/current-task", f.old)
-    (f.source / "README").write_text("staged work\n")
-    git(f.source, "add", "README")
-    (f.source / "README").write_text("unstaged work\n")
-    before, index = snapshot(f.source), (f.source / ".git/index").read_bytes()
-    source_head = git(f.source, "rev-parse", "HEAD")
-    result = setup.prepare_worktree("codex", f.source, f.target)
-    assert result["head"] == f.new and result["environment"] == "new-environment"
-    assert result["update"]["baseline"] == {
-        "kind": "local_default_branch_snapshot", "ref": "refs/heads/main", "head": f.old,
-        "native_ref_selection": "unavailable"}
-    assert calls == [{"apply": True, "activate": False}]
-    assert not f.calls["prepare"]
-    assert git(f.source, "rev-parse", "HEAD") == source_head
-    assert snapshot(f.source) == before and (f.source / ".git/index").read_bytes() == index
-
-
-@pytest.mark.parametrize("choice", ["old-commit", "business-commit", "named-branch", "unknown-default",
-                                    "conflicting-defaults", "dirty", "selected", "fork"])
-def test_default_snapshot_does_not_expand_existing_preservation_boundaries(tmp_path, monkeypatch, choice):
-    f, calls = default_snapshot_fixture(tmp_path, monkeypatch)
-    if choice == "old-commit":
-        git(f.source, "update-ref", "refs/heads/main", f.new)
-    elif choice == "business-commit":
-        (f.target / "README").write_text("independent business commit\n")
-        commit(f.target, "explicit business revision")
-    elif choice == "named-branch":
-        git(f.target, "checkout", "-b", "feature/explicit")
-    elif choice == "unknown-default":
-        git(f.source, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
-    elif choice == "conflicting-defaults":
-        git(f.source, "symbolic-ref", "refs/remotes/upstream/HEAD", "refs/remotes/upstream/develop")
-    elif choice == "dirty":
-        (f.target / "README").write_text("unfinished target edit\n")
-    elif choice in {"selected", "fork"}:
-        path = (f.source if choice == "fork" else f.target) / ".vaws-local/environment-selection" / f"{sys.platform}.json"
-        path.parent.mkdir(parents=True)
-        path.write_text(json.dumps(f.receipt_old))
-    head, content = git(f.target, "rev-parse", "HEAD"), (f.target / "README").read_bytes()
-    result = setup.prepare_worktree("codex", f.source, f.target, preserve_source=choice == "fork")
-    assert git(f.target, "rev-parse", "HEAD") == head
-    assert (f.target / "README").read_bytes() == content
-    assert result["environment"] == "old-environment"
-    assert not calls and not f.calls["prepare"]
-
-
-@pytest.mark.parametrize("change", ["edit-during-prepare", "diverged-upstream", "disabled"])
-def test_default_snapshot_adoption_still_requires_clean_fast_forward(tmp_path, monkeypatch, change):
-    f, calls = default_snapshot_fixture(tmp_path, monkeypatch)
-    if change == "edit-during-prepare":
-        original_prepare = setup.prepare_canonical
-        def intervening_edit(*args):
-            result = original_prepare(*args)
-            (f.target / "README").write_text("edit during native setup\n")
-            return result
-        monkeypatch.setattr(setup, "prepare_canonical", intervening_edit)
-    elif change == "diverged-upstream":
-        # The local default tip has a commit absent from canonical history.
-        (f.target / "README").write_text("local default commit\n")
-        original = commit(f.target, "local default diverged")
-        git(f.source, "update-ref", "refs/heads/main", original)
-    else:
-        monkeypatch.setattr(setup, "workspace_entry", lambda _: {"state": "disabled"})
-    head = git(f.target, "rev-parse", "HEAD")
-    result = setup.prepare_worktree("codex", f.source, f.target)
-    assert result["head"] == head and result["environment"] == "old-environment"
-    if change == "edit-during-prepare":
-        assert result["update"]["reason"] == "dirty_checkout"
-        assert (f.target / "README").read_text() == "edit during native setup\n"
-    elif change == "diverged-upstream":
-        assert result["update"]["reason"] == "command_failed"
-    else:
-        assert result["update"]["state"] == "disabled" and not calls
-
-
 @pytest.mark.parametrize("client", ["codex", "cursor", "claude", "grok", "kimi"])
-def test_new_session_uses_canonical_when_mother_has_business_commits_and_edits(tmp_path, monkeypatch, client):
-    f, updates = default_snapshot_fixture(tmp_path, monkeypatch)
-    business = git(f.source, "rev-parse", "HEAD")
-    # The native client has just created its new directory from mother HEAD.
-    git(f.target, "reset", "--hard", business)
-    (f.source / "README").write_text("staged business work\n")
-    git(f.source, "add", "README")
-    (f.source / "README").write_text("unstaged business work\n")
-    (f.source / "untracked.txt").write_text("untracked business work\n")
-    before, index = snapshot(f.source), (f.source / ".git/index").read_bytes()
+def test_native_parent_is_unchanged_and_actual_bundle_is_independent(tmp_path, monkeypatch, client):
+    f = make_repository(tmp_path, monkeypatch, submodule=True)
+    index = (f.source / ".git/index").read_bytes()
     result = setup.prepare_worktree(client, f.source, f.target)
+    bundle = Path(result["workspace"])
+    assert bundle != f.target and f.target not in bundle.parents
+    assert result["native_workspace"] == str(f.target)
+    assert result["project_root"] == str(f.source)
+    assert result["native_cwd_changed"] is False
     assert result["head"] == f.new and result["environment"] == "new-environment"
-    assert result["update"]["baseline"] == {
-        "kind": "source_head_snapshot", "head": business, "native_ref_selection": "unavailable"}
-    assert updates == [{"apply": True, "activate": False}]
-    assert git(f.source, "rev-parse", "HEAD") == business
-    assert git(f.source, "branch", "--show-current") == "feature/current-task"
-    assert snapshot(f.source) == before and (f.source / ".git/index").read_bytes() == index
+    assert git(bundle, "branch", "--show-current") == git(f.target, "branch", "--show-current")
+    assert git(f.target, "rev-parse", "HEAD") == git(f.source, "rev-parse", "HEAD") == f.old
+    assert (f.source / ".git/index").read_bytes() == index
+    assert git(bundle / "vllm", "rev-parse", "HEAD") == f.module_new
+    assert git(f.source / "vllm", "rev-parse", "HEAD") == f.module_old
+    assert result["sources"] == {"workspace": str(bundle), "vllm": str(bundle / "vllm")}
+    assert all((Path(path) / ".git").is_dir() for path in result["sources"].values())
+    assert f.calls["configure"][0]["path"] == bundle
+    assert f.calls["select"] == [(bundle, f.receipt_new)]
+    assert setup.read_preparation(f.target)["workspace"] == str(bundle)
 
 
-def test_dirty_native_worktree_keeps_edits_without_checking_updates(fixture):
+def test_bundle_survives_native_remove_and_preparation_cache_removal(tmp_path, monkeypatch):
+    import shutil
+    f = make_repository(tmp_path, monkeypatch, submodule=True)
+    result = setup.prepare_worktree("codex", f.source, f.target)
+    bundle = Path(result["workspace"])
+    git(f.source, "worktree", "remove", str(f.target))
+    assert f.stage.resolve().parent == tmp_path.resolve()
+    def writable_remove(function, path, error):
+        os.chmod(path, 0o700)
+        function(path)
+    shutil.rmtree(f.stage, onerror=writable_remove)
+    assert git(bundle, "rev-parse", "HEAD") == f.new
+    assert git(bundle / "vllm", "rev-parse", "HEAD") == f.module_new
+    (bundle / "vllm/operator.py").write_text("task operator edit\n")
+    git(bundle / "vllm", "add", "operator.py")
+    assert git(bundle / "vllm", "diff", "--cached")
+
+
+def test_missing_native_target_is_direct_bundle_and_inherits_native_settings(fixture):
     f = fixture
-    (f.target / "README").write_text("user draft\n")
+    for name in (".claude/settings.local.json", ".mcp.json"):
+        path = f.source / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"custom":true}')
+    target = f.source.parent / "direct task"
+    result = setup.prepare_worktree("claude", f.source, target)
+    assert result["workspace"] == result["native_workspace"] == str(target)
+    assert (target / ".git").is_dir()
+    assert (target / ".claude/settings.local.json").read_text() == '{"custom":true}'
+    assert (target / ".mcp.json").read_text() == '{"custom":true}'
+    assert not (target / ".vaws-local/context.json").exists()
+
+
+def test_new_missing_target_checks_canonical_despite_initialized_source_pin(fixture):
+    f = fixture
+    setup.select_environment(f.source, f.receipt_old)
+    result = setup.prepare_worktree("kimi", f.source, f.source.parent / "new task")
+    assert result["head"] == f.new and result["environment"] == "new-environment"
+    assert f.calls["prepare"] == [f.source]
+    assert f.calls["configure"][-1]["receipt"] == f.receipt_new
+    assert setup.saved_ready(f.source) == f.receipt_old
+
+
+def test_repeat_is_read_only_and_keeps_selected_environment(fixture, monkeypatch):
+    f = fixture
+    first = setup.prepare_worktree("cursor", f.source, f.target)
+    bundle = Path(first["workspace"])
+    (bundle / "uv.lock").write_text("invalid user draft\n")
+    monkeypatch.setattr(setup, "prepare_canonical", lambda *a, **k: pytest.fail("resume checked upstream"))
+    monkeypatch.setattr(setup, "configure_target", lambda *a: pytest.fail("resume reconfigured client"))
+    monkeypatch.setattr(setup, "native_ready", lambda *a: pytest.fail("resume resolved package inputs"))
+    monkeypatch.setattr(setup, "select_environment", lambda *a: pytest.fail("resume wrote selection"))
+    second = setup.prepare_worktree("cursor", f.source, f.target)
+    assert second["status"] == "reused" and second["workspace"] == str(bundle)
+    assert second["environment"] == "new-environment"
+
+
+@pytest.mark.parametrize("phase", ["copy_child", "configure", "select"])
+def test_partial_preparation_never_publishes_ready(tmp_path, monkeypatch, phase):
+    import vaws_native_workspace as copy
+    f = make_repository(tmp_path, monkeypatch, submodule=True)
+    if phase == "copy_child":
+        original = copy.prepare_source
+        def fail(destination, **options):
+            if destination.name == "vllm":
+                raise RuntimeError("injected child failure")
+            return original(destination, **options)
+        monkeypatch.setattr(copy, "prepare_source", fail)
+    else:
+        monkeypatch.setattr(setup, "configure_target" if phase == "configure" else "select_environment",
+                            lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("injected failure")))
+    with pytest.raises(RuntimeError, match="injected"):
+        setup.prepare_worktree("cursor", f.source, f.target)
+    assert setup.read_preparation(f.target) is None
+    assert git(f.target, "rev-parse", "HEAD") == f.old
+    assert git(f.source / "vllm", "rev-parse", "HEAD") == f.module_old
+    assert not list(tmp_path.glob("*-vaws-*/.vaws-local/native-workspace.json"))
+
+
+def test_failed_independent_target_is_preserved_and_cannot_become_native_input(fixture, monkeypatch):
+    f = fixture
+    target = f.source.parent / "failed task"
+    monkeypatch.setattr(setup, "configure_target", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("wiring failed")))
+    with pytest.raises(RuntimeError, match="wiring failed"):
+        setup.prepare_worktree("claude", f.source, target)
+    (target / "user-draft.txt").write_text("keep this failed preparation for diagnosis")
+    with pytest.raises(ValueError, match="choose a new target"):
+        setup.prepare_worktree("claude", f.source, target)
+    assert (target / "user-draft.txt").read_text() == "keep this failed preparation for diagnosis"
+    assert not (target / ".vaws-local/native-workspace.json").exists()
+
+
+def test_dirty_native_tree_is_copied_with_existing_business_roots(tmp_path, monkeypatch):
+    f = make_repository(tmp_path, monkeypatch, submodule=True)
+    (f.target / "README").write_text("staged draft\n")
+    git(f.target, "add", "README")
+    (f.target / "README").write_text("working draft\n")
     result = setup.prepare_worktree("cursor", f.source, f.target)
-    assert result["head"] == f.old and result["update"]["reason"] == "dirty_checkout"
-    assert (f.target / "README").read_text() == "user draft\n"
+    bundle = Path(result["workspace"])
+    assert result["update"]["reason"] == "dirty_checkout"
     assert not f.calls["prepare"]
-
-
-def test_edit_during_preparation_stays_untouched(fixture, monkeypatch):
-    f = fixture
-    def intervening_edit(_):
-        (f.target / "README").write_text("edit while preparing\n")
-        return {"status": "ready"}, f.stage
-    monkeypatch.setattr(setup, "prepare_canonical", intervening_edit)
-    result = setup.prepare_worktree("cursor", f.source, f.target)
-    assert result["head"] == f.old and result["update"]["reason"] == "dirty_checkout"
+    assert git(bundle, "diff", "--cached") == git(f.target, "diff", "--cached")
+    assert git(bundle, "diff") == git(f.target, "diff")
+    assert git(bundle / "vllm", "rev-parse", "HEAD") == f.module_old
     assert result["environment"] == "old-environment"
 
 
-def test_repeat_setup_uses_saved_environment_and_repairs_wiring(fixture, monkeypatch):
-    f = fixture
-    setup.prepare_worktree("cursor", f.source, f.target)
-    selected = (f.target / ".vaws-local/environment-selection" / f"{sys.platform}.json").read_bytes()
-    (f.target / "uv.lock").write_text("a user draft that is not valid TOML\n")
-    monkeypatch.setattr(setup, "prepare_canonical", lambda *_: pytest.fail("repeat must not check upstream"))
-    monkeypatch.setattr(setup, "native_ready", lambda _: pytest.fail("repeat must not resolve changed dependency inputs"))
-    result = setup.prepare_worktree("cursor", f.source, f.target)
-    assert result["status"] == "reused" and result["environment"] == "new-environment"
-    assert len(f.calls["configure"]) == 2
-    assert len(f.calls["select"]) == 1
-    assert f.calls["knowledge"] == [(f.target, f.receipt_new)]
-    assert (f.target / ".vaws-local/environment-selection" / f"{sys.platform}.json").read_bytes() == selected
-
-
-def test_failure_does_not_publish_selection(fixture, monkeypatch):
-    f = fixture
-    monkeypatch.setattr(setup, "configure_target", lambda *args: (_ for _ in ()).throw(RuntimeError("wiring failed")))
-    with pytest.raises(RuntimeError, match="wiring failed"):
-        setup.prepare_worktree("cursor", f.source, f.target)
-    assert not f.calls["select"]
-
-
-def test_selection_written_by_sync_still_repairs_interrupted_wiring(fixture):
-    f = fixture
-    selection = f.target / ".vaws-local/environment-selection" / f"{sys.platform}.json"
-    selection.parent.mkdir(parents=True)
-    selection.write_text(json.dumps(f.receipt_old))
-    result = setup.prepare_worktree("cursor", f.source, f.target)
-    assert result["status"] == "reused" and result["environment"] == "old-environment"
-    assert not f.calls["prepare"] and not f.calls["select"]
-    assert f.calls["configure"][0]["head"] == f.old
-    assert f.calls["knowledge"] == [(f.target, f.receipt_old)]
-
-
-def test_inherited_environment_prepares_knowledge_once_for_the_new_worktree(fixture):
-    f = fixture
-    source_selection = f.source / ".vaws-local/environment-selection" / f"{sys.platform}.json"
-    source_selection.parent.mkdir(parents=True)
-    source_selection.write_text(json.dumps(f.receipt_old))
-    first = setup.prepare_worktree("kimi", f.source, f.target, preserve_source=True)
-    assert first["update"]["reason"] == "fork_source"
-    assert first["knowledge"]["ready"] is True
-    second = setup.prepare_worktree("kimi", f.source, f.target, preserve_source=True)
-    assert second["knowledge"] == first["knowledge"]
-    assert f.calls["knowledge"] == [(f.target, f.receipt_old)]
+def test_fork_uses_actual_selected_sources_and_saved_pin(tmp_path, monkeypatch):
+    f = make_repository(tmp_path, monkeypatch, submodule=True)
+    setup.write_preparation(f.source, project_root=f.source, native_workspace=f.source, workspace=f.source,
+                            sources={"workspace": f.source, "vllm": f.source / "vllm"})
+    f.calls["select"].clear()
+    setup.select_environment(f.source, f.receipt_old)
+    (f.source / "uv.lock").write_text("user changed lock, not a new runtime\n")
+    (f.source / "vllm/operator.py").write_text("staged operator\n")
+    git(f.source / "vllm", "add", "operator.py")
+    (f.source / "vllm/operator.py").write_text("working operator\n")
+    result = setup.prepare_worktree("kimi", f.source, tmp_path / "fork", preserve_source=True)
+    bundle = Path(result["workspace"])
+    assert result["head"] == f.old and result["environment"] == "old-environment"
+    assert git(bundle / "vllm", "diff", "--cached") == git(f.source / "vllm", "diff", "--cached")
+    assert git(bundle / "vllm", "diff") == git(f.source / "vllm", "diff")
     assert not f.calls["prepare"]
 
 
-def test_pending_knowledge_is_reported_without_retrying_native_setup(fixture, monkeypatch):
+def test_root_only_selection_stays_root_only_even_if_ignored_repository_exists(tmp_path, monkeypatch):
+    f = make_repository(tmp_path, monkeypatch, submodule=True)
+    setup.write_preparation(f.source, project_root=f.source, native_workspace=f.source, workspace=f.source,
+                            sources={"workspace": f.source})
+    result = setup.prepare_worktree("kimi", f.source, tmp_path / "root only", preserve_source=True)
+    assert list(result["sources"]) == ["workspace"]
+    assert not (Path(result["workspace"]) / "vllm").exists()
+
+
+def test_intervening_edit_keeps_old_code_and_environment(fixture, monkeypatch):
     f = fixture
-    pending = {"status": "pending", "ready": False, "reason": "offline corpus"}
-    calls = []
-    monkeypatch.setattr(setup, "prepare_knowledge", lambda *args, **kwargs: calls.append(args) or pending)
-    first = setup.prepare_worktree("codex", f.source, f.target)
-    assert first["status"] == "ready" and first["knowledge"] == pending
-    second = setup.prepare_worktree("codex", f.source, f.target)
-    assert second["status"] == "reused" and second["knowledge"] == pending
-    assert calls == [(f.target,)]
+    def prepare(*args, **kwargs):
+        (f.target / "README").write_text("edited during preparation\n")
+        return {"status": "ready"}, f.stage
+    monkeypatch.setattr(setup, "prepare_canonical", prepare)
+    result = setup.prepare_worktree("cursor", f.source, f.target)
+    assert result["head"] == f.old and result["environment"] == "old-environment"
+    assert result["update"]["reason"] == "dirty_checkout"
+    assert (Path(result["workspace"]) / "README").read_text() == "edited during preparation\n"
 
 
-def test_kimi_worktree_wiring_does_not_enable_an_unconfirmed_extension(tmp_path, monkeypatch):
-    calls = []
-    monkeypatch.setattr(setup, "run", lambda argv, **kwargs: calls.append((argv, kwargs)))
-    receipt = {"python": sys.executable, "receipt": "/selected/receipt.json"}
-    setup.configure_target("kimi", tmp_path, receipt, {})
-    argv, options = calls[0]
-    assert "--kimi-session-setup" not in argv
-    assert argv[-2:] == ["--kimi-config", str(tmp_path / ".vaws-local/kimi-hooks.toml")]
-    assert options["env"][setup.PIN_ENV] == receipt["receipt"]
-
-
-def test_malformed_optional_identity_does_not_block_local_setup(fixture):
+def test_explicit_older_native_revision_keeps_actual_code(fixture):
     f = fixture
-    identity = f.source / ".vaws-local/github.json"
-    identity.parent.mkdir()
-    identity.write_text("{invalid JSON")
+    result = setup.prepare_worktree("codex", f.stage, f.target)
+    assert result["head"] == f.old and not f.calls["prepare"]
+
+
+def test_canonical_preparation_uses_durable_owner_and_explicit_source_selection(fixture, monkeypatch):
+    from contextlib import contextmanager
+    f = fixture
+    setup.write_preparation(f.stage, project_root=f.source, native_workspace=f.stage, workspace=f.stage,
+                            sources={"workspace": f.stage})
+    calls = []
+    @contextmanager
+    def lock(root, **options):
+        calls.append(("lock", root))
+        yield
+    class Updater:
+        def __init__(self, root, **options):
+            calls.append(("updater", root, options))
+            self.state = {"phase": "ready", "prepared": {"stage": str(f.stage), "sources": {},
+                          "revisions": {"workspace": f.new}}}
+        def step(self, **options):
+            return {"status": "ready", "branch": "main"}
+        def validate_prepared(self, *_):
+            return f.stage
+    monkeypatch.setattr(setup, "workspace_entry", lambda root: {"state": "configured"})
+    monkeypatch.setattr(setup, "update_lock", lock)
+    monkeypatch.setattr(setup, "WorkspaceUpdater", Updater)
+    # Call the implementation; the shared fixture normally stubs canonical I/O.
+    original = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(original)
+    monkeypatch.setattr(original, "workspace_entry", setup.workspace_entry)
+    monkeypatch.setattr(original, "update_lock", lock)
+    monkeypatch.setattr(original, "WorkspaceUpdater", Updater)
+    result, prepared = original.prepare_canonical(f.stage, source_channel="release")
+    assert result["status"] == "ready" and prepared["sources"] == {}
+    assert calls == [("lock", f.source), ("updater", f.source, {"source_root": f.stage, "source_channel": "release"})]
+
+
+def test_malformed_optional_identity_is_reported_without_losing_copy(fixture):
+    f = fixture
+    path = f.source / ".vaws-local/github.json"
+    path.parent.mkdir()
+    path.write_text("{invalid JSON")
     result = setup.prepare_worktree("cursor", f.source, f.target)
     assert result["status"] == "ready" and result["identity"]["status"] == "unavailable"
-    assert f.calls["configure"]
-
-
-def test_initialized_components_follow_exact_gitlinks_without_changing_source(tmp_path, monkeypatch):
-    f = make_repository(tmp_path, monkeypatch, submodule=True)
-    before = snapshot(f.source)
-    transfers = []
-    actual_git = setup.git
-    def local_git(path, *args, **kwargs):
-        if "fetch" in args:
-            transfers.append(args)
-            assert args == ("fetch", "--no-tags", str(f.stage / "vllm"), f.module_new)
-        return actual_git(path, *args, **kwargs)
-    monkeypatch.setattr(setup, "git", local_git)
-    result = setup.prepare_worktree("cursor", f.source, f.target)
-    assert result["submodules"] == {"vllm": f.module_new}
-    assert git(f.target / "vllm", "rev-parse", "HEAD") == f.module_new
-    assert git(f.source / "vllm", "rev-parse", "HEAD") == f.module_old
-    assert snapshot(f.source) == before
-    assert transfers
-
-
-def test_uninitialized_components_are_not_downloaded(tmp_path, monkeypatch):
-    f = make_repository(tmp_path, monkeypatch, submodule=True)
-    other = tmp_path / "not initialized"
-    git(f.source, "worktree", "add", "--detach", str(other), f.old)
-    result = setup.prepare_worktree("codex", f.source, other)
-    assert result["head"] == f.new and result["submodules"] == {}
-    assert not (other / "vllm/.git").exists()
-
-
-def test_dirty_component_prevents_parent_advance(tmp_path, monkeypatch):
-    f = make_repository(tmp_path, monkeypatch, submodule=True)
-    (f.target / "vllm/operator.py").write_text("user operator draft\n")
-    result = setup.prepare_worktree("cursor", f.source, f.target)
-    assert result["head"] == f.old and result["update"]["reason"] == "dirty_checkout"
-    assert not f.calls["prepare"]
 
 
 @pytest.mark.parametrize("client", ["codex", "cursor"])
@@ -451,6 +373,6 @@ def test_ready_fallback_prepares_packages_only_without_parent_pins(fixture, monk
                         SimpleNamespace(stdout=json.dumps({"receipt": f.receipt_old})))
     assert setup.ready_for_target(f.source, f.target, setup.unpinned_environment()) == f.receipt_old
     argv, options = calls[0]
-    assert argv[-3:] == ["sync", "--packages-only", "--locked"]
+    assert argv[-2:] == ["sync", "--locked"]
     assert options["cwd"] == f.target
     assert setup.PIN_ENV not in options["env"] and "VAWS_CONTEXT_FILE" not in options["env"]

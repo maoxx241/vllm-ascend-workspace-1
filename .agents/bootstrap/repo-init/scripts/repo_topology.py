@@ -79,8 +79,8 @@ def resolve_repo(path_value: str) -> pathlib.Path:
         raise RepoTopologyError(
             f"path '{path_value}' is not a git repository root; "
             f"git root resolved to {git_root} instead of {path}. "
-            f"If this is a submodule, initialize it first with "
-            f"'git submodule update --init --recursive'."
+            f"Initialize selected business sources from sources.lock.json using "
+            f"'.agents/scripts/workspace_forks.py --github-user USER --apply'."
         )
     return git_root
 

@@ -9,6 +9,8 @@ from unittest.mock import patch
 import pytest
 
 from client_setup_fixtures import selected_runtime
+from test_native_worktree_setup import make_repository, setup as preparation
+from vaws_workspace_entry import write_preparation
 import vaws_kimi_config
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,32 +30,66 @@ provider_spec.loader.exec_module(provider)
 
 def git(path, *args):
     return subprocess.run(["git", "-C", str(path), *args], check=True,
-                          capture_output=True, text=True).stdout.strip()
+                          capture_output=True, text=True, encoding="utf-8").stdout.strip()
 
 
 def repo(path):
     path.mkdir()
     git(path, "init", "-b", "main")
-    (path / ".gitignore").write_text(".vaws-local/\n")
-    (path / "README.md").write_text("native session fixture\n")
+    (path / ".gitignore").write_text(".vaws-local/\n", encoding="utf-8")
+    (path / "README.md").write_text("native session fixture\n", encoding="utf-8")
     git(path, "add", ".")
     git(path, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "fixture")
     return path
 
 
-def test_creates_linked_worktrees_for_native_ids_and_keeps_existing_edits(tmp_path, monkeypatch):
-    project = repo(tmp_path / "project 用户")
-    monkeypatch.setattr(adapter, "prepare_worktree", lambda *_: {"status": "ready"})
+def test_creates_independent_workspaces_for_native_ids_and_keeps_existing_edits(tmp_path, monkeypatch):
+    f = make_repository(tmp_path, monkeypatch, submodule=True)
+    project = f.source
+    monkeypatch.setattr(adapter, "prepare_worktree", preparation.prepare_worktree)
     first = Path(adapter.setup(project, project, {"session_id": "session-first"})["hookSpecificOutput"]["cwd"])
     second = Path(adapter.setup(project, project, {"session_id": "session-second"})["hookSpecificOutput"]["cwd"])
     assert first != second != project
-    assert git(first, "rev-parse", "HEAD") == git(project, "rev-parse", "HEAD")
+    assert first.parent == second.parent == project.parent
+    assert (first / ".git").is_dir() and (first / "vllm/.git").is_dir()
+    assert git(first, "rev-parse", "HEAD") == f.new
+    assert git(project, "rev-parse", "HEAD") == f.old
     assert adapter.scoped_source(project, first) == first
-    (first / "task.txt").write_text("unfinished work")
+    assert adapter.scoped_source(project, first / "vllm") == first
+    assert adapter.scoped_source(project, repo(first / "unrelated")) is None
+    (first / "task.txt").write_text("unfinished work", encoding="utf-8")
     repeated = adapter.setup(project, project, {"session_id": "session-first"})
     assert Path(repeated["hookSpecificOutput"]["cwd"]) == first
-    assert (first / "task.txt").read_text() == "unfinished work"
+    assert (first / "task.txt").read_text(encoding="utf-8") == "unfinished work"
     assert git(project, "status", "--porcelain") == ""
+
+
+@pytest.mark.parametrize("receipt", ["missing", "incomplete", "foreign"])
+def test_existing_kimi_target_requires_complete_project_ownership(tmp_path, monkeypatch, receipt):
+    project = repo(tmp_path / "project")
+    target = project.parent / (project.name + "-vaws-kimi-" + adapter.hashlib.sha256(b"known").hexdigest()[:20])
+    repo(target)
+    if receipt == "incomplete":
+        path = target / ".vaws-local/native-workspace.json"
+        path.parent.mkdir()
+        path.write_text('{"state":"ready"}', encoding="utf-8")
+    elif receipt == "foreign":
+        write_preparation(target, project_root=tmp_path / "another-owner", native_workspace=target,
+                          workspace=target, sources={})
+    monkeypatch.setattr(adapter, "prepare_worktree", lambda *a, **k: pytest.fail("unowned target was prepared"))
+    with pytest.raises(ValueError):
+        adapter.setup(project, project, {"session_id": "known"})
+
+
+def test_kimi_returns_actual_prepared_path_without_creating_a_native_parent(tmp_path, monkeypatch):
+    project = repo(tmp_path / "project")
+    actual = tmp_path / "actual-bundle"
+    def prepare(client, source, target):
+        assert client == "kimi" and source == project
+        assert not target.exists() and target.parent == project.parent
+        return {"status": "ready", "workspace": str(actual)}
+    monkeypatch.setattr(adapter, "prepare_worktree", prepare)
+    assert adapter.setup(project, project, {"session_id": "new"})["hookSpecificOutput"]["cwd"] == str(actual)
 
 
 def test_unrelated_nested_repository_does_not_inherit_setup(tmp_path):
@@ -82,7 +118,7 @@ def test_native_extension_requires_explicit_opt_in_on_each_configuration_run(tmp
     project = repo(tmp_path / "extended")
     other = repo(tmp_path / "official")
     config = tmp_path / "config.toml"
-    config.write_text('[provider]\nname = "kept"\n')
+    config.write_text('[provider]\nname = "kept"\n', encoding="utf-8")
     ordinary = client_setup.build_plan("kimi", project, kimi_config=config, task_only=True)
     assert 'event = "SessionSetup"' not in ordinary["files"][config]
     extended = client_setup.build_plan("kimi", project, kimi_config=config, task_only=True,
@@ -95,7 +131,7 @@ def test_native_extension_requires_explicit_opt_in_on_each_configuration_run(tmp
                 str(Path(extended["configuration_owner"]) / ".agents/scripts/vaws_kimi_session_setup.py"),
                 "--project", str(project)]
     assert all(client_setup.hook_argv(hook["command"]) == expected for hook in hooks)
-    config.write_text(text)
+    config.write_text(text, encoding="utf-8")
     repaired = client_setup.build_plan("kimi", project, kimi_config=config, task_only=True)
     repaired_hooks = client_setup.tomllib.loads(repaired["files"][config])["hooks"]
     assert all(hook["event"] != "SessionSetup" for hook in repaired_hooks)
@@ -115,7 +151,7 @@ def test_native_extension_requires_explicit_opt_in_on_each_configuration_run(tmp
     assert Path(separate_argv[1]) == Path(separate["configuration_owner"]) / ".agents/hooks/vaws_session.py"
     assert separate_argv[separate_argv.index("--project") + 1] == str(other)
     assert client_setup.tomllib.loads(separate["files"][config])["provider"] == {"name": "kept"}
-    config.write_text(repaired["files"][config])
+    config.write_text(repaired["files"][config], encoding="utf-8")
     assert client_setup.build_plan("kimi", project, kimi_config=config, task_only=True)["files"][config] == repaired["files"][config]
     explicit_again = client_setup.build_plan("kimi", project, kimi_config=config, task_only=True,
                                               kimi_session_setup=True)
@@ -136,7 +172,7 @@ def test_user_mcp_moves_only_managed_providers_and_keeps_user_configuration(tmp_
     home.mkdir()
     config = home / "config.toml"
     original = {"custom": "keep", "mcpServers": {"another": {"command": "custom-provider"}}}
-    (home / "mcp.json").write_text(json.dumps(original))
+    (home / "mcp.json").write_text(json.dumps(original), encoding="utf-8")
     plan = client_setup.build_plan("kimi", project, kimi_config=config, task_only=True, kimi_session_setup=extended)
     value = json.loads(plan["files"][home / "mcp.json"])
     assert value["custom"] == "keep"
@@ -145,7 +181,7 @@ def test_user_mcp_moves_only_managed_providers_and_keeps_user_configuration(tmp_
     assert provider.PIN_ENV not in value["mcpServers"]["vaws-task"]["env"]
     assert "vaws-task" not in json.loads(plan["files"][project / ".kimi-code/mcp.json"])["mcpServers"]
     custom = {"mcpServers": {"vaws-task": {"command": "my-own-server", "custom": True}}}
-    (home / "mcp.json").write_text(json.dumps(custom))
+    (home / "mcp.json").write_text(json.dumps(custom), encoding="utf-8")
     plan = client_setup.build_plan("kimi", project, kimi_config=config, task_only=True, kimi_session_setup=extended)
     assert json.loads(plan["files"][home / "mcp.json"])["mcpServers"]["vaws-task"] == custom["mcpServers"]["vaws-task"]
 
@@ -155,7 +191,7 @@ def test_native_provider_uses_each_worktree_saved_receipt_and_client_cwd(tmp_pat
 
     project = repo(tmp_path / "project")
     (project / ".agents/lib").mkdir(parents=True)
-    (project / ".agents/lib/vaws_environment.py").write_text("# fixture marker\n")
+    (project / ".agents/lib/vaws_environment.py").write_text("# fixture marker\n", encoding="utf-8")
     git(project, "add", ".agents")
     git(project, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "marker")
     target = tmp_path / "new worktree"

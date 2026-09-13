@@ -109,9 +109,9 @@ def test_invalid_prepare_reply_is_pending(tmp_path, monkeypatch):
     assert knowledge.prepare_knowledge(tmp_path)["status"] == "pending"
 
 
-@pytest.mark.parametrize("ready", [True, False])
+@pytest.mark.parametrize("options", [[], ["--locked"], ["--locked", "--group", "dev"], ["--group", "dev", "--locked"]])
 @pytest.mark.parametrize("previous_pin", [None, "old-ready.json"])
-def test_sync_reports_dependency_success_separately_from_knowledge(tmp_path, monkeypatch, capsys, ready, previous_pin):
+def test_sync_only_installs_packages_and_does_not_touch_knowledge(tmp_path, monkeypatch, capsys, options, previous_pin):
     monkeypatch.setattr(deps, "ROOT", tmp_path)
     if previous_pin is None:
         monkeypatch.delenv(envs.PIN_ENV, raising=False)
@@ -123,17 +123,16 @@ def test_sync_reports_dependency_success_separately_from_knowledge(tmp_path, mon
     monkeypatch.setattr(deps, "prepare_environment", lambda root, **kwargs: calls.append((root, kwargs)) or receipt)
     linked = []
     monkeypatch.setattr(links, "link_environment", lambda root, **kwargs: linked.append((root, kwargs)))
-    prepared = []
-    monkeypatch.setattr(deps, "prepare_knowledge", lambda root: prepared.append((root, deps.os.environ.get(envs.PIN_ENV))) or {"status": "ready" if ready else "pending", "ready": ready})
-    assert deps.main(["sync", "--locked"]) == 0
-    assert calls == [(tmp_path, {"install_options": ["--locked"]})]
+    monkeypatch.setattr(knowledge, "prepare_knowledge", lambda *a, **k: pytest.fail("package sync must not prepare knowledge"))
+    assert deps.main(["sync", *options]) == 0
+    assert calls == [(tmp_path, {"install_options": options})]
     assert linked == ([(tmp_path, {"key": receipt["key"], "environment_root": Path(receipt["root"])})] if deps.os.name == "nt" else [])
-    assert prepared == [(tmp_path, receipt["receipt"])]
     assert deps.os.environ.get(envs.PIN_ENV) == previous_pin
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True and payload["returncode"] == 0
     assert payload["environment"] == receipt["root"] and payload["receipt"] == receipt
-    assert payload["knowledge"]["ready"] is ready
+    assert "knowledge" not in payload
+    assert not (tmp_path / ".vaws-local/knowledge").exists()
 
 
 def test_failed_dependency_install_does_not_prepare_knowledge(tmp_path, monkeypatch, capsys):
@@ -143,7 +142,7 @@ def test_failed_dependency_install_does_not_prepare_knowledge(tmp_path, monkeypa
         raise envs.EnvironmentError("locked dependency installation failed with exit code 1")
     monkeypatch.setattr(deps, "prepare_environment", failed)
     monkeypatch.setattr(links, "link_environment", lambda *args, **kwargs: pytest.fail("failed install must not publish an alias"))
-    monkeypatch.setattr(deps, "prepare_knowledge", lambda root: pytest.fail("failed install must not prepare knowledge"))
+    monkeypatch.setattr(knowledge, "prepare_knowledge", lambda root: pytest.fail("failed install must not prepare knowledge"))
     assert deps.main(["sync"]) == 1
     assert deps.os.environ[envs.PIN_ENV] == "old-ready.json"
     payload = json.loads(capsys.readouterr().out)
@@ -151,22 +150,24 @@ def test_failed_dependency_install_does_not_prepare_knowledge(tmp_path, monkeypa
     assert "exit code 1" in payload["error"]
 
 
-@pytest.mark.parametrize("arguments", [
-    ["--packages-only", "--locked", "--group", "dev"],
-    ["--locked", "--group", "dev", "--packages-only"],
-])
-def test_packages_only_preserves_uv_options_without_touching_knowledge(tmp_path, monkeypatch, capsys, arguments):
+def test_dependency_entry_does_not_import_knowledge_service(monkeypatch):
+    import builtins
+    original = builtins.__import__
+    def guarded(name, *args, **kwargs):
+        if name == "vaws_knowledge_service" or name == "vaws_knowledge" or name.startswith("vaws_knowledge."):
+            pytest.fail("dependency entry imported the optional knowledge runtime")
+        return original(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", guarded)
+    fresh = importlib.util.spec_from_file_location("packages_without_knowledge", ROOT / ".agents/scripts/vaws_deps.py")
+    fresh.loader.exec_module(importlib.util.module_from_spec(fresh))
+
+
+def test_removed_packages_only_flag_is_rejected_before_installation(tmp_path, monkeypatch, capsys):
+    (tmp_path / "pyproject.toml").write_text("[tool.uv]\npackage = false\n", encoding="utf-8")
+    (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     monkeypatch.setattr(deps, "ROOT", tmp_path)
-    monkeypatch.setenv(envs.PIN_ENV, "running-client-receipt.json")
-    receipt = {"key": "a" * 64, "root": str(tmp_path / "ready"),
-               "receipt": str(tmp_path / "ready/.vaws-ready.json")}
-    installed = []
-    monkeypatch.setattr(deps, "prepare_environment", lambda root, **kwargs: installed.append((root, kwargs)) or receipt)
-    monkeypatch.setattr(links, "link_environment", lambda *args, **kwargs: None)
-    monkeypatch.setattr(deps, "prepare_knowledge", lambda root: pytest.fail("packages-only must not touch knowledge"))
-    assert deps.main(["sync", *arguments]) == 0
-    assert installed == [(tmp_path, {"install_options": ["--locked", "--group", "dev"]})]
-    assert deps.os.environ[envs.PIN_ENV] == "running-client-receipt.json"
+    monkeypatch.setattr(envs, "_python_identity", lambda *a, **k: pytest.fail("removed option reached installation"))
+    assert deps.main(["sync", "--packages-only"]) == 1
     payload = json.loads(capsys.readouterr().out)
-    assert payload["ok"] is True and payload["receipt"] == receipt
-    assert payload["knowledge"] == {"status": "skipped", "reason": "packages_only"}
+    assert payload["ok"] is False and "unsupported immutable sync option" in payload["error"]
+    assert not (tmp_path / ".vaws-local").exists()

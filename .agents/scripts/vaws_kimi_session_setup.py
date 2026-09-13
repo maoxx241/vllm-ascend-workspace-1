@@ -19,17 +19,20 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
 sys.path.insert(0, str(ROOT / ".agents/scripts"))
 from vaws_environment import PIN_ENV, MANAGED_PIN_ENV, saved_ready
-from vaws_workspace_update import common_dir, git
+from vaws_workspace_update import common_dir, repository_root
 from vaws_worktree_setup import prepare_worktree, unpinned_environment
 from vaws_native_task_env import task_env
-from vaws_native_workspace import create_linked_workspace
+from vaws_local_state import prepared_workspace, read_preparation, shared_workspace_root
 
 
 def scoped_source(project: Path, cwd: Path) -> Path | None:
     try:
-        source = Path(git(cwd, "rev-parse", "--show-toplevel")).resolve()
+        prepared = prepared_workspace(cwd, project)
+        if prepared is not None:
+            return prepared
+        source = repository_root(cwd)
         return source if common_dir(source).resolve() == common_dir(project).resolve() else None
-    except (OSError, RuntimeError, subprocess.SubprocessError):
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
         return None
 
 
@@ -37,23 +40,20 @@ def setup(project: Path, source: Path, payload: dict) -> dict:
     native = payload.get("session_id")
     if not isinstance(native, str) or not native:
         raise ValueError("Kimi SessionSetup omitted its native session_id")
-    target = project / ".vaws-local/workspaces" / ("kimi-" + hashlib.sha256(native.encode()).hexdigest()[:20])
-    if not target.exists():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if payload.get("source") == "fork":
-            create_linked_workspace(source, target)
-        else:
-            git(source, "worktree", "add", "--detach", str(target), "HEAD")
-    elif common_dir(target).resolve() != common_dir(project).resolve():
-        raise ValueError("Kimi setup target exists outside this Git worktree family")
-    elif payload.get("source") == "fork" and not (target / ".vaws-local/native-workspace.json").is_file():
-        raise ValueError(f"Kimi fork copy did not finish; incomplete worktree kept at {target}")
+    owner = shared_workspace_root(project)
+    target = owner.parent / (owner.name + "-vaws-kimi-" + hashlib.sha256(native.encode()).hexdigest()[:20])
+    if target.exists():
+        record = read_preparation(target)
+        if record is None:
+            raise ValueError(f"Kimi workspace preparation is incomplete: {target}")
+        if Path(record["project_root"]) != owner:
+            raise ValueError(f"Kimi workspace belongs to another project: {target}")
     if payload.get("source") == "fork":
         result = prepare_worktree("kimi", source, target, preserve_source=True)
     else:
         result = prepare_worktree("kimi", source, target)
     print(json.dumps({"kimi_session_setup": result}, ensure_ascii=False), file=sys.stderr, flush=True)
-    return {"hookSpecificOutput": {"cwd": str(target)}}
+    return {"hookSpecificOutput": {"cwd": result["workspace"]}}
 
 
 def forward(source: Path, payload: dict) -> int:
@@ -64,7 +64,7 @@ def forward(source: Path, payload: dict) -> int:
     command = [receipt["python"], str(source / ".agents/hooks/vaws_session.py"),
                "--client", "kimi", "--project", str(source),
                "--environment-receipt", receipt["receipt"]]
-    result = subprocess.run(command, input=json.dumps(payload), text=True,
+    result = subprocess.run(command, input=json.dumps(payload), text=True, encoding="utf-8",
                             env=environment, cwd=source, check=False)
     return result.returncode
 

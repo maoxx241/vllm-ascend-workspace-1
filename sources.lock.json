@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "vllm-ascend": {
+    "repository": "vllm-project/vllm-ascend",
+    "revision": "799801feef347469d5e9b39374b9210e0d4f7431"
+  },
+  "vllm": {
+    "repository": "vllm-project/vllm",
+    "development": {
+      "revision": "a97dacb7106ee49f39f3d1fc6ae1800ff724e01d"
+    },
+    "release": {
+      "tag": "v0.28.0",
+      "revision": "2cf0a6915ce544dc493a0990f2ea38d81601128a"
+    }
+  }
+}

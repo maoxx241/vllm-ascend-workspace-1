@@ -79,6 +79,34 @@ def run_hook(root, client, event_payload, *, package=False):
                           encoding="utf-8", cwd=root, timeout=15, check=True)
 
 
+@pytest.mark.parametrize("client", ["claude", "codex", "cursor", "grok", "kimi"])
+def test_real_consumer_hook_binds_declared_independent_repositories(project, tmp_path, client):
+    from vaws_workspace_entry import write_preparation
+    root, native, store, receipt = project
+    bundle = tmp_path / "independent bundle"
+    git(root, "clone", "--local", str(root), str(bundle))
+    child = bundle / "business"
+    git(root, "clone", "--local", str(root), str(child))
+    sources = {"workspace": str(bundle), "business": str(child)}
+    for target in (bundle, native):
+        write_preparation(target, project_root=root, native_workspace=native,
+                          workspace=bundle, sources=sources)
+    environments.select_environment(bundle, receipt)
+    identifier = "multi-repo-" + client
+    run_hook(root, client, payload(client, "SessionStart", identifier, native))
+    context = store.native_context(client, identifier)
+    assert context["attachment"]["cwd"] == str(native)
+    assert {name: row["path"] for name, row in context["source_defaults"]["sources"].items()} == sources
+    run_hook(root, client, payload(client, "UserPromptSubmit", identifier, child))
+    resumed = store.native_context(client, identifier)
+    assert resumed["session"]["id"] == context["session"]["id"]
+    assert resumed["attachment"]["cwd"] == str(child)
+    assert {name: row["path"] for name, row in resumed["source_defaults"]["sources"].items()} == sources
+    store.bind_sources(resumed, {})
+    run_hook(root, client, payload(client, "SessionStart", identifier, bundle, source="resume"))
+    assert store.native_context(client, identifier)["source_defaults"] == {"origin": "explicit", "sources": {}}
+
+
 def hint(client, event, raw):
     if client == "kimi" and event == "UserPromptSubmit":
         return raw

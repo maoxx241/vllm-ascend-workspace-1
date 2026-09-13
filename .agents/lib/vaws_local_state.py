@@ -7,6 +7,7 @@ Business result directories remain local to the current worktree.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import uuid
@@ -20,9 +21,83 @@ ROOT = Path(__file__).resolve().parents[2]
 STATE_DIR = ROOT / STATE_DIRNAME
 
 
+def read_preparation(root: Path) -> dict | None:
+    """Read the existing preparation receipt; never discover or prepare sources."""
+    from vaws_local_owner import accessible_windows_path
+
+    root = root.expanduser().resolve()
+    path = root / STATE_DIRNAME / "native-workspace.json"
+    if not path.is_file():
+        return None
+    result = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(result, dict) or result.get("state") != "ready":
+        raise ValueError(f"workspace preparation is incomplete: {path}")
+    result = dict(result)
+    for key in ("project_root", "native_workspace", "workspace"):
+        value = result.get(key)
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"workspace preparation has no {key}: {path}")
+        target = Path(accessible_windows_path(value)).expanduser()
+        if not target.is_absolute():
+            raise ValueError(f"workspace preparation {key} is not absolute: {path}")
+        result[key] = str(target.resolve())
+    if str(root) not in (result["workspace"], result["native_workspace"]):
+        raise ValueError(f"workspace preparation belongs to another directory: {path}")
+    sources = result.get("sources")
+    if not isinstance(sources, dict):
+        raise ValueError(f"workspace preparation has no source map: {path}")
+    normalized = {}
+    workspace = Path(result["workspace"])
+    for name, value in sources.items():
+        if not isinstance(name, str) or not name or name in {".", ".."} or "/" in name or "\\" in name:
+            raise ValueError(f"invalid prepared source name: {path}")
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"invalid prepared source path: {path}")
+        target = Path(accessible_windows_path(value)).expanduser()
+        if not target.is_absolute():
+            raise ValueError(f"prepared source path is not absolute: {path}")
+        target = target.resolve()
+        if target != workspace and workspace not in target.parents:
+            raise ValueError(f"prepared source is outside its workspace: {path}")
+        normalized[name] = str(target)
+    result["sources"] = normalized
+    if normalized.get("workspace") != result["workspace"]:
+        raise ValueError(f"prepared workspace source does not match its directory: {path}")
+    return result
+
+
+def prepared_workspace(cwd: Path, project: Path, *, owner: Path | None = None) -> Path | None:
+    """Match a native cwd to explicit preparation, including declared child repos.
+
+    Inspect only ancestor markers, not directory contents or Git history. An
+    unrelated nested repository is excluded unless its exact root was selected.
+    This is workspace routing; native context remains the task identity.
+    """
+    cwd, project = cwd.expanduser().resolve(), project.expanduser().resolve()
+    nearest_git = None
+    for candidate in (cwd, *cwd.parents):
+        if nearest_git is None and (candidate / ".git").exists():
+            nearest_git = candidate
+        record = read_preparation(candidate)
+        if record is None:
+            continue
+        owner = owner or shared_workspace_root(project)
+        if Path(record["project_root"]) != owner:
+            return None
+        allowed = {Path(record["workspace"]), Path(record["native_workspace"]),
+                   *(Path(value) for value in record["sources"].values())}
+        if nearest_git is not None and nearest_git not in allowed:
+            return None
+        return Path(record["workspace"])
+    return None
+
+
 def shared_workspace_root(repo_root: Path = ROOT) -> Path:
-    """Return the primary worktree that owns cross-worktree machine inventory."""
+    """Use the explicit preparation owner, or a native single-repo Git owner."""
     repo_root = repo_root.expanduser().resolve()
+    preparation = read_preparation(repo_root)
+    if preparation is not None:
+        return Path(preparation["project_root"])
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "rev-parse", "--git-common-dir"],

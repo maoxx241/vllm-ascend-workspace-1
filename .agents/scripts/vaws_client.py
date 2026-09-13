@@ -22,7 +22,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
-from vaws_native_workspace import WorkspaceCopyError, create_workspace, git
+sys.path.insert(0, str(ROOT / ".agents/scripts"))
+from vaws_native_workspace import WorkspaceCopyError
 from vaws_venv import ensure_workspace_interpreter
 
 CLIENT_COMMANDS = {"codex": "codex", "grok": "grok", "kimi": "kimi", "claude": "claude", "cursor": "cursor-agent"}
@@ -45,14 +46,22 @@ def resolve_client(client: str) -> list[str]:
     return [executable]
 
 
-def prepare_workspace(client: str, workspace: Path | None, *, source: Path = ROOT) -> dict:
-    target = workspace.expanduser().absolute() if workspace else source / ".vaws-local/workspaces" / (client + "-" + uuid.uuid4().hex[:12])
+def prepare_workspace(client: str, workspace: Path | None, *, source: Path = ROOT,
+                      source_channel: str = "development") -> dict:
+    from vaws_local_state import shared_workspace_root
+    from vaws_workspace_entry import read_preparation
+    from vaws_worktree_setup import prepare_worktree
+
+    project = shared_workspace_root(source)
+    target = workspace.expanduser().resolve() if workspace else project.parent / (
+        project.name + "-" + client + "-" + uuid.uuid4().hex[:12])
     if target.exists():
-        actual = Path(os.fsdecode(git(target, "rev-parse", "--show-toplevel").strip())).resolve()
-        if actual != target.resolve():
-            raise WorkspaceCopyError("--workspace must name the root of an existing Git checkout")
-        return {"state": "reused", "workspace": str(target), "head": git(target, "rev-parse", "HEAD").decode().strip()}
-    return create_workspace(source, target)
+        record = read_preparation(target)
+        if record is None:
+            raise WorkspaceCopyError("--workspace must name a completed editing workspace; use a new path to prepare one")
+        if Path(record["project_root"]).resolve() != project:
+            raise WorkspaceCopyError("--workspace belongs to another project")
+    return prepare_worktree(client, source, target, source_channel=source_channel)
 
 
 def client_environment(environment=None) -> dict[str, str]:
@@ -90,101 +99,56 @@ def run_client(command: list[str], workspace: Path, *, environment=None) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("client", choices=sorted(CLIENT_COMMANDS))
-    parser.add_argument("--workspace", type=Path, help="reuse an existing checkout or create it at this path")
+    parser.add_argument("--workspace", type=Path, help="reuse a prepared workspace or create one at a new path")
+    parser.add_argument("--source-channel", choices=("development", "release"), default="development")
     values = list(sys.argv[1:] if argv is None else argv)
     split = values.index("--") if "--" in values else len(values)
     args = parser.parse_args(values[:split])
     native_args = values[split + 1:]
     try:
         command = resolve_client(args.client)
-        from vaws_workspace_entry import copy_workspace_identity, prepare_session
-        from vaws_environment import MANAGED_PIN_ENV, PIN_ENV, native_ready, saved_ready, select_environment
-        from vaws_local_owner import managed_receipt, windows_mounted_workspace
-        # Only a new editing directory selects new code. An explicit existing
-        # directory (including native resume) owns its saved immutable receipts.
-        existing = args.workspace is not None and args.workspace.expanduser().exists()
-        release_launch = os.environ.get("VAWS_RELEASE_LAUNCH") == "1"
+        from vaws_environment import MANAGED_PIN_ENV, PIN_ENV, saved_ready
+        from vaws_local_owner import accessible_windows_path, windows_mounted_workspace
+        from vaws_worktree_setup import unpinned_environment
+
+        # Preparation owns code, packages and wiring once. The native process
+        # starts with the returned real cwd, before its first tool call.
         os.environ.pop(PIN_ENV, None)
         os.environ.pop(MANAGED_PIN_ENV, None)
-        source = args.workspace.expanduser().resolve() if existing else ROOT
+        existing = args.workspace is not None and args.workspace.expanduser().exists()
+        bootstrap = ROOT
         if existing:
-            native = saved_ready(source)
-            os.environ[PIN_ENV] = native["receipt"]
-            if windows_mounted_workspace(source):
-                os.environ[MANAGED_PIN_ENV] = saved_ready(source, target_platform="win32")["receipt"]
-        elif not release_launch:
-            print("VAWS: checking upstream before creating this session's editing directory...",
-                  file=sys.stderr, flush=True)
-            result = prepare_session(ROOT)
-            print(json.dumps({"workspace_updates": result}, ensure_ascii=False), file=sys.stderr, flush=True)
-            if result.get("state") not in {"disabled", "identity_pending", "needs_github_user", "identity_invalid"}:
-                from vaws_workspace_update import prepared_source
-                source = prepared_source(ROOT) or ROOT
-        if source != ROOT and not existing:
-            # Run the prepared revision's client wiring and dependencies.
-            # The existing checkout remains unchanged for any active GUI task.
-            try:
-                launcher = source / ".agents/scripts/vaws_client.py"
-                if not launcher.is_file():
-                    raise WorkspaceCopyError("prepared revision has no native client launcher")
-                prepared = native_ready(source)
-                if windows_mounted_workspace(source):
-                    # The Windows owner prepares Windows packages. A WSL CLI
-                    # also needs its prepared native Linux receipt.
-                    from vaws_environment import windows_ready
-                    windows_ready(source)
-                copy_workspace_identity(ROOT, source)
-                environment = dict(os.environ)
-                environment["VAWS_RELEASE_LAUNCH"] = "1"
-                for name in ("VAWS_VENV_REEXEC", "VAWS_SKIP_VENV_REEXEC", "VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH"):
-                    environment.pop(name, None)
-                arguments = [prepared["python"], str(launcher), *values]
-                if os.name == "nt":
-                    from vaws_windows import run_owned
-                    return run_owned(arguments, env=environment)
-                os.execvpe(prepared["python"], arguments, environment)
-            except (OSError, RuntimeError, ValueError) as exc:
-                print(json.dumps({"workspace_updates": {"state": "update_launch_pending", "error": str(exc)}},
-                                 ensure_ascii=False), file=sys.stderr, flush=True)
-                source = ROOT
-        # An interpreter hop may execute main again. Carry the one-time startup
-        # decision through that hop; run_client removes this internal marker.
-        os.environ["VAWS_RELEASE_LAUNCH"] = "1"
-        ensure_workspace_interpreter(repo_root=source, use_saved=False)
-        receipt = prepare_workspace(args.client, args.workspace, source=source)
-        target = Path(receipt["workspace"])
-        if not existing:
-            native = native_ready(source)
-        os.environ[PIN_ENV] = native["receipt"]
-        if not existing:
-            try:
-                copy_workspace_identity(source, target)
-            except (OSError, RuntimeError, ValueError) as exc:
-                print(json.dumps({"workspace_updates": {"state": "identity_copy_pending", "error": str(exc)}},
-                                 ensure_ascii=False), file=sys.stderr, flush=True)
-            select_environment(target, native)
-        managed = native if native["platform"] == "win32" else (
-            managed_receipt(source) if windows_mounted_workspace(source) else None)
-        if managed is not None:
-            os.environ[MANAGED_PIN_ENV] = managed["receipt"]
-            if not existing and managed["key"] != native["key"]:
-                select_environment(target, managed)
+            from vaws_workspace_entry import read_preparation
+            bootstrap = args.workspace.expanduser().resolve()
+            record = read_preparation(bootstrap)
+            if record is not None:
+                bootstrap = Path(record["workspace"])
+            pinned = saved_ready(bootstrap)
+            os.environ[PIN_ENV] = pinned["receipt"]
+            if pinned["platform"] == "win32":
+                os.environ[MANAGED_PIN_ENV] = pinned["receipt"]
+            elif windows_mounted_workspace(bootstrap):
+                os.environ[MANAGED_PIN_ENV] = saved_ready(bootstrap, target_platform="win32")["receipt"]
+        ensure_workspace_interpreter(repo_root=bootstrap, use_saved=existing)
+        result = prepare_workspace(args.client, args.workspace, source=ROOT,
+                                   source_channel=args.source_channel)
+        target = Path(result["workspace"])
+        native = saved_ready(target)
         import vaws_client_setup
-        if existing:
-            # Existing hooks/MCP commands already contain the session's pins.
-            provider = vaws_client_setup.existing_task_env(args.client, target)
-        else:
-            plan = vaws_client_setup.build_plan(args.client, target)
-            receipt["configuration"] = vaws_client_setup.apply_plan(plan)
-            provider = vaws_client_setup.launch_env(args.client, target)
-        print(json.dumps(receipt, ensure_ascii=False), file=sys.stderr, flush=True)
-        environment = activated_client_environment(native)
-        from vaws_local_owner import accessible_windows_path
+        provider = vaws_client_setup.existing_task_env(args.client, target)
+        environment = activated_client_environment(native, unpinned_environment())
+        environment[PIN_ENV] = native["receipt"]
+        if native["platform"] == "win32":
+            environment[MANAGED_PIN_ENV] = native["receipt"]
+        elif windows_mounted_workspace(target):
+            environment[MANAGED_PIN_ENV] = saved_ready(target, target_platform="win32")["receipt"]
         for key in ("VAWS_AGENT_SESSIONS_DIR", "VAWS_COORDINATOR_STATE_DIR", "VAWS_GITHUB_IDENTITY_FILE"):
             if key in provider:
                 environment[key] = accessible_windows_path(provider[key])
+        print(json.dumps(result, ensure_ascii=False), file=sys.stderr, flush=True)
         return run_client([*command, *native_args], target, environment=environment)
-    except (WorkspaceCopyError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+
+    except (WorkspaceCopyError, OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         print(json.dumps({"state": "failed", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
 

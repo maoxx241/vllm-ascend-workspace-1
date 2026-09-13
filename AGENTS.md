@@ -50,8 +50,21 @@ Normal hooks reuse the final summary for capture, with no extra report required.
 ## Repository facts
 
 Canonical upstream is `vllm-ascend-workspace/vllm-ascend-workspace`. Development
-Forks belong to personal GitHub users. Keep `.gitmodules` on community upstreams
-`vllm-project/vllm` and `vllm-project/vllm-ascend`.
+Forks belong to personal GitHub users. `vllm/` and `vllm-ascend/` are ordinary
+independent repositories prepared on demand from the exact official pair in
+`sources.lock.json`. The default development baseline and the release-vLLM baseline
+use the same Ascend commit; the latter is not a complete stable Ascend stack.
+Full multi-repository task directories use independent clones for the root and
+children, without alternates. Existing sources and resumed tasks keep their
+actual code. Native attachments expand prepared source roots automatically;
+explicit task/run `sources={}` takes precedence. See the
+[source workspace contract](docs/source-workspace.md).
+
+People can open the returned workspace and inspect each repository with
+`git -C vllm` or `git -C vllm-ascend`. Parent status does not report all child
+changes. A returned native setup path or preparation receipt does not prove
+that a client's UI switched directories; report actual paths and tested client
+capabilities without claiming unverified UI behavior.
 
 Runtime behavior belongs to remote-dev, vaws-coordinator, vaws-knowledge and
 vaws-top; this workspace owns consumption and client wiring. Shared root servers

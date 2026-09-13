@@ -184,9 +184,15 @@ def test_new_client_clears_parent_pins_and_selects_current_native_and_owner(tmp_
     spec.loader.exec_module(client)
     monkeypatch.setattr(client, 'ROOT', checkout)
     monkeypatch.setattr(client, 'resolve_client', lambda name: ['native-client'])
-    monkeypatch.setattr(client, 'prepare_workspace', lambda *args, **kwargs: {'state': 'ready', 'workspace': str(copy)})
     checks = []
-    monkeypatch.setattr(entry, 'prepare_session', lambda root: checks.append(root) or {'state': 'configured'})
+    def prepare(*args, **kwargs):
+        checks.append(kwargs['source'])
+        project(copy)
+        envs.select_environment(copy, native)
+        if mode != 'native-linux':
+            envs.select_environment(copy, current_owner)
+        return {'status': 'ready', 'workspace': str(copy)}
+    monkeypatch.setattr(client, 'prepare_workspace', prepare)
     monkeypatch.setenv('VAWS_RELEASE_LAUNCH', '0')
     monkeypatch.setenv(envs.PIN_ENV, old_native['receipt'])
     monkeypatch.setenv(envs.MANAGED_PIN_ENV, old_owner['receipt'])
@@ -195,11 +201,10 @@ def test_new_client_clears_parent_pins_and_selects_current_native_and_owner(tmp_
         assert kwargs['use_saved'] is False
         os.environ[envs.PIN_ENV] = native['receipt']
     monkeypatch.setattr(client, 'ensure_workspace_interpreter', enter_native)
-    monkeypatch.setattr(envs, 'native_ready', lambda root: native)
+    monkeypatch.setattr(sys, 'platform', native['platform'])
     monkeypatch.setattr(owner, 'windows_mounted_workspace', lambda root: mode == 'wsl')
     registry = str(checkout / '.vaws-local/agent-sessions')
-    setup = SimpleNamespace(build_plan=lambda *args: {}, apply_plan=lambda plan: {},
-                            launch_env=lambda *args: {'VAWS_AGENT_SESSIONS_DIR': registry})
+    setup = SimpleNamespace(existing_task_env=lambda *args: {'VAWS_AGENT_SESSIONS_DIR': registry})
     monkeypatch.setitem(sys.modules, 'vaws_client_setup', setup)
     seen = []
     monkeypatch.setattr(client, 'run_client', lambda command, cwd, environment: seen.append(environment) or 0)
@@ -257,7 +262,6 @@ def test_existing_workspace_resume_keeps_saved_pins_and_configuration(tmp_path, 
         entered.append(kwargs['repo_root'])
 
     monkeypatch.setattr(client, 'ensure_workspace_interpreter', enter_native)
-    monkeypatch.setattr(entry, 'prepare_session', unexpected)
     monkeypatch.setattr(envs, 'select_environment', unexpected)
     setup = SimpleNamespace(build_plan=unexpected, apply_plan=unexpected, launch_env=unexpected,
                             existing_task_env=lambda *args: {'VAWS_AGENT_SESSIONS_DIR': registry})

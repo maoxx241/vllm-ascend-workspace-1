@@ -10,19 +10,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
 
 from vaws_environment import EnvironmentError, PIN_ENV, MANAGED_PIN_ENV, native_ready, saved_ready, select_environment, _inputs
-from vaws_knowledge_service import prepare_knowledge
-from vaws_session_state import write_json
-from vaws_workspace_entry import copy_workspace_identity, workspace_entry
-from vaws_workspace_update import (Deferred, SUBMODULES, WorkspaceUpdater, clean_checkout, common_dir,
-                                   git, gitlinks, initialized, run, update_lock)
+from vaws_workspace_entry import copy_workspace_identity, workspace_entry, read_preparation, write_preparation
+from vaws_workspace_update import (Deferred, WorkspaceUpdater, available_sources, clean_checkout, common_dir,
+                                   git, run, update_lock)
+from vaws_native_workspace import create_workspace, create_prepared_workspace
+from vaws_local_state import shared_workspace_root
 
 
 def native_paths(client: str, environment: dict, cwd: Path) -> tuple[Path, Path]:
@@ -64,12 +66,12 @@ def ready_for_target(source: Path, target: Path, environment: dict) -> dict:
         return native_ready(target)
     except EnvironmentError:
         result = run([getattr(sys, "_base_executable", sys.executable),
-                      str(target / ".agents/scripts/vaws_deps.py"), "sync", "--packages-only", "--locked"],
+                      str(target / ".agents/scripts/vaws_deps.py"), "sync", "--locked"],
                      cwd=target, env=environment, timeout=1800)
         return json.loads(result.stdout)["receipt"]
 
 
-def configure_target(client: str, target: Path, receipt: dict, environment: dict) -> None:
+def configure_target(client: str, target: Path, receipt: dict, environment: dict, *, owner_project: Path | None = None) -> None:
     # The selected revision owns its wiring. No shared editing directory or
     # already-running client's hook/MCP commands are rewritten.
     arguments = [receipt["python"], str(target / ".agents/scripts/vaws_client_setup.py"),
@@ -78,58 +80,9 @@ def configure_target(client: str, target: Path, receipt: dict, environment: dict
         # One installed Kimi lifecycle adapter routes each native event to its
         # selected environment; a new worktree must not append global hooks.
         arguments += ["--kimi-config", str(target / ".vaws-local/kimi-hooks.toml")]
+    if owner_project is not None:
+        arguments += ["--owner-project", str(owner_project)]
     run(arguments, cwd=target, env={**environment, PIN_ENV: receipt["receipt"]}, timeout=120)
-
-
-def prepare_selected_knowledge(target: Path, receipt: dict) -> dict:
-    """Remember one preparation attempt alongside the existing environment choice."""
-    selection = target / ".vaws-local/environment-selection" / f"{sys.platform}.json"
-    selected = json.loads(selection.read_text(encoding="utf-8"))
-    if isinstance(selected.get("knowledge"), dict):
-        return selected["knowledge"]
-    knowledge = prepare_knowledge(target, receipt=receipt)
-    write_json(selection, {**selected, "knowledge": knowledge})
-    return knowledge
-
-
-def active_submodules(target: Path, revision: str) -> dict[str, str]:
-    active = {path: sha for path, sha in gitlinks(target, revision).items() if initialized(target, path)}
-    for path, sha in active.items():
-        if path not in SUBMODULES:
-            raise Deferred("submodule_layout_changed", path)
-        clean_checkout(target / path, branch=None, expected={sha})
-        if any(initialized(target / path, child) for child in gitlinks(target / path, "HEAD")):
-            raise Deferred("nested_submodule_initialized", path)
-    return active
-
-
-def advance_worktree(target: Path, prepared: Path, original: str,
-                     branch: str | None, active: dict[str, str], *, canonical: bool = False) -> dict[str, str]:
-    """Select prepared inputs in one clean new checkout and its active components."""
-    clean_checkout(target, branch=branch, expected={original})
-    if active_submodules(target, original) != active:
-        raise Deferred("submodule_state_changed")
-    revision = git(prepared, "rev-parse", "HEAD")
-    links = gitlinks(target, revision)
-    for path in active:
-        if path not in links:
-            raise Deferred("submodule_layout_changed", path)
-        module, sha = target / path, links[path]
-        if run(["git", "cat-file", "-e", sha + "^{commit}"], cwd=module, check=False).returncode:
-            # Preparation cached these objects. Import from that local checkout;
-            # never initialize a missing module or contact its network remote.
-            if not initialized(prepared, path):
-                raise Deferred("submodule_object_unavailable", path)
-            git(module, "fetch", "--no-tags", str(prepared / path), sha)
-    if canonical:
-        # This new checkout copied the editing source's HEAD. Its business
-        # history remains in that source; a new task starts at canonical HEAD.
-        git(target, "reset", "--hard", revision)
-    else:
-        git(target, "merge", "--ff-only", revision)
-    for path in active:
-        git(target / path, "checkout", "--detach", links[path])
-    return {path: links[path] for path in active}
 
 
 def default_branch_snapshot(source: Path, original: str) -> dict | None:
@@ -154,13 +107,14 @@ def default_branch_snapshot(source: Path, original: str) -> dict | None:
             "native_ref_selection": "unavailable"}
 
 
-def prepare_canonical(source: Path, baseline: dict | None = None) -> tuple[dict, Path | None]:
+def prepare_canonical(source: Path, baseline: dict | None = None, *, source_channel: str = "development") -> tuple[dict, dict | None]:
     """Use existing preparation without requiring the editing source on main."""
-    result = workspace_entry(source)
+    project = shared_workspace_root(source)
+    result = workspace_entry(project)
     if result["state"] != "configured":
         return result, None
-    with update_lock(source, wait_seconds=180):
-        updater = WorkspaceUpdater(source)
+    with update_lock(project, wait_seconds=180):
+        updater = WorkspaceUpdater(project, source_root=source, source_channel=source_channel)
         result = updater.step(apply=True, activate=False)
         if result.get("status") not in {"ready", "current"}:
             return result, None
@@ -168,85 +122,130 @@ def prepare_canonical(source: Path, baseline: dict | None = None) -> tuple[dict,
             return {"status": "kept", "reason": "default_branch_changed"}, None
         if updater.state.get("phase") not in {"ready", "active"}:
             return result, None
-        prepared = updater.validate_prepared(updater.state, updater.state["prepared"])
-        return result, prepared
+        updater.validate_prepared(updater.state, updater.state["prepared"])
+        return result, updater.state["prepared"]
 
 
-def prepare_worktree(client: str, source: Path, target: Path, *, preserve_source: bool = False) -> dict:
+def prepare_worktree(client: str, source: Path, target: Path, *, preserve_source: bool = False,
+                     source_channel: str = "development") -> dict:
+    """Prepare a complete independent bundle, outside an existing native worktree.
+
+    Clients that accept a returned cwd can request a missing target directly.
+    Clients that already created a linked worktree receive its external bundle
+    path; their original checkout remains unchanged and stores only a reference.
+    """
     from vaws_local_owner import windows_mounted_workspace
+    source, target = source.resolve(), target.resolve()
+    if source_channel not in {"development", "release"}:
+        raise ValueError("source_channel must be development or release")
     if windows_mounted_workspace(target):
         raise ValueError("run native worktree setup with the Windows owner for this mounted workspace")
+    if source == target:
+        raise ValueError("native setup needs a separate target")
     environment = unpinned_environment()
-    # A repeated native setup or handoff reuses the existing selection even if
-    # the user has since edited the lock. It never triggers another update.
-    selection = target / ".vaws-local/environment-selection" / f"{sys.platform}.json"
-    identity = {}
-    if preserve_source and not selection.is_file():
-        # A native conversation fork inherits the source's selected runtime,
-        # including when its tracked lock has newer uncommitted edits.
-        try:
-            inherited = saved_ready(source)
-        except EnvironmentError:
-            pass  # Prepare this copied HEAD normally if the old runtime is gone.
-        else:
-            try:
-                copy_workspace_identity(source, target)
-            except (OSError, ValueError, RuntimeError) as exc:
-                identity = {"status": "unavailable", "error": str(exc)}
-            select_environment(target, inherited)
-    if selection.is_file():
-        receipt = saved_ready(target)
-        # Dependency sync can save a selection before wiring completes. Repair
-        # that bounded step without changing the saved version or its inputs.
-        configure_target(client, target, receipt, environment)
-        return {"status": "reused", "workspace": str(target), "environment": receipt["key"],
-                "knowledge": prepare_selected_knowledge(target, receipt),
-                **({"update": {"status": "kept", "reason": "fork_source"}} if preserve_source else {}),
-                **({"identity": identity} if identity else {})}
-
-    original = git(target, "rev-parse", "HEAD")
-    branch = git(target, "symbolic-ref", "--quiet", "--short", "HEAD", check=False) or None
-    result = {"status": "kept", "reason": "explicit_source"}
+    existing = read_preparation(target)
+    if existing is not None:
+        actual = Path(existing["workspace"])
+        for path in existing["sources"].values():
+            repository = Path(path)
+            if not (repository / ".git").is_dir() or (repository / ".git/objects/info/alternates").exists():
+                raise ValueError(f"prepared repository is missing or is not independent: {repository}")
+        receipt = saved_ready(actual)
+        return {**existing, "status": "reused", "environment": receipt["key"],
+                "native_cwd_changed": False}
+    source_record = read_preparation(source)
+    if source_record is not None:
+        source = Path(source_record["workspace"])
+        if preserve_source:
+            source_channel = source_record["source_channel"]
+    project = shared_workspace_root(source)
+    supplied = target.exists()
+    if supplied:
+        if not (target / ".git").is_file():
+            raise ValueError(f"workspace preparation is incomplete at {target}; preserved this directory; choose a new target")
+        if (Path(git(target, "rev-parse", "--show-toplevel")).resolve() != target
+                or Path(git(target, "rev-parse", "--absolute-git-dir")).resolve() == common_dir(target)):
+            raise ValueError("existing native target must be a linked Git worktree root")
+        bundle = project.parent / f"{project.name}-vaws-{uuid.uuid4().hex}"
+    else:
+        bundle = target
+    if target in bundle.parents or source == bundle or source in bundle.parents:
+        raise ValueError("task bundle must be outside the source and native cleanup directories")
+    editing = target if supplied and not preserve_source else source
+    original = git(editing, "rev-parse", "HEAD")
+    branch = git(editing, "symbolic-ref", "--quiet", "--short", "HEAD", check=False) or None
+    result = {"status": "kept", "reason": "fork_source" if preserve_source else "explicit_source"}
     baseline = None
     prepared = None
-    from_current_source = False
-    submodules = {}
-    # Native clients may create a task from an explicitly selected older or
-    # business commit. Preserve that choice, as well as copied local edits.
-    try:
-        if preserve_source:
-            raise Deferred("fork_source")
-        clean_checkout(target, branch=branch)
-        active = active_submodules(target, original)
-        if client == "codex" and branch is None:
-            baseline = default_branch_snapshot(source, original)
-        if baseline is not None:
-            result, prepared = prepare_canonical(source, baseline)
-        elif original == git(source, "rev-parse", "HEAD"):
-            from_current_source = True
-            baseline = {"kind": "source_head_snapshot", "head": original, "native_ref_selection": "unavailable"}
-            result, prepared = prepare_canonical(source)
-        if prepared is not None:
-            # Only this newly supplied worktree moves. Recheck after potentially
-            # slow preparation so an intervening edit stays with its author.
-            submodules = advance_worktree(target, prepared, original, branch, active, canonical=from_current_source)
-    except Deferred as exc:
-        result = {"status": "kept", "reason": exc.reason}
-        prepared = None
+    chosen = editing
+    selection = editing / ".vaws-local/environment-selection" / f"{sys.platform}.json"
+    if not preserve_source and (not supplied or not selection.is_file()):
+        try:
+            if supplied:
+                clean_checkout(editing, branch=branch)
+                for path in available_sources(editing).values():
+                    child = Path(path)
+                    child_branch = git(child, "symbolic-ref", "--quiet", "--short", "HEAD", check=False) or None
+                    clean_checkout(child, branch=child_branch)
+            if supplied and client == "codex" and branch is None:
+                baseline = default_branch_snapshot(source, original)
+            if not supplied or baseline is not None or original == git(source, "rev-parse", "HEAD"):
+                if baseline is None:
+                    baseline = {"kind": "source_head_snapshot", "head": original, "native_ref_selection": "unavailable"}
+                check_baseline = baseline if baseline["kind"] == "local_default_branch_snapshot" else None
+                result, prepared = prepare_canonical(source, check_baseline, source_channel=source_channel)
+                if prepared is not None:
+                    if supplied:
+                        clean_checkout(editing, branch=branch, expected={original})
+                    chosen = Path(prepared["stage"])
+        except Deferred as exc:
+            # Nothing in the supplied checkout has been changed. Keeping it is
+            # safe only before copying; failures after copying propagate.
+            result = {"status": "kept", "reason": exc.reason}
+            prepared = None
+            chosen = editing
     if baseline is not None:
         result = {**result, "baseline": baseline}
+    if prepared is not None:
+        copied = create_prepared_workspace(prepared, bundle)
+        if supplied and branch:
+            # The native branch is a user-visible choice. Only this fresh
+            # independent clone binds that name to the adopted canonical HEAD.
+            git(bundle, "switch", "-C", branch)
+    else:
+        sources = available_sources(chosen)
+        if supplied and read_preparation(chosen) is None:
+            # Native Git worktrees do not populate ignored business repositories.
+            sources = {**available_sources(source), **sources}
+        copied = create_workspace(chosen, bundle, sources=sources)
+    for relative in (".claude/settings.local.json", ".mcp.json"):
+        original_settings, copied_settings = source / relative, bundle / relative
+        if original_settings.is_file() and not copied_settings.exists():
+            copied_settings.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(original_settings, copied_settings)
     identity = {}
     try:
-        copy_workspace_identity(source, target)
+        copy_workspace_identity(source, bundle)
     except (OSError, ValueError, RuntimeError) as exc:
         identity = {"status": "unavailable", "error": str(exc)}
-    receipt = ready_for_target(prepared or source, target, environment)
-    configure_target(client, target, receipt, environment)
-    select_environment(target, receipt)
-    return {"status": "ready", "workspace": str(target), "head": git(target, "rev-parse", "HEAD"),
-            "environment": receipt["key"], "update": result, "submodules": submodules,
-            "knowledge": prepare_selected_knowledge(target, receipt),
-            **({"identity": identity} if identity else {})}
+    inherited = None
+    if preserve_source or (supplied and selection.is_file()):
+        try:
+            inherited = saved_ready(editing)
+        except EnvironmentError:
+            pass
+    receipt = inherited or ready_for_target(chosen if prepared is not None else source, bundle, environment)
+    configure_target(client, bundle, receipt, environment, owner_project=project)
+    select_environment(bundle, receipt)
+    facts = {"head": copied["head"], "environment": receipt["key"], "source": str(chosen),
+             "update": result, "native_cwd_changed": False,
+             **({"identity": identity} if identity else {})}
+    record = write_preparation(bundle, project_root=project, native_workspace=target, workspace=bundle,
+                               sources=copied["sources"], source_channel=source_channel, **facts)
+    if supplied:
+        write_preparation(target, project_root=project, native_workspace=target, workspace=bundle,
+                          sources=copied["sources"], source_channel=source_channel, **facts)
+    return {**record, "status": "ready"}
 
 
 def main(argv=None) -> int:

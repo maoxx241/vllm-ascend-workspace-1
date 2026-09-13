@@ -98,8 +98,10 @@ must run with the Windows owner. Invoking this callback from a WSL `/mnt` path
 is currently unsupported; this change does not claim mixed-OS linked-worktree
 support. The optional CLI's independent editing copies have ordinary `.git`
 directories, avoiding absolute linked-worktree pointers from the other OS.
-Empty uninitialized submodules remain uninitialized; source is not fetched merely
-to start a workspace editing task. Initialized submodules keep independent state.
+Selected business repositories use independent Git directories. Their own empty
+uninitialized upstream submodules remain uninitialized. New canonical editing
+tasks fetch missing selected source commits as needed; ordinary review and resume
+do not prepare or update sources.
 
 Prepared dependency environments have content identities including lock inputs,
 effective dependency selection and the actual Python platform/ABI. Published
@@ -122,8 +124,9 @@ Setup and ordinary task work have different costs: explicit sync prepares missin
 dependencies. Native new-worktree setup may prepare an upstream update before
 the Agent starts; the shared startup entry performs that bounded preparation
 when no prepared native worktree is available. Resume resolves the existing
-task selection. Knowledge preparation uses the shared primary worktree's service
-configuration and model/index state. It remains optional after sync and does not
+task selection. Sync prepares only packages. Actual knowledge use or explicit
+knowledge setup prepares the shared primary worktree's service configuration and
+model/index state. Knowledge remains optional and does not
 invalidate a completed package environment when unavailable. These gateway and
 storage rules do not add mixed-OS linked-worktree support or change the verified
 Windows owner requirement above.

@@ -1,18 +1,58 @@
-"""Local first-use notice and one upstream preparation before a new CLI copy.
+"""Local first-use guidance and explicit completed workspace preparation.
 
-Only prepare_session does network I/O. Hooks and existing editing directories
-never call it; ordinary task calls have no update work.
+These helpers perform no upstream fetch, source discovery or environment setup.
 """
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
-import subprocess
 import time
+
+from vaws_local_state import read_preparation
 
 FIRST_USE_REFERENCE = ".agents/bootstrap/repo-init/SKILL.md"
 MAINTENANCE_REFERENCE = "docs/forks-and-updates.md#显式维护与证据"
+
+
+def prepared_sources(root: Path) -> dict[str, str] | None:
+    """Return only roots published by preparation; absence does not prepare them."""
+    record = read_preparation(root)
+    return dict(record["sources"]) if record is not None else None
+
+
+def write_preparation(root: Path, *, project_root: Path, native_workspace: Path,
+                      workspace: Path, sources: dict, source_channel: str = "development",
+                      **facts) -> dict:
+    """Publish caller-validated preparation using the existing local receipt."""
+    from vaws_session_state import write_json
+    from vaws_source_view import write_source_view
+
+    root = Path(root).resolve()
+    record = {**facts, "state": "ready", "project_root": str(Path(project_root).resolve()),
+              "native_workspace": str(Path(native_workspace).resolve()),
+              "workspace": str(Path(workspace).resolve()), "source_channel": source_channel,
+              "sources": {name: str(Path(path).resolve()) for name, path in sources.items()}}
+    if record["sources"].get("workspace", record["workspace"]) != record["workspace"]:
+        raise ValueError("workspace source must match the editing workspace")
+    record["sources"]["workspace"] = record["workspace"]
+    if str(root) not in (record["workspace"], record["native_workspace"]):
+        raise ValueError("preparation receipt must belong to its native or editing workspace")
+    if not Path(record["workspace"]).is_dir():
+        raise ValueError("editing workspace does not exist")
+    for name, path in record["sources"].items():
+        if not name or name in {".", ".."} or "/" in name or "\\" in name:
+            raise ValueError("source names must be single repository names")
+        target = Path(path)
+        workspace_path = Path(record["workspace"])
+        if target != workspace_path and workspace_path not in target.parents:
+            raise ValueError("prepared source must belong to the editing workspace")
+        if not target.is_dir() or not (target / ".git").exists():
+            raise ValueError(f"prepared source is not a populated repository: {target}")
+    if root == Path(record["workspace"]):
+        record["editor_workspace"] = str(write_source_view(root, record["sources"]))
+    write_json(root / ".vaws-local/native-workspace.json", record)
+    return record
 
 
 def copy_workspace_identity(source: Path, target: Path) -> None:
@@ -78,45 +118,3 @@ def workspace_entry(root: Path, *, announce: bool = True) -> dict:
         # concrete diagnostics instead of converting an update failure into a
         # task/knowledge prerequisite.
         return {"state": "unavailable", "error": str(exc)}
-
-
-def prepare_session(root: Path) -> dict:
-    """One synchronous preparation, before a new editing directory is created.
-
-    Uses the updater's ordinary Git lock. Failure keeps the available local
-    version usable and leaves detailed updater evidence under .vaws-local.
-    """
-    result = workspace_entry(root)
-    if result["state"] != "configured":
-        return result
-    try:
-        from vaws_local_owner import windows_mounted_workspace, accessible_windows_path, managed_path
-        if windows_mounted_workspace(root):
-            # Shared NTFS Git state has one native Windows lock/process owner.
-            from vaws_environment import windows_ready
-            receipt = windows_ready(root)
-            command = [accessible_windows_path(receipt["python"]), "-c",
-                       "import json,sys;from pathlib import Path;root=Path(sys.argv[1]);"
-                       "sys.path.insert(0,str(root/'.agents/lib'));"
-                       "from vaws_workspace_entry import prepare_session;"
-                       "print(json.dumps(prepare_session(root),ensure_ascii=False))",
-                       managed_path(root, windows=True)]
-            environment = dict(os.environ)
-            for name in ("VAWS_ENV_RECEIPT", "VAWS_MANAGED_ENV_RECEIPT", "VAWS_CONTEXT_FILE",
-                         "VAWS_PARENT_CONTEXT", "VAWS_ATTACH_CONTEXT", "CODEX_THREAD_ID", "CODEX_SESSION_ID",
-                         "VAWS_RELEASE_LAUNCH", "VAWS_VENV_REEXEC", "VAWS_SKIP_VENV_REEXEC", "VIRTUAL_ENV",
-                         "PYTHONHOME", "PYTHONPATH"):
-                environment.pop(name, None)
-            environment["WSLENV"] = ":".join(item for item in environment.get("WSLENV", "").split(":")
-                                                if item.split("/", 1)[0] in environment)
-            process = subprocess.run(command, cwd=root, env=environment, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.PIPE, text=True, encoding="utf-8", check=True)
-            return json.loads(process.stdout)
-        from vaws_workspace_update import Deferred, WorkspaceUpdater, update_lock
-        try:
-            with update_lock(root):
-                return WorkspaceUpdater(root).step(apply=True, activate=False, for_session=True)
-        except Deferred as exc:
-            return {"status": exc.status, "reason": exc.reason}
-    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        return {"status": "deferred", "reason": "session_update_pending", "error": str(exc)}

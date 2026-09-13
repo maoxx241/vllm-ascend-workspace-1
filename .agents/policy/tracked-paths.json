@@ -17,7 +17,7 @@
       "vllm",
       "vllm-ascend"
     ],
-    "skip_roots_why": "Volatile upstream submodules; not ours to police.",
+    "skip_roots_why": "Independent upstream source repositories; not workspace-owned content.",
     "fixture_paths": [
       ".agents/tests/test_tracked_path_check.py"
     ],

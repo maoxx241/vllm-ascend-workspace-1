@@ -32,6 +32,8 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Dated design and validation evidence
 
+- [managed-performance-redesign-2026-09-13.md](managed-performance-redesign-2026-09-13.md) — implemented preparation, wait, evidence and serving changes; real native and warm measurements with explicit limitations.
+
 - [knowledge-adoption-2026-09-13.md](knowledge-adoption-2026-09-13.md) — source-level TeamAI/WeKnora comparison, selected knowledge mechanisms, nine-principle assessment and package/consumer validation boundaries.
 
 - [mechanism-performance-review-2026-09-13.md](mechanism-performance-review-2026-09-13.md) — critical-path and reuse review, local source-packet and lock probes, and ranked mechanism proposals with explicit measurement limits.

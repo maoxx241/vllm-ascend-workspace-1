@@ -39,8 +39,9 @@ ref and consumed merge `778a7b6b` have the same tree
 | [Windows / Python 3.13](https://github.com/vllm-ascend-workspace/vaws-knowledge/actions/runs/34747646837) | 533 | 2 | 12 | 220.61 s |
 | macOS / Python 3.13, same native run | 533 | 2 | 12 | 165.68 s |
 
-Each native JUnit contains 547 entries including twelve subtests, with no
-failure/error. Windows SHA256 is
+Each native JUnit suite reports 547 tests including twelve subtests; it has
+535 `testcase` elements including two skipped cases, with no failure/error.
+Windows SHA256 is
 `e79ac44d802670b2a18726280b52ac91eb9832ddf12ab43617bc08248b17acf6`;
 macOS is `09aac9082ff77a514a558b279e0113c1b25681fc8ba995a7ad161a72b9ccfd61`.
 Ubuntu records its count in the job log and did not produce JUnit. The native

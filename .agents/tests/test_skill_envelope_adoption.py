@@ -21,7 +21,7 @@ for candidate in (LIB, SCRIPTS):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from vaws_result_envelope import SCHEMA_VERSION, validate_envelope  # noqa: E402
+from vaws_result_envelope import COMPACT_SCHEMA_VERSION, SCHEMA_VERSION, validate_envelope  # noqa: E402
 
 import envelope_lint  # noqa: E402
 
@@ -56,13 +56,14 @@ class LoadBearingSkillEnvelopeTests(unittest.TestCase):
     def test_serve_status_missing_context_emits_envelope(self) -> None:
         script = ROOT / ".agents/skills/vllm-ascend-serving/scripts/serving.py"
         completed = _run(script)
-        report = _lint(completed.stdout)
-        self.assertTrue(report["valid"], report["findings"])
         payload = json.loads(completed.stdout)
-        validate_envelope(payload)
-        _validate_tracked_schema(payload)
-        self.assertEqual(payload["operation"]["skill"], "vllm-ascend-serving")
+        self.assertEqual(payload["schema_version"], COMPACT_SCHEMA_VERSION)
         self.assertEqual(payload["outcome"], "failure")
+        self.assertEqual(payload["result"]["status"], "failed")
+        record = json.loads(Path(payload["record_ref"]).read_text(encoding="utf-8"))
+        validate_envelope(record)
+        _validate_tracked_schema(record)
+        self.assertEqual(record["operation"]["skill"], "vllm-ascend-serving")
 
 if __name__ == "__main__":
     unittest.main()

@@ -39,6 +39,7 @@ from _serving_common import (  # noqa: E402
     now_utc,
     parse_devices_csv,
     print_json,
+    probe_service,
     service_port_of,
     ssh_exec,
 )
@@ -196,48 +197,6 @@ def classify_stage(text: str) -> str | None:
     return None
 
 
-def probe_ready_once(ep: SshEndpoint, port: int, *, log_text: str = "") -> dict[str, Any]:
-    script = (
-        f"code=$(curl --noproxy '*' -s -o /dev/null -w '%{{http_code}}' --connect-timeout 3 --max-time 5 "
-        f"http://127.0.0.1:{port}/health 2>/dev/null || echo 000); "
-        'echo "__HEALTH__=$code"; '
-        'if [ "$code" = "200" ]; then echo __MODELS_BEGIN__; '
-        f"curl --noproxy '*' -s --connect-timeout 3 --max-time 5 http://127.0.0.1:{port}/v1/models 2>/dev/null; "
-        "echo; echo __MODELS_END__; fi"
-    )
-    result = ssh_exec(ep, script, check=False)
-    out = result.stdout or ""
-    models = None
-    if "__MODELS_BEGIN__" in out and "__MODELS_END__" in out:
-        body = out.split("__MODELS_BEGIN__", 1)[1].split("__MODELS_END__", 1)[0].strip()
-        try:
-            data = json.loads(body)
-            if data.get("data"):
-                models = data
-        except json.JSONDecodeError:
-            models = None
-    return {
-        "health": "__HEALTH__=200" in out,
-        "models": models,
-        "stage": classify_stage(log_text),
-        "probe_error": result.returncode != 0,
-    }
-
-
-def probe_first_token(ep: SshEndpoint, port: int, served_model: str) -> dict[str, Any]:
-    payload = json.dumps({"model": served_model, "prompt": "Hello", "max_tokens": 8, "temperature": 0})
-    script = (
-        "tmp=/tmp/vaws_first_token.$$.json; "
-        f"code=$(curl -s -o $tmp -w '%{{http_code}}' --connect-timeout 3 --max-time 120 "
-        f"-X POST http://127.0.0.1:{port}/v1/completions -H 'Content-Type: application/json' "
-        f"-d {shlex.quote(payload)} 2>/dev/null || echo 000); "
-        "echo __CODE__=$code; head -c 400 $tmp 2>/dev/null; rm -f $tmp"
-    )
-    result = ssh_exec(ep, script, check=False)
-    out = result.stdout or ""
-    return {"ok": "__CODE__=200" in out, "probe_error": result.returncode != 0, "detail": out[-300:]}
-
-
 def wait_for_ready(ep: SshEndpoint, port: int, timeout: int, served_model: str, *, still_running, log_text) -> dict[str, Any]:
     start = time.monotonic()
     deadline = start + timeout
@@ -258,31 +217,23 @@ def wait_for_ready(ep: SshEndpoint, port: int, timeout: int, served_model: str, 
                 "phases": phases,
                 "elapsed_seconds": round(time.monotonic() - start, 1),
             }
-        probe = probe_ready_once(ep, port, log_text=log_text())
+        probe = probe_service(ep, port, served_model=served_model,
+                              timeout=max(0, deadline - time.monotonic()))
         if probe.get("probe_error"):
-            time.sleep(HEALTH_POLL_INTERVAL)
+            time.sleep(min(HEALTH_POLL_INTERVAL, max(0, deadline - time.monotonic())))
             continue
-        if probe.get("stage"):
-            mark(probe["stage"])
         if probe["health"] and not health_ok:
             health_ok = True
             mark("health-ok")
         if health_ok and probe["models"] is not None and not models_ok:
             models_ok = True
             mark("models-ok")
-        if models_ok and not token_ok:
-            token = probe_first_token(ep, port, served_model)
-            if token.get("probe_error"):
-                time.sleep(HEALTH_POLL_INTERVAL)
-                continue
-            if token["ok"]:
-                token_ok = True
-                mark("first-token-ok")
-            else:
-                mark("first-token-failing")
-        if health_ok and models_ok and token_ok:
+        if models_ok and probe.get("first_token"):
+            token_ok = True
+            mark("first-token-ok")
+        if probe["health"] and probe["models"] is not None and token_ok:
             return {"ready": True, "running": True, "phases": phases, "elapsed_seconds": round(time.monotonic() - start, 1)}
-        time.sleep(HEALTH_POLL_INTERVAL)
+        time.sleep(min(HEALTH_POLL_INTERVAL, max(0, deadline - time.monotonic())))
     return {
         "ready": False,
         "running": still_running(),
@@ -304,13 +255,15 @@ def diagnose_env_failure(stderr_tail: str) -> dict[str, Any] | None:
     return {"error_tags": sorted(set(matched)), "cause": "remote Python import or runtime initialization failed"}
 
 
-def startup_failure_details(client, execution_id: str | None) -> dict[str, Any]:
+def startup_failure_details(client, execution_id: str | None, receipt: dict[str, Any] | None = None) -> dict[str, Any]:
     if not execution_id:
         return {}
-    try:
-        tail = client.observe(execution_id, "tail")
-    except Exception:
-        return {}
+    tail = receipt or {}
+    if not any(key in tail for key in ("stdout", "stderr", "tail", "tail_error", "logs_pending")):
+        try:
+            tail = client.observe(execution_id, "tail")
+        except Exception:
+            return {}
     text = "\n".join(str(tail.get(key) or "") for key in ("stdout", "stderr"))
     if not text.strip():
         text = str(tail.get("tail") or "")
@@ -382,7 +335,7 @@ def wait_for_launch(client, reply: dict[str, Any], deadline: float) -> dict[str,
         if remaining <= 0:
             return {**reply, "wait_timed_out": True}
         reply = client.wait(execution_id, until="running",
-                            timeout_seconds=min(15, remaining), poll_interval=2)
+                            timeout_seconds=min(15, remaining))
     return reply
 
 
@@ -651,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if kind == "terminal":
             output["status"] = "failed"
-            output.update(startup_failure_details(client, execution_id))
+            output.update(startup_failure_details(client, execution_id, reply))
             output["error"] = reply.get("reason") or reply.get("error") or output.get("log_error") or f"execution ended in {state}"
             print_json(output)
             return 1
@@ -665,7 +618,7 @@ def main(argv: list[str] | None = None) -> int:
         endpoint = endpoint_from_reply(reply)
 
         def still_running() -> bool:
-            observation = client.observe(execution_id, "status") if execution_id else reply
+            observation = client.observe(execution_id, "status", refresh=False) if execution_id else reply
             return classify_run_state(str(observation.get("state") or "")) == "running"
 
         def log_text() -> str:

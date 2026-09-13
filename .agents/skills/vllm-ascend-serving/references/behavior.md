@@ -6,8 +6,10 @@ Start uses one bounded wait across preparation, launch and HTTP/models/first-tok
 readiness. --health-timeout sets that budget; --no-wait returns the coordinator
 receipt immediately. A pending timeout retains the execution reference and is
 not a readiness result. Status and stop resolve that same task-owned reference.
-Preparation-step changes appear in progress. A terminal start reads its owned
-log tail once and includes the import or runtime exception in the result.
+Preparation-step changes appear in progress after bounded coordinator waits;
+the consumer does not poll remote status during those waits. A terminal start
+reuses the wait receipt's owned log tail, fetching it only when absent, and
+includes the import or runtime exception in the result.
 Business launch settings are saved per service name after admission succeeds.
 Relaunching one named service cannot reuse another service's model or options;
 a rejected change leaves the previous settings available.
@@ -36,7 +38,20 @@ changing the task's default sources.
 
 Use pd-serving for prefill/decode topology, benchmark for measurement, and profiling-collection for profiler-window control.
 
-Progress is written to stderr; stdout contains the structured result. Remote
+Health, models and the optional completion probe share one remote call. The
+combined HTTP timeouts fit within the remaining readiness budget. Running
+checks use coordinator's cached state; HTTP polling never fetches logs.
+Failure diagnosis may fetch one tail after the readiness wait; that diagnostic
+call is reported separately from the HTTP readiness budget.
+Status combines its health and models probes in one remote call.
+
+Progress is written to stderr; stdout contains a compact receipt. Its `result`
+keeps the complete business payload, including readiness, URL, execution
+reference and failure details. `record_ref` points to the full envelope under
+untracked `.vaws-local/results`; `VAWS_FULL_ENVELOPE=1` emits that full envelope
+directly. A local record-write failure adds a warning without changing the
+execution outcome. Programmatic consumers use `unwrap_skill_payload` for
+either representation. Remote
 device execution uses coordinator ownership. Local report construction does not
 allocate devices or alter an execution. Reports describe the supplied evidence;
 missing evidence is not a passing result.

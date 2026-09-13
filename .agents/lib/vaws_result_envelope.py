@@ -1171,12 +1171,16 @@ def skill_outcome_from_payload(payload: Mapping[str, Any]) -> str:
 def unwrap_skill_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Return the skill-layer object from an envelope, or the payload itself.
 
-    Downstream consumers that still switch on ``status`` read
-    ``extensions.result``. This is not a sentinel alias and does not accept
+    Downstream consumers that switch on ``status`` read ``extensions.result``
+    from full envelopes or ``result`` from compact receipts. This is not a sentinel alias and does not accept
     the retired progress names.
     """
     if payload.get("schema_version") == SCHEMA_VERSION:
         result = (payload.get("extensions") or {}).get("result")
+        if isinstance(result, Mapping):
+            return dict(result)
+    if payload.get("schema_version") == COMPACT_SCHEMA_VERSION:
+        result = payload.get("result")
         if isinstance(result, Mapping):
             return dict(result)
     return dict(payload)
@@ -1379,9 +1383,11 @@ def emit_skill_json(
     action: str | None = None,
     argv: Sequence[str] | None = None,
     stream: Any = None,
+    compact: bool = False,
+    record_dir: Path | None = None,
     **kwargs: Any,
 ) -> int:
-    """Write one skill payload as a Result Envelope v1 on stdout."""
+    """Emit a full envelope, or an opted-in compact receipt retaining business facts."""
     envelope = envelope_from_skill_payload(
         payload,
         skill=skill,
@@ -1390,6 +1396,9 @@ def emit_skill_json(
         argv=argv,
         **kwargs,
     )
+    if compact:
+        return emit_agent_view(envelope, stream=stream, record_dir=record_dir,
+                               result=payload)
     return emit(envelope, stream=stream)
 
 
@@ -1857,6 +1866,7 @@ def compact_view(
     envelope: Mapping[str, Any],
     *,
     record_ref: str | None = None,
+    result: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Agent-facing projection. Not a complete Envelope and not a new state model."""
 
@@ -1885,6 +1895,7 @@ def compact_view(
         "preview": preview,
         "record_ref": record_ref or envelope.get("envelope_id"),
         "warnings": list(envelope.get("warnings") or []),
+        **({"result": dict(result)} if result is not None else {}),
     }
 
 
@@ -1931,6 +1942,7 @@ def emit_agent_view(
     record_dir: Path | None = None,
     full: bool | None = None,
     validate: bool = True,
+    result: Mapping[str, Any] | None = None,
 ) -> int:
     """Default compact stdout; full record is written under ``.vaws-local/``."""
 
@@ -1942,12 +1954,20 @@ def emit_agent_view(
     if validate:
         validate_envelope(envelope)
     record_path = None
+    record_error = None
     if record_dir is not None:
-        record_path = write_full_record(envelope, record_dir)
+        try:
+            record_path = write_full_record(envelope, record_dir)
+        except OSError as exc:
+            record_error = f"Full result could not be saved: {exc}"
     view = compact_view(
         envelope,
         record_ref=str(record_path) if record_path is not None else envelope.get("envelope_id"),
+        result=result,
     )
+    if record_error:
+        view["record_ref"] = None
+        view["warnings"].append(record_error)
     target = stream if stream is not None else sys.stdout
     target.write(json.dumps(view, ensure_ascii=False, indent=2) + "\n")
     target.flush()

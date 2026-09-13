@@ -4,6 +4,14 @@
 
 完全面向 Agent 的 [vLLM](https://github.com/vllm-project/vllm) 与 [vLLM Ascend](https://github.com/vllm-project/vllm-ascend) 开发工作区。人表达目标、决定实质取舍；Agent 完成代码修改、环境准备、实验执行和证据整理。
 
+## 架构与关键特性
+
+![VAWS 总体架构](docs/architecture/svg/00-overview.svg)
+
+按需介入、输入可追溯、有效成果复用、资源与执行受管、经验随用随取、问题有迹可循。
+
+[查看完整架构图册](docs/architecture/README.md)：总体架构、关键特性，以及 workspace、remote-dev、coordinator、knowledge、top、diagnostics 的组件架构与职责说明，附 SVG 和高清 PNG。
+
 ## 从任务开始
 
 在 Agent 客户端中打开工作区，直接说明目标，例如：

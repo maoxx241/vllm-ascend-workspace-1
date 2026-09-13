@@ -4,6 +4,14 @@
 
 An Agent-only workspace for developing [vLLM](https://github.com/vllm-project/vllm) and [vLLM Ascend](https://github.com/vllm-project/vllm-ascend). People express goals and make substantive choices; the Agent edits code, prepares environments, runs experiments and reports evidence.
 
+## Architecture and key features
+
+![VAWS architecture overview (Chinese)](docs/architecture/svg/00-overview.svg)
+
+Capabilities used on demand, traceable inputs, reuse of valid work, managed resources and execution, optional knowledge, and observable operations.
+
+[Explore the architecture atlas (Chinese)](docs/architecture/README.md) for the overview, key features, and architecture and responsibilities of workspace, remote-dev, coordinator, knowledge, top and diagnostics. Editable SVGs and high-resolution PNGs are included.
+
 ## Start with a task
 
 Open this checkout in an Agent client and describe the task:

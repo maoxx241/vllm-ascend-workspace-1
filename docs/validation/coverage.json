@@ -153,15 +153,30 @@
         "local_curation_snapshot": "95185f3cf71984a39c22f18d1caf14d56f1edc18"
       },
       "scope": "Merged PR30/31 package/native CI and PR32 independent-intake four-platform matrix at actual merge-test checkouts. Retained catalog455/curation517 JUnit entries include subtests; source snapshots match108/127 committed blobs. Actual Grok public export, installed live Git feed import,80-note incremental return and natural Windows16:00 scheduled unchanged run succeeded (LastTaskResult0,1.357s,zero downloads).",
-      "limits": "CI merge-test refs differ from heads and squash commits. Historical XML has no runtime-dependency snapshot and current native XML retains2 cases,not an earlier36-test run. Cloud UI facts are attributed to retained owner records; actual Windows task/receipts were reread. PR33/final consumer installed acceptance and future scheduled Grok runs remain separate; no NPU,held-out relevance,physical16GiB or maximum-size remote deadline claim."
+      "limits": "CI merge-test refs differ from heads and squash commits. Historical XML has no runtime-dependency snapshot and current native XML retains2 cases,not an earlier36-test run. Cloud UI facts are attributed to retained owner records; actual Windows task/receipts were reread. Later PR33/consumer integration belongs to knowledge-platform-final-20260913; no NPU,held-out relevance,physical16GiB or maximum-size remote deadline claim. Future scheduled Grok cycles are not counted as elapsed runs."
+    },
+    {
+      "id": "knowledge-platform-final-20260913",
+      "record": "docs/knowledge-platform-validation-2026-09-13.md",
+      "version": {
+        "knowledge": "778a7b6b6a6f1b8c541dbdc6a646bc033f5e2c0f",
+        "coordinator": "9f94f27964437f962e6037529ccf2f0b1c709ede",
+        "remote_dev": "a65362882a85b4d460be3e1d15e90de9fb507e70",
+        "pr33_head": "3a2e8707eed610f681f7941c0845353f8f46df02",
+        "pr33_ci_checkout": "cea65a73ea1462a3b0c64cb07d195b61ad70694d",
+        "pr33_tested_and_consumed_tree": "0e855733d5b269e43df6b92258d4ea01bfbacf73",
+        "pr33_package_ci_run": "34747646848",
+        "pr33_native_ci_run": "34747646837",
+        "consumer_summary_sha256": "996f9757dc7660528c939c2683c01ea94ab214d8c476517666ecd377cd64e50e",
+        "consumer_code_head": "52b3bec5d17371447c6902ef1c0c24a011e17836",
+        "consumer_code_ci_run": "34748066882",
+        "consumer_integration_status": "verified installed native acceptance and PR169 code-head CI"
+      },
+      "scope": "Knowledge PR33 merged with the same tree/parents as the actual three-platform CI checkout: Ubuntu 531 passed/4 skipped/12 subtests, Windows and macOS 533 passed/2 skipped/12 subtests each. Consumer selects knowledge 778a7b6b; immutable environment sync and doctor succeeded. Eight affected local consumer suites contain 75 JUnit entries, zero failures/errors/skips; PR169 functional code-head CI passed on three operating systems. Actual final installed MCP preserved three tools, found all 20 original target pages in top8 and passed four explains with zero degraded/incomplete responses or capture calls; source/configuration/backend PIDs stayed unchanged. Twelve requested knowledge capabilities and independent Grok/feed maintenance retain their actual package/deployment evidence.",
+      "limits": "PR169 CI here identifies the functional code head; later documentation-only revisions retain their own CI status in the final report. Native package JUnit has 547 entries including 12 subtests per platform; Ubuntu count comes from its log. The 75-entry local summary does not embed source/runtime revisions; separate selection and installed evidence establish the package identity. Earlier scaling/quality measurements retain their actual revisions, fixture and hardware limits; the final 20-question native sample is not held-out relevance, native 100k, physical 16 GiB or new NPU acceptance."
     }
   ],
   "gaps": [
-    {
-      "id": "G1",
-      "scope": "final integrated revisions",
-      "required": "PR166/168 source-workspace and merged knowledge PR30–32 CI are retained at their actual checkout revisions. PR33 and final consumer integration still need their own affected checks and installed acceptance; do not relabel historical raw runs as final-pin execution or source declarations as NPU compatibility."
-    },
     {
       "id": "G2",
       "scope": "all-client native UI",
@@ -181,11 +196,6 @@
       "id": "G5",
       "scope": "external and platform capabilities",
       "required": "Live ModelScope authentication/download and requested external publication/agent integration need separate actual runs. Existing Windows/WSL evidence is not macOS/ARM64 or Tesseract/media-platform coverage."
-    },
-    {
-      "id": "G6",
-      "scope": "knowledge platform",
-      "required": "Merged PR30–32 and actual Grok public export/live import/natural Windows scheduled return are recorded separately. PR33/final consumer installed acceptance and subsequent scheduled Grok runs remain unverified here. Keep engineering validation outside the vLLM/Ascend/NPU/AI/Infra domain corpus."
     },
     {
       "id": "G7",
@@ -230,7 +240,6 @@
         "windows-20260911"
       ],
       "gaps": [
-        "G1",
         "G5"
       ]
     },
@@ -258,7 +267,6 @@
         "shared-hosts-20260912"
       ],
       "gaps": [
-        "G1",
         "G3",
         "G4"
       ]
@@ -282,15 +290,14 @@
         ".agents/tests/test_knowledge_summary_hook.py"
       ],
       "evidence": [
+        "knowledge-platform-final-20260913",
         "knowledge-component-20260913",
         "knowledge-20260913",
         "existing-container-20260913",
         "windows-20260911"
       ],
       "gaps": [
-        "G1",
-        "G5",
-        "G6"
+        "G5"
       ]
     },
     {
@@ -316,7 +323,6 @@
         "local-suites-20260913"
       ],
       "gaps": [
-        "G1",
         "G5",
         "G7"
       ]
@@ -344,7 +350,6 @@
         "source-workspace-final-20260913"
       ],
       "gaps": [
-        "G1",
         "G7"
       ]
     },
@@ -380,7 +385,6 @@
         "source-workspace-final-20260913"
       ],
       "gaps": [
-        "G1",
         "G2",
         "G7"
       ]
@@ -415,7 +419,6 @@
         "source-workspace-final-20260913"
       ],
       "gaps": [
-        "G1",
         "G2",
         "G7"
       ]
@@ -450,7 +453,6 @@
         "windows-20260911"
       ],
       "gaps": [
-        "G1",
         "G7"
       ]
     },

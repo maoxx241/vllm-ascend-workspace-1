@@ -34,6 +34,8 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Dated design and validation evidence
 
+- [knowledge-platform-validation-2026-09-13.md](knowledge-platform-validation-2026-09-13.md) — final knowledge component selection, exact CI, installed-reference acceptance and independent maintenance deployment; engineering evidence, not domain knowledge.
+
 - [validation/README.md](validation/README.md) — separate VAWS engineering archive: versioned evidence, all runtime/tool families and 18 business skills, measured limits and explicit gaps; not development-domain knowledge.
 - [validation/knowledge-component-2026-09-13.md](validation/knowledge-component-2026-09-13.md) — knowledge PR30–32 exact CI provenance, retained local results and actual Grok export/Windows scheduled feed return; later final installation remains separate.
 - [validation/coverage.json](validation/coverage.json) — bounded capability-to-source/test/evidence index used only by archive maintenance.

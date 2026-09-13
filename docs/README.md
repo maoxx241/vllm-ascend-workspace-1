@@ -32,6 +32,8 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Dated design and validation evidence
 
+- [mechanism-performance-review-2026-09-13.md](mechanism-performance-review-2026-09-13.md) — critical-path and reuse review, local source-packet and lock probes, and ranked mechanism proposals with explicit measurement limits.
+
 - [existing-container-design.md](existing-container-design.md) — reviewed design for existing-container I/O, use-driven knowledge maintenance and lightweight native sessions; acceptance requirements are separate from results.
 - [existing-container-review-2026-09-13.md](existing-container-review-2026-09-13.md) — redacted Kimi K3 max/Never Ask review, its sole required correction and approved design scope; no runtime acceptance claim.
 - [existing-container-validation-2026-09-13.md](existing-container-validation-2026-09-13.md) — anonymized installed-candidate container, knowledge and native-review evidence, measured read costs and explicit pending final acceptance.

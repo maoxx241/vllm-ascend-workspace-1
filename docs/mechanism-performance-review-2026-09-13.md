@@ -4,7 +4,7 @@ Status: dated evidence and proposals, 2026-09-13. Audited consumer main `e09972c
 
 主要机会是缩短必经路径、按本次变化复用证据，以及让工具直接返回足够使用的结果。组件数量或统一接口本身不是优化目标。先删除重复工作、缩小锁和失效范围，再并行剩余的独立工作，最后才考虑新的长期缓存或调度机制。
 
-审查进行时已有并行交付：[coordinator #30](https://github.com/vllm-ascend-workspace/vaws-coordinator/pull/30) 已合入静默 prompt hook 和普通 PreToolUse 提前返回；[consumer #159](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/pull/159) 正在简化一次性初始化及 Agent 指引，[consumer #160](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/pull/160) 正在让已有容器/显式 endpoint 和普通 review 按需绕过 managed startup。这些工作与本次“轻任务不承担全套入口”的方向重合，应复用其实现。下文启动锁和知识准备分析针对明确调用 managed startup 的内部依赖；不把其他 PR 的工作记为本次新增，也不在这里重新实现它们。
+审查进行时已有并行交付：[coordinator #30](https://github.com/vllm-ascend-workspace/vaws-coordinator/pull/30) 已合入静默 prompt hook 和普通 PreToolUse 提前返回；[consumer #159](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/pull/159) 正在简化一次性初始化及 Agent 指引，[consumer #160](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/pull/160) 已合入已有容器/显式 endpoint 和普通 review 按需绕过 managed startup，本交付已整合其主线 `e6a650b333469e83d63bc1643a4f21ab8a4604e2`。这些工作与本次“轻任务不承担全套入口”的方向重合，应复用其实现。下文启动锁和知识准备分析针对明确调用 managed startup 的内部依赖；不把其他 PR 的工作记为本次新增，也不在这里重新实现它们。
 
 ## Evidence boundaries
 
@@ -45,6 +45,8 @@ Status: dated evidence and proposals, 2026-09-13. Audited consumer main `e09972c
 
 新 workspace 尚未保存知识准备结果时，知识准备同步运行一次强制更新及维护，之后才绑定 sources；入口 subprocess 没有自己的 timeout。之后能够返回 pending，不能说明前面的等待是可选的。已有选择会复用结果，因此不能描述成每次命令都重新建索引。
 
+新主线已让未使用的知识 MCP 连接不启动维护，这项成果应保留。它与 managed startup 显式调用准备是两条路径：消费端的准备代码仍传 `force=True` 并同步等待，不能据前者推断这条锁内依赖也已经消失。
+
 优先让有效恢复记录走快速路径，同一任务首次创建用任务级互斥；共享环境/目标版本准备合并执行，发布时再使用短锁。知识复用已有配置/索引，由现有 owner 后台或首次实际查询时维护，普通代码工作先可用。新任务检查上游一次仍是当前明确合同；身份、fork 镜像同步与可选索引维护可从“选定本任务版本”中分离。离线旧版选择是产品策略变化，不能通过静默缓存擅自改变。
 
 ## Preparation: reuse within the operation before adding a cache
@@ -76,3 +78,11 @@ CLI/MCP 已默认保存完整 record 并返回 compact；把 Python 原始 TaskC
 固定 remote-dev 已按 host/port/user/identity/连接超时复用 SSH，会话键不含 execution root/cwd；不同 key 的建联不占全局锁，同 key 的并发建联合并，闲置连接有回收。已有代码摘要缓存也会减少重复 payload。新 execution root 不意味着必定新建 SSH，当前没有必要另造跨 CLI 常驻 transport。
 
 owned launch 已合并 prepare/go/exchange，等待会响应取消并确认 quiet、后代清空及剩余输出。不能为省一个 poll 只看 leader exit，也不能重放结果不确定的 launch。剩余明确机会在调用方：把几个 package-owned 小写入并入同一作业，减少每次 Python/Bash 启动；这正好支持上面的 finalize 合并。普通 shell 与显式 runtime environment 初始化仍有语义，不能全局绕过或长期缓存用户 shell 函数来制造快路径。本次没有运行新的 transport 延迟基准。
+
+## Delivered fixes and validation
+
+[Coordinator #31](https://github.com/vllm-ascend-workspace/vaws-coordinator/pull/31) 保留 compact preparation 日志正文及完成、失败和资源释放事实，完整原始记录仍可读取。记录写失败保留警告和小结果，显式 full 仍返回原数据。大日志分级截断，16 KB 是日志投影预算，不是任意通知、运行时诊断或多执行结果的绝对上限。超过八个 role 的摘要明确给出总数，优先展示异常；完整 role 集仍在原记录中。该补丁先复现五项失败，修复后本地 59 tests 与 20 subtests 通过，Linux、Windows、macOS 和 wheel CI 全部通过。
+
+[Coordinator #32](https://github.com/vllm-ascend-workspace/vaws-coordinator/pull/32) 实现上述无有效历史候选时的固定 clean baseline hint。最终本地 Windows 116 passed / 34 skipped、WSL 150 passed；实际物化测试同时覆盖已确认共同基线的增量传输和不同 author 的完整传输回退。首次 Windows CI 暴露测试 clone 在关闭 autocrlf 前已改变 `.gitmodules` 的问题；隔离全局 autocrlf=true 后精确复现，只修测试 checkout 顺序，生产一致性检查保留。修复后的全部平台和打包 CI 通过。
+
+本消费端固定到包含两项补丁及静默 hook 的 canonical coordinator `384b89b71078bcad49212d3f6104ccc847485cec`，保留新主线的 remote-dev 和 knowledge 版本。本轮没有新的 NPU/服务端到端基准；4,751 字节的本地结果、历史时延和尚未实现的机制建议仍按上面的范围解释。

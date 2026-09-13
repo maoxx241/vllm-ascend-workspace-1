@@ -30,6 +30,14 @@ def commit(path, message):
     return git(path, "rev-parse", "HEAD")
 
 
+def completed_onboarding(project):
+    path = project / ".vaws-local/onboarding.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps({"schema": "vaws.onboarding.v1", "state": "ready",
+        "choices": {"github_user": "fixture", "fork": False, "star": False, "community": "disabled"},
+        "steps": {name: {"state": "ready"} for name in ("fork", "dependencies", "clients")}}))
+
+
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
     project, stage = tmp_path / "母仓 project", tmp_path / "canonical stage"
@@ -249,6 +257,7 @@ def test_established_configuration_failure_never_routes_to_first_use(workspace, 
     project = workspace[0]
     state = project / ".vaws-local"
     state.mkdir(exist_ok=True)
+    completed_onboarding(project)
     (state / "client-initialization.json").write_text('{"clients":{}}')
     if failure != "missing_identity":
         (state / "github.json").write_text(json.dumps(
@@ -273,6 +282,7 @@ def test_configured_repository_starts_without_bootstrap_rerun(workspace, monkeyp
     identity = project / ".vaws-local/github.json"
     identity.parent.mkdir(exist_ok=True)
     identity.write_text('{"schema":"vaws.github.v1","login":"fixture"}')
+    completed_onboarding(project)
     before = identity.read_bytes()
     monkeypatch.setattr(start, "ROOT", project)
     calls = []
@@ -283,3 +293,18 @@ def test_configured_repository_starts_without_bootstrap_rerun(workspace, monkeyp
     assert json.loads(capsys.readouterr().out) == {"status": "ready"}
     assert identity.read_bytes() == before
     assert not (project / ".vaws-local/client-initialization.json").exists()
+
+
+def test_identity_only_start_asks_missing_choices_before_dependencies(workspace, monkeypatch, capsys):
+    project = workspace[0]
+    identity = project / ".vaws-local/github.json"
+    identity.parent.mkdir(exist_ok=True)
+    identity.write_text('{"schema":"vaws.github.v1","login":"fixture"}')
+    monkeypatch.setattr(start, "ROOT", project)
+    monkeypatch.setattr(start, "ensure_workspace_interpreter", lambda **kwargs: pytest.fail("missing choices installed dependencies"))
+    monkeypatch.setattr(start, "start", lambda *args, **kwargs: pytest.fail("missing choices started a task"))
+    assert start.main(["--client", "codex"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "needs_setup"
+    assert result["setup"]["github_user"] == "fixture"
+    assert result["setup"]["phase"] == "choices"

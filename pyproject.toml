@@ -29,8 +29,8 @@ split-knowledge = true
 
 [tool.uv.sources]
 vaws-diagnostics = { git = "https://github.com/vllm-ascend-workspace/vaws-diagnostics", rev = "96fcdfaa0f25fa59f12e948eb4e17ead775f3287" }
-vaws-remote-dev = { git = "https://github.com/vllm-ascend-workspace/remote-dev", rev = "44a728cb02bccb5ba90306eaf8ced2aa385e405d" }
-vaws-coordinator = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator", rev = "2ca5684d783ad4b2f5bec445aca021ca6972bc57" }
+vaws-remote-dev = { git = "https://github.com/vllm-ascend-workspace/remote-dev", rev = "89d197ef13bcae46f7bea809c22bbb058c4edfbf" }
+vaws-coordinator = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator", rev = "1b1ad5a558283307794801e778330c03b1c52cc2" }
 vaws-knowledge = { git = "https://github.com/vllm-ascend-workspace/vaws-knowledge", rev = "8a5ef8abad99011c16a309133c4fb82b03c9cfbe" }
 
 [tool.pytest.ini_options]

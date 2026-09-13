@@ -64,16 +64,21 @@ def read_policy_file(path: Path) -> dict | None:
 def write_choice(root: Path, decision: str) -> dict:
     """Revoke before any optional network work; unchanged decisions are byte-stable."""
     from vaws_session_state import write_json
+    from vaws_workspace_update import path_lock
     if decision not in {"enabled", "disabled"}:
         raise ValueError("community must be enabled or disabled")
-    previous = read_choice(root)
-    if previous is not None and previous["decision"] == decision:
-        return previous
-    value = {"schema": SCHEMA, "workspace_id": previous["workspace_id"] if previous else uuid.uuid4().hex,
-             "decision": decision, "revision": uuid.uuid4().hex,
-             "decided_at": datetime.now(timezone.utc).isoformat(), "policy_url": POLICY_URL}
-    write_json(policy_path(root), value)
-    return value
+    path = policy_path(root)
+    # This lock never covers installation, authentication or a network request.
+    # Concurrent first choices must also agree on one stable workspace ID.
+    with path_lock(path.with_suffix(".lock"), wait_seconds=5):
+        previous = read_policy_file(path)
+        if previous is not None and previous["decision"] == decision:
+            return previous
+        value = {"schema": SCHEMA, "workspace_id": previous["workspace_id"] if previous else uuid.uuid4().hex,
+                 "decision": decision, "revision": uuid.uuid4().hex,
+                 "decided_at": datetime.now(timezone.utc).isoformat(), "policy_url": POLICY_URL}
+        write_json(path, value)
+        return value
 
 
 def community_environment(root: Path, base: dict | None = None) -> dict:

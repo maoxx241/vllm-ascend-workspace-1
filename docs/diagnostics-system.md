@@ -1,7 +1,8 @@
 # Diagnostics, automatic issues and Grok diagnosis
 
 Status: implemented; dated release and deployment evidence is recorded in
-[diagnostics-validation-2026-09-13.md](diagnostics-validation-2026-09-13.md).
+[diagnostics-validation-2026-09-13.md](diagnostics-validation-2026-09-13.md) and
+[first-use-validation-2026-09-14.md](first-use-validation-2026-09-14.md).
 
 VAWS tools record their own operation and phase outcomes. A developer should be
 able to locate a slow or failed operation from its returned diagnostic reference,
@@ -152,8 +153,8 @@ model requests each have an independent maximum of ten submissions per hour.
 ## Install the independent worker
 
 Install the released diagnostics worker in a permanent, non-editable Python
-virtual environment. Library consumers may retain their exact compatible pin;
-upgrading this worker does not rewrite task environments. This unreleased system
+virtual environment. Consumers use exact package pins; replacing this worker
+does not rewrite attached task environments. This unreleased system
 does not migrate old worker databases or retain old-process compatibility: stop
 the old component and install the new version with fresh worker state. Enable the worker once
 for the installation using the desired GitHub identity and explicit log roots:
@@ -162,6 +163,13 @@ The owner supervises a user service on Linux (systemd), Windows (Task Scheduler)
 and macOS (launchd). `service status` and `remove` operate on the owned
 installation. Token authentication may be stored with `--save-token` in the
 owner's protected credential file; tokens never go in the service command.
+Normal onboarding uses `service ensure`: under the owner's lock it adds the
+selected log root while preserving the existing local worker's other roots,
+state, authentication and optional Grok configuration. A new clone does not
+replace an existing credential or convert a central bot into a local reporter.
+Explicit `service install` remains the administrative replacement operation.
+Windows roots and state are resolved to their physical paths before the task
+is launched outside a packaged client.
 Normal onboarding installs only the local reporter. A maintainer may install a
 separate `--central-bot` service with Grok and an independent state directory,
 without `--root`. It diagnoses validated, already-public automatic VAWS issues;

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -33,26 +34,61 @@ def record_path(root: Path) -> Path:
     return shared_workspace_root(root) / ".vaws-local/onboarding.json"
 
 
-def read_record(root: Path) -> dict | None:
-    path = record_path(root)
+def read_record(root: Path, *, path: Path | None = None) -> dict | None:
+    """Read current progress; an explicit path avoids owner discovery in hooks."""
+    path = record_path(root) if path is None else path
     if not path.exists():
         return None
     value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict) or value.get("schema") != SCHEMA or not isinstance(value.get("steps"), dict):
+    if (not isinstance(value, dict) or value.get("schema") != SCHEMA
+            or value.get("state") not in {"pending", "ready"}
+            or not isinstance(value.get("steps"), dict)
+            or any(not isinstance(step, dict) for step in value["steps"].values())
+            or (value["state"] == "ready" and any(value["steps"].get(name, {}).get("state") != "ready"
+                for name in ("fork", "dependencies", "clients")))):
         raise ValueError("Saved onboarding record is invalid; repair it without resetting existing work")
+    choices = value.get("choices", {})
+    if (not isinstance(choices, dict) or (value["state"] == "ready" and (
+            not isinstance(choices.get("github_user"), str)
+            or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", choices["github_user"])
+            or any(type(choices.get(name)) is not bool for name in ("fork", "star"))
+            or choices.get("community") not in {"enabled", "disabled"}))):
+        raise ValueError("Saved onboarding choices are invalid; repair them without resetting existing work")
     return value
+
+
+def read_identity(root: Path) -> dict | None:
+    """Validate a local label without treating it as authentication."""
+    from vaws_github import ForkPolicyError
+    identity = load_github_identity(root)
+    if identity and not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", identity["login"]):
+        raise ForkPolicyError("Saved GitHub identity has no valid personal login")
+    user_id = (identity or {}).get("github_user_id")
+    if user_id is not None and (type(user_id) is not int or user_id <= 0):
+        raise ForkPolicyError("Saved GitHub identity has an invalid numeric user ID")
+    return identity
 
 
 def status(root: Path, *, detect_auth: bool = False) -> dict:
     record = read_record(root)
-    identity = load_github_identity(root)
+    identity = read_identity(root)
     choice = read_choice(root)
-    state = record.get("state", "pending") if record else "existing" if identity else "needs_choices"
+    state = record.get("state", "pending") if record else "needs_choices"
+    identity_missing = bool(record and state == "ready" and (
+        identity is None or identity["login"].casefold() != record["choices"]["github_user"].casefold()))
+    if identity_missing:
+        state = "pending"
+    if record and choice is None:
+        state = "needs_choices"
     result = {"state": state, "reference": REFERENCE, "policy_url": POLICY_URL,
               "github_user": (identity or {}).get("login"), "community": choice,
               "choices": (record or {}).get("choices", {}),
               "steps": (record or {}).get("steps", {}), "record": str(record_path(root)),
               "network_checked": False}
+    if identity_missing:
+        result.update(setup_state="repair_required", phase="identity")
+    if record:
+        result["choices"] = {**record.get("choices", {}), "community": (choice or {}).get("decision")}
     if detect_auth and state != "ready":
         from vaws_github import detect_github_auth
         result["authentication"] = detect_github_auth()
@@ -106,27 +142,52 @@ def configure_reporting(root: Path, receipt: dict, environment: dict) -> dict:
 def initialize(root: Path, *, github_user: str | None = None, fork: bool | None = None,
                star: bool | None = None, community: str | None = None, client: str | None = None,
                github=None, runner=run_json) -> dict:
-    from vaws_github import GitHubClient, setup, validate_github_user
+    from vaws_github import ForkPolicyError, GitHubClient, setup, validate_github_user
     from vaws_local_state import shared_workspace_root
-    from vaws_workspace_update import path_lock
+    from vaws_workspace_update import Deferred, path_lock
     from vaws_diagnostics_adapter import phase, redact
 
     root = shared_workspace_root(root.resolve())
     begun = time.monotonic()
-    with path_lock(root / ".vaws-local/onboarding.lock", wait_seconds=180):
-        previous = read_record(root)
+    if community is not None:
+        # Only an explicit answer writes authorization, before the long setup
+        # lock. A running initializer must never replay its older answer.
+        write_choice(root, community)
+        if community == "disabled":
+            disable_knowledge(root)
+    with ExitStack() as locks:
+        try:
+            locks.enter_context(path_lock(root / ".vaws-local/onboarding.lock",
+                                          wait_seconds=0 if community is not None else 180))
+        except Deferred as exc:
+            if community is None or exc.reason != "updater_running":
+                raise
+            return {"state": "choice_updated", "setup_state": "pending", "community": read_choice(root),
+                    "record": str(record_path(root)), "seconds": time.monotonic()-begun,
+                    "message": "Community choice is effective. Another initialization is running; its setup progress is retained."}
+        current_choice = read_choice(root)
+
+        def repair_required(name, exc):
+            return {"state": "choice_updated" if community == "disabled" else "pending",
+                    "setup_state": "repair_required", "phase": name, "community": current_choice,
+                    "record": str(record_path(root)),
+                    "error": {"type": type(exc).__name__, "message": redact(str(exc))},
+                    "next": "Repair the reported local state and rerun vaws_init.py apply. Existing files were preserved."}
+
+        try:
+            previous = read_record(root)
+        except (OSError, ValueError) as exc:
+            return repair_required("progress", exc)
         client = client or (previous or {}).get("client") or "all"
         saved = (previous or {}).get("choices", {})
-        current_choice = read_choice(root)
-        if community == "disabled":
-            # Revocation is independent of unanswered first-use questions,
-            # GitHub authentication, package installation and the old receipt.
-            current_choice = write_choice(root, "disabled")
-            disable_knowledge(root)
-        choices = {"github_user": github_user or saved.get("github_user") or (load_github_identity(root) or {}).get("login"),
+        try:
+            identity = read_identity(root)
+        except (OSError, ValueError, ForkPolicyError) as exc:
+            return repair_required("identity", exc)
+        choices = {"github_user": github_user or saved.get("github_user") or (identity or {}).get("login"),
                    "fork": fork if fork is not None else saved.get("fork"),
                    "star": star if star is not None else saved.get("star"),
-                   "community": community if community is not None else (current_choice or {}).get("decision", saved.get("community"))}
+                   "community": (current_choice or {}).get("decision")}
         if not choices["github_user"] or any(choices[key] is None for key in ("fork", "star", "community")):
             return {**status(root), "state": "choice_updated" if community == "disabled" else "needs_choices", "choices": choices,
                     "setup_state": "needs_choices",
@@ -138,6 +199,15 @@ def initialize(root: Path, *, github_user: str | None = None, fork: bool | None 
         if not isinstance(choices["github_user"], str) or not re.fullmatch(
                 r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", choices["github_user"]):
             raise ValueError("GitHub ID must be a personal account login")
+        if (identity and previous and choices["github_user"] == saved.get("github_user")
+                and identity["login"].casefold() != choices["github_user"].casefold()):
+            return repair_required("identity", ForkPolicyError("Saved identity differs from the confirmed workspace owner"))
+        if (identity is None and previous
+                and choices["github_user"] == saved.get("github_user")):
+            # Recover only the explicitly saved local label. A completed setup
+            # step is not fresh proof of a numeric identity or personal fork.
+            identity = {"schema": "vaws.github.v1", "login": choices["github_user"], "forks": {}}
+            atomic_json(root / ".vaws-local/github.json", identity)
         inputs = setup_inputs(root)
         if (previous and previous.get("state") == "ready" and choices == saved
                 and previous.get("inputs") == inputs
@@ -164,8 +234,7 @@ def initialize(root: Path, *, github_user: str | None = None, fork: bool | None 
                         steps.pop(name, None)
         record = {"schema": SCHEMA, "state": "pending", "choices": choices, "steps": steps,
                   "policy_url": POLICY_URL, "client": client, "inputs": inputs}
-        # The consent switch is effective even if a later setup stage fails.
-        choice = write_choice(root, choices["community"])
+        choice = current_choice
         record["community_revision"] = choice["revision"]
         environment = community_environment(root)
         environment["PYTHONUTF8"] = "1"
@@ -222,21 +291,36 @@ def initialize(root: Path, *, github_user: str | None = None, fork: bool | None 
             validate_github_user(github.api("user"), choices["github_user"])
             return github.ensure_star("vllm-ascend-workspace/vllm-ascend-workspace")
 
+        def refresh_choice():
+            nonlocal choice
+            latest = read_choice(root)
+            if latest != choice:
+                choice = latest
+                choices["community"] = (latest or {}).get("decision")
+                record["community_revision"] = (latest or {}).get("revision")
+                for name in ("knowledge", "reporting"):
+                    steps[name] = {"state": "pending", "reason": "community_choice_changed"}
+
         optional = {
             "star": configure_star,
-            "knowledge": lambda: configure_knowledge(root, choice["decision"], choices["github_user"], receipt=receipt),
+            "knowledge": lambda: configure_knowledge(root, (choice or {}).get("decision", "disabled"), choices["github_user"], receipt=receipt),
             "reporting": lambda: configure_reporting(root, receipt, environment)
-                         if choice["decision"] == "enabled" else {"state": "disabled", "local_logs": True},
+                         if choice and choice["decision"] == "enabled" else {"state": "disabled", "local_logs": True},
         }
         for name, action in optional.items():
             try:
+                refresh_choice()
                 step(name, action)
             except Exception as exc:
                 steps[name] = {"state": "pending", "error": {"type": type(exc).__name__, "message": redact(str(exc))}}
                 atomic_json(record_path(root), record)
+        refresh_choice()
         record["pending_optional"] = [name for name in optional if steps[name]["state"] != "ready"]
         record["collaboration_state"] = "pending" if any(name in record["pending_optional"] for name in ("knowledge", "reporting")) else "configured"
-        record.update(state="ready", phase="complete", completed_at=datetime.now(timezone.utc).isoformat())
+        record.update(state="ready" if choice else "pending", phase="complete", completed_at=datetime.now(timezone.utc).isoformat())
+        if choice is None:
+            record.update(state="pending", setup_state="needs_choices", phase="community",
+                          next="Community choice is missing. Confirm it explicitly; saved setup choices do not authorize contributions.")
         atomic_json(record_path(root), record)
         return {**record, "record": str(record_path(root)), "seconds": time.monotonic()-begun,
                 "reused": False,

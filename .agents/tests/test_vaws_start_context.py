@@ -259,12 +259,28 @@ def test_ordinary_hooks_do_not_inject_preparation_or_identity_gate(project, monk
             assert instruction not in projected
         message = hint(client, event, projected)
         if message:
-            assert ("first-use setup" in projected) is (not confirmed_identity)
+            assert "first-use setup" in projected
+            assert "Fork, Star and" in projected
             assert store.native_context(client, native)["context_file"] in message
             assert "workspace is prepared" not in message
     context = store.native_context(client, native)
     assert bool(context["session"].get("github_identity")) == confirmed_identity
     assert not (root / ".vaws-local/tasks").exists()
+
+
+def test_unprepared_hook_reports_damaged_onboarding_without_replacing_it(project):
+    root, _, store, _ = project
+    record = root / ".vaws-local/onboarding.json"
+    record.write_text('{"schema":"vaws.onboarding.v1","state":"ready","steps":{}}')
+    original = record.read_bytes()
+    context = store.attach("codex", "damaged-onboarding", str(root))
+    result = hints.project_output("codex", payload("codex", "SessionStart", "damaged-onboarding", root),
+                                  '{"hookSpecificOutput":{"additionalContext":"native context"}}', root=root)
+    assert "workspace selection could not be read" in result
+    assert "workspace is prepared" not in result
+    assert "Ask only missing" not in result
+    assert record.read_bytes() == original
+    assert store.native_context("codex", "damaged-onboarding")["attachment"]["id"] == context["attachment"]["id"]
 
 
 def test_prepared_facts_do_not_require_personal_identity(project, monkeypatch):

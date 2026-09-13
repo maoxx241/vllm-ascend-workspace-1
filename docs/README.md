@@ -1,6 +1,6 @@
 # Documentation index
 
-Status: current, 2026-09-13
+Status: current, 2026-09-14
 
 Every file under `docs/` is listed here. `Status: current` is a
 contract. Dated validation evidence records the tested state; it is not a current
@@ -35,6 +35,8 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [tracked-path-guard.md](tracked-path-guard.md) — anti-rot guard against dead in-tree paths in tracked docs.
 
 ## Dated design and validation evidence
+
+- [first-use-validation-2026-09-14.md](first-use-validation-2026-09-14.md) — fresh clone and actual Agent initialization, token-only Git, contribution choices, detached resume and supervised diagnostic workers; timing boundaries and earlier failed candidates are explicit.
 
 - [diagnostics-validation-2026-09-13.md](diagnostics-validation-2026-09-13.md) — logging and timing coverage, local failure injection, protocol and process tests, measured instrumentation costs and explicit deployment/device limits.
 - [legacy-retirement-2026-09-13.md](legacy-retirement-2026-09-13.md) — bounded consumer/Skill retirement, historical domain-note migration, retained live mechanisms and regression scope.

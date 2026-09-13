@@ -53,6 +53,8 @@ Failure remains incomplete even if identity was saved. Resume with
 `vaws_init.py apply`; completed stages and answers are reused. `status` without
 `--detect-auth` is a local read. Change only community choice with
 `apply --community disabled` or `enabled`; revocation precedes further setup.
+Optional contribution-service failures are reported separately as pending and
+can be retried with `apply`; they do not block an otherwise ready local task.
 Declining Star does not unstar an existing repository; declining Fork does not
 delete existing forks or rewrite their remotes.
 

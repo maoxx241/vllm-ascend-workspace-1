@@ -4236,7 +4236,7 @@ wheels = [
 [[package]]
 name = "vaws-coordinator"
 version = "0.5.0.dev5"
-source = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=2ca5684d783ad4b2f5bec445aca021ca6972bc57#2ca5684d783ad4b2f5bec445aca021ca6972bc57" }
+source = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=1b1ad5a558283307794801e778330c03b1c52cc2#1b1ad5a558283307794801e778330c03b1c52cc2" }
 dependencies = [
     { name = "setuptools-scm" },
     { name = "vaws-diagnostics" },
@@ -4269,7 +4269,7 @@ code = [
 [[package]]
 name = "vaws-remote-dev"
 version = "0.9.3"
-source = { git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=44a728cb02bccb5ba90306eaf8ced2aa385e405d#44a728cb02bccb5ba90306eaf8ced2aa385e405d" }
+source = { git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=89d197ef13bcae46f7bea809c22bbb058c4edfbf#89d197ef13bcae46f7bea809c22bbb058c4edfbf" }
 dependencies = [
     { name = "vaws-diagnostics" },
 ]
@@ -4302,10 +4302,10 @@ requires-dist = [
     { name = "pillow", specifier = ">=11" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "requests", specifier = ">=2" },
-    { name = "vaws-coordinator", git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=2ca5684d783ad4b2f5bec445aca021ca6972bc57" },
+    { name = "vaws-coordinator", git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=1b1ad5a558283307794801e778330c03b1c52cc2" },
     { name = "vaws-diagnostics", git = "https://github.com/vllm-ascend-workspace/vaws-diagnostics?rev=96fcdfaa0f25fa59f12e948eb4e17ead775f3287" },
     { name = "vaws-knowledge", extras = ["code"], git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=8a5ef8abad99011c16a309133c4fb82b03c9cfbe" },
-    { name = "vaws-remote-dev", git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=44a728cb02bccb5ba90306eaf8ced2aa385e405d" },
+    { name = "vaws-remote-dev", git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=89d197ef13bcae46f7bea809c22bbb058c4edfbf" },
 ]
 
 [package.metadata.requires-dev]

@@ -55,6 +55,9 @@ def preparation_hint(root: Path, context: dict) -> str:
             return (f"VAWS first-use setup is incomplete. Read {FIRST_USE_REFERENCE}; "
                     "reuse confirmed GitHub username and saved choices. Ask only missing Fork, Star and "
                     "community collaboration choices, then resume vaws_init.py apply. Local work remains available.")
+        if first["state"] not in {"configured", "disabled"}:
+            raise ValueError(first.get("message") or first.get("error") or
+                             f"First-use configuration is {first['state']}; inspect its saved record")
         return ""
     cwd = Path(getattr(selected, "cwd", None) or selected.workspace).resolve()
     workspace = Path(selected.workspace).resolve()

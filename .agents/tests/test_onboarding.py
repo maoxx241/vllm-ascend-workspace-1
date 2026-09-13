@@ -1,6 +1,9 @@
 """First-use decisions, interrupted setup and revocation use real local state."""
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import threading
+import time
 
 import pytest
 
@@ -56,6 +59,19 @@ def test_unanswered_choices_do_not_create_fork_star_or_enable_contribution(setup
     assert account.calls == calls == []
     assert not (root / ".vaws-local/community.json").exists()
     assert not (root / ".vaws-local/github.json").exists()
+
+
+def test_status_identity_only_preserves_username_but_still_needs_choices(setup):
+    root, account, calls, _ = setup
+    snapshot = root / ".vaws-local/github.json"
+    snapshot.parent.mkdir()
+    snapshot.write_text('{"schema":"vaws.github.v1","login":"alice","forks":{}}')
+    original = snapshot.read_bytes()
+    result = onboarding.status(root)
+    assert result["state"] == "needs_choices" and result["github_user"] == "alice"
+    assert result["choices"] == {} and result["network_checked"] is False
+    assert snapshot.read_bytes() == original
+    assert account.calls == calls == []
 
 
 def test_declined_features_keep_identity_and_no_upload_worker(setup):
@@ -236,3 +252,156 @@ def test_reenabling_community_keeps_selected_knowledge_corpus(tmp_path, monkeypa
     monkeypatch.setattr(vaws_knowledge_service, "run_knowledge_cli", lambda root, command: calls.append(command) or (0, {"ready": True}))
     onboarding.configure_knowledge(tmp_path, "enabled", "alice")
     assert calls[0][calls[0].index("--repository") + 1] == "example/selected-corpus"
+
+
+@pytest.mark.parametrize("progress", ["{", "[]", '{"schema":"invalid","steps":{}}'])
+def test_opt_out_precedes_invalid_progress_and_preserves_its_bytes(setup, progress):
+    root, account, calls, _ = setup
+    enabled = community.write_choice(root, "enabled")
+    record = root / ".vaws-local/onboarding.json"
+    record.write_text(progress)
+    original = record.read_bytes()
+    config = root / ".vaws-local/knowledge/service.json"
+    config.parent.mkdir()
+    config.write_text('{"publishing":{"enabled":true},"custom":"keep"}')
+    result = initialize(setup, community="disabled")
+    assert result["state"] == "choice_updated" and result["setup_state"] == "repair_required"
+    assert result["phase"] == "progress"
+    assert record.read_bytes() == original
+    revoked = community.read_choice(root)
+    assert revoked["decision"] == "disabled" and revoked["revision"] != enabled["revision"]
+    assert revoked["workspace_id"] == enabled["workspace_id"]
+    assert json.loads(config.read_text())["publishing"]["enabled"] is False
+    assert json.loads(config.read_text())["custom"] == "keep"
+    assert account.calls == calls == []
+
+
+@pytest.mark.parametrize("forked", [False, True])
+def test_ready_missing_identity_recovers_only_saved_label_without_network(setup, forked):
+    root, account, calls, _ = setup
+    first = initialize(setup, github_user="alice", fork=False, star=False, community="disabled")
+    record = root / ".vaws-local/onboarding.json"
+    if forked:
+        # A prior success receipt is not a freshly verified fork or numeric ID.
+        first["choices"]["fork"] = True
+        first["steps"]["fork"]["result"] = {"status": "configured", "repositories": [{"personal": "alice/corpus"}]}
+        record.write_text(json.dumps(first))
+    snapshot = root / ".vaws-local/github.json"
+    snapshot.unlink()
+    before = record.read_bytes()
+    counts = len(account.calls), len(calls)
+    assert onboarding.status(root)["state"] == "pending"
+    result = initialize(setup)
+    assert result["state"] == "ready" and result["reused"] is True
+    assert json.loads(snapshot.read_text()) == {"schema": "vaws.github.v1", "login": "alice", "forks": {}}
+    assert record.read_bytes() == before
+    assert onboarding.status(root)["state"] == "ready"
+    assert (len(account.calls), len(calls)) == counts
+
+
+@pytest.mark.parametrize("identity", [
+    "{", '{"schema":"vaws.github.v1","login":""}',
+    '{"schema":"vaws.github.v1","login":"alice","forks":[]}',
+    '{"schema":"vaws.github.v1","login":"alice","github_user_id":"12"}',
+    '{"schema":"vaws.github.v1","login":"bob"}',
+])
+def test_ready_invalid_identity_is_preserved_for_repair_without_false_ready(setup, identity):
+    root, account, calls, _ = setup
+    initialize(setup, github_user="alice", fork=False, star=False, community="enabled")
+    snapshot = root / ".vaws-local/github.json"
+    snapshot.write_text(identity)
+    record = root / ".vaws-local/onboarding.json"
+    before = snapshot.read_bytes(), record.read_bytes()
+    counts = len(account.calls), len(calls)
+    result = initialize(setup)
+    assert result["state"] == "pending" and result["phase"] == "identity"
+    assert result["setup_state"] == "repair_required"
+    assert (snapshot.read_bytes(), record.read_bytes()) == before
+    revoked = initialize(setup, community="disabled")
+    assert revoked["state"] == "choice_updated" and revoked["setup_state"] == "repair_required"
+    assert community.read_choice(root)["decision"] == "disabled"
+    assert (snapshot.read_bytes(), record.read_bytes()) == before
+    assert (len(account.calls), len(calls)) == counts
+
+
+@pytest.mark.parametrize("state,steps", [("unknown", {}), ("ready", {}), ("pending", {"fork": "invalid"})])
+def test_progress_reader_rejects_false_ready_and_uses_explicit_path_without_discovery(tmp_path, monkeypatch, state, steps):
+    record = tmp_path / "progress.json"
+    record.write_text(json.dumps({"schema": onboarding.SCHEMA, "state": state, "steps": steps}))
+    monkeypatch.setattr(onboarding, "record_path", lambda *args: pytest.fail("unneeded owner discovery"))
+    with pytest.raises(ValueError, match="invalid"):
+        onboarding.read_record(tmp_path, path=record)
+
+
+def test_missing_policy_never_reauthorizes_from_saved_enabled_choice(setup):
+    root, account, calls, _ = setup
+    initialize(setup, github_user="alice", fork=False, star=False, community="enabled")
+    record = root / ".vaws-local/onboarding.json"
+    before = record.read_bytes()
+    community.policy_path(root).unlink()
+    counts = len(account.calls), len(calls)
+    result = initialize(setup)
+    assert result["state"] == "needs_choices" and result["choices"]["community"] is None
+    assert onboarding.status(root)["state"] == "needs_choices"
+    assert onboarding.status(root)["choices"]["community"] is None
+    assert community.read_choice(root) is None
+    assert record.read_bytes() == before
+    assert (len(account.calls), len(calls)) == counts
+
+
+def test_opt_out_during_blocked_setup_is_immediate_and_old_initializer_cannot_reenable(setup):
+    root, account, calls, runner = setup
+    entered, release = threading.Event(), threading.Event()
+    def blocked_runner(command, target, env):
+        if "sync" in command:
+            entered.set()
+            assert release.wait(5), "test never released setup"
+        return runner(command, target, env)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        active = pool.submit(onboarding.initialize, root, github_user="alice", fork=False,
+                             star=False, community="enabled", github=account, runner=blocked_runner)
+        try:
+            assert entered.wait(3), "setup did not reach dependency step"
+            enabled = community.read_choice(root)
+            off = pool.submit(initialize, setup, community="disabled")
+            result = off.result(timeout=2)
+            assert result["state"] == "choice_updated" and result["setup_state"] == "pending"
+            assert not active.done()
+            revoked = community.read_choice(root)
+            assert revoked["decision"] == "disabled"
+            assert revoked["workspace_id"] == enabled["workspace_id"]
+            assert revoked["revision"] != enabled["revision"]
+        finally:
+            release.set()
+        finished = active.result(timeout=5)
+    assert finished["state"] == "ready" and finished["choices"]["community"] == "disabled"
+    assert finished["community_revision"] == revoked["revision"]
+    assert community.read_choice(root) == revoked
+    assert ["worker"] not in calls
+    assert ["knowledge", "enabled", "alice"] not in calls
+
+
+def test_concurrent_first_policy_writes_share_one_workspace_identity(setup, monkeypatch):
+    import vaws_session_state
+    root, *_ = setup
+    writing, release = threading.Event(), threading.Event()
+    original = vaws_session_state.write_json
+    def blocked_write(path, value):
+        if value["decision"] == "enabled":
+            writing.set()
+            assert release.wait(5)
+        return original(path, value)
+    monkeypatch.setattr(vaws_session_state, "write_json", blocked_write)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(community.write_choice, root, "enabled")
+        try:
+            assert writing.wait(3)
+            second = pool.submit(community.write_choice, root, "disabled")
+            time.sleep(.1)
+            assert not second.done(), "second writer bypassed the local policy lock"
+        finally:
+            release.set()
+        enabled, disabled = first.result(timeout=3), second.result(timeout=3)
+    assert enabled["workspace_id"] == disabled["workspace_id"]
+    assert enabled["revision"] != disabled["revision"]
+    assert community.read_choice(root) == disabled

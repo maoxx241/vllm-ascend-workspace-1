@@ -126,3 +126,72 @@ class WindowsBootstrapTests(unittest.TestCase):
                 if pid is not None and alive(pid):
                     subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
                                    capture_output=True, timeout=10, check=True)
+
+    def _check_live_detach(self, *, fail_body):
+        sys.path.insert(0, str(LIB))
+        from vaws_windows import owned_process
+
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "live-tree.json"
+            parent_code = (
+                "import os,sys,subprocess,time,json;from pathlib import Path;"
+                "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)'],"
+                "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);"
+                f"marker=Path({str(marker)!r});"
+                "marker.with_suffix('.tmp').write_text(json.dumps([os.getpid(),child.pid]));"
+                "marker.with_suffix('.tmp').replace(marker);time.sleep(120)"
+            )
+            child = [str(Path(sys.base_prefix) / "python.exe"), "-c", parent_code]
+            launcher_code = f"""
+import json, subprocess, sys, time
+from pathlib import Path
+sys.path.insert(0, {str(LIB)!r})
+from vaws_windows import owned_process
+marker = Path({str(marker)!r})
+body_failed = False
+try:
+    with owned_process({child!r}, detach_on_success=True, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as process:
+        deadline = time.monotonic() + 10
+        while not marker.is_file() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(.05)
+        if not marker.is_file():
+            raise AssertionError('live parent/grandchild fixture never became ready')
+        pids = json.loads(marker.read_text(encoding='utf-8'))
+        if {fail_body!r}:
+            raise RuntimeError('ownership record fixture failed')
+except RuntimeError as error:
+    if str(error) != 'ownership record fixture failed':
+        raise
+    body_failed = True
+print(json.dumps({{'pids': pids, 'body_failed': body_failed}}), flush=True)
+"""
+            # The outer Job never detaches. It owns the fixture even when the
+            # inner helper under test releases a live tree or raises early.
+            with owned_process([str(Path(sys.base_prefix) / "python.exe"), "-c", launcher_code],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE) as guardian:
+                out, err = guardian.communicate(timeout=15)
+                self.assertEqual(guardian.returncode, 0, (out, err))
+                observed = json.loads(out)
+                pids = observed["pids"]
+                self.assertEqual(observed["body_failed"], fail_body)
+                if fail_body:
+                    deadline = time.monotonic() + 5
+                    while any(alive(pid) for pid in pids) and time.monotonic() < deadline:
+                        time.sleep(.05)
+                    self.assertFalse(any(alive(pid) for pid in pids),
+                                     "body failure detached the live parent/grandchild")
+                else:
+                    self.assertTrue(all(alive(pid) for pid in pids),
+                                    "successful live detach killed the parent/grandchild")
+            deadline = time.monotonic() + 5
+            while any(alive(pid) for pid in pids) and time.monotonic() < deadline:
+                time.sleep(.05)
+            self.assertFalse(any(alive(pid) for pid in pids), "guardian left fixture processes alive")
+
+    def test_successful_live_detach_preserves_parent_and_grandchild(self):
+        self._check_live_detach(fail_body=False)
+
+    def test_live_detach_body_failure_terminates_parent_and_grandchild(self):
+        self._check_live_detach(fail_body=True)

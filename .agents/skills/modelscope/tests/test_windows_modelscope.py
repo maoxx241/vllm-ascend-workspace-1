@@ -1,4 +1,5 @@
 """Native subprocess download/resume/verify lifecycle with offline SDK/API fixtures."""
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -27,13 +28,14 @@ def test_status_preserves_worker_and_resume_verification(tmp_path):
         "class Response:\n    def raise_for_status(self): pass\n    def json(self): return " + repr(metadata) +
         "\nclass Session:\n    def get(self,*a,**k): return Response()\n", encoding="utf-8")
     (fixture / "modelscope.py").write_text(
-        "from pathlib import Path\nimport time\n"
+        "from pathlib import Path\nimport json, os, time\n"
         "def snapshot_download(model_id,revision,local_dir,max_workers=None,**kwargs):\n"
         "    root=Path(local_dir); path=root/'weights.bin'; data=" + repr(data) + "\n"
         "    previous=path.read_bytes() if path.exists() else b''\n"
         "    assert data.startswith(previous)\n"
         "    control=Path(__file__).parent\n"
-        "    (control/'sdk-ready').write_text('ready',encoding='utf-8')\n"
+        "    (control/'sdk-ready.tmp').write_text(json.dumps({'pid': os.getpid(), 'parent_pid': os.getppid()}),encoding='utf-8')\n"
+        "    (control/'sdk-ready.tmp').replace(control/'sdk-ready')\n"
         "    deadline=time.monotonic()+90\n"
         "    while not (control/'sdk-release').is_file():\n"
         "        if time.monotonic()>=deadline: raise TimeoutError('SDK fixture release marker was not received')\n"
@@ -44,14 +46,39 @@ def test_status_preserves_worker_and_resume_verification(tmp_path):
     local.mkdir()
     (local / "weights.bin").write_bytes(data[:7])
     env = {**os.environ, "PYTHONPATH": str(fixture)}
-    def run(action):
-        result = subprocess.run([sys.executable, str(SCRIPTS / "modelscope_auto.py"), action,
-                                 "--model", "fixture/tiny=" + str(local)], env=env,
-                                capture_output=True, timeout=20)
-        return result.returncode, result.stdout.decode("utf-8"), result.stderr.decode("utf-8")
     sys.path.insert(0, str(ROOT / ".agents/lib"))
-    from vaws_windows import pid_alive
+    from vaws_windows import owned_process, pid_alive
+    stack = ExitStack()
+    commands = []
+
+    def run(action):
+        started = time.monotonic()
+        entry = {"action": action}
+        commands.append(entry)
+        # Keep every Job alive through the whole case, including detached
+        # workers launched before ensure returns or times out.
+        process = stack.enter_context(owned_process(
+            [sys.executable, str(SCRIPTS / "modelscope_auto.py"), action,
+             "--model", "fixture/tiny=" + str(local), "--max-retries", "1"],
+            env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE))
+        try:
+            out, err = process.communicate(timeout=20)
+        except subprocess.TimeoutExpired as exc:
+            entry.update(timeout=True,
+                         stdout=(exc.output or b"")[-4096:].decode("utf-8", "replace"),
+                         stderr=(exc.stderr or b"")[-4096:].decode("utf-8", "replace"))
+            raise
+        else:
+            entry.update(returncode=process.returncode,
+                         stdout=out[-4096:].decode("utf-8", "replace"),
+                         stderr=err[-4096:].decode("utf-8", "replace"))
+            return process.returncode, out.decode("utf-8"), err.decode("utf-8")
+        finally:
+            entry["elapsed_ms"] = round((time.monotonic() - started) * 1000, 3)
+
     pid = None
+    sdk_pid = None
     try:
         code, out, err = run("ensure")
         assert code == 0 and "download-started" in out, (out, err)
@@ -61,11 +88,16 @@ def test_status_preserves_worker_and_resume_verification(tmp_path):
         while not ready.is_file() and pid_alive(pid) and time.monotonic() < deadline:
             time.sleep(.1)
         assert ready.is_file(), "SDK worker did not reach the controlled active phase"
+        sdk = json.loads(ready.read_text(encoding="utf-8"))
+        sdk_pid = sdk["pid"]
+        assert pid_alive(sdk_pid), "SDK exited before release"
+        assert not release.exists()
         code, out, err = run("status")
-        assert code == 0 and "active" in out, (out, err)
+        assert code == 0 and out.split("\t")[1] == "active", (out, err)
         assert pid_alive(pid), "status terminated the running worker"
         code, out, err = run("ensure")
-        assert code == 0 and json.loads((local / "download.pid").read_text(encoding="utf-8"))["pid"] == pid
+        assert code == 0 and out.split("\t")[1] == "active", (out, err)
+        assert json.loads((local / "download.pid").read_text(encoding="utf-8"))["pid"] == pid
         assert (local / "weights.bin").read_bytes() == data[:7]
         release.touch()
         deadline = time.monotonic() + 15
@@ -85,7 +117,33 @@ def test_status_preserves_worker_and_resume_verification(tmp_path):
         code, out, err = run("ensure")
         assert code == 0 and "verify-failed" in out, (out, err)
         assert (local / "weights.bin").read_bytes() == b"X" * len(data)
+    except BaseException as exc:
+        # Snapshot the failing state before release/Job cleanup can change it.
+        files = {}
+        for path in (ready, release, local / "download.pid", local / "download.launch.log",
+                     local / "download.log", local / "verify.log"):
+            try:
+                with path.open("rb") as stream:
+                    stream.seek(0, 2)
+                    stream.seek(max(0, stream.tell() - 8192))
+                    files[path.name] = stream.read(8192).decode("utf-8", "replace")
+            except OSError as error:
+                files[path.name] = f"{type(error).__name__}: {error}"
+        diagnostic = json.dumps({"commands": commands, "files": files,
+                                 "worker_alive": pid is not None and pid_alive(pid),
+                                 "sdk_alive": sdk_pid is not None and pid_alive(sdk_pid)},
+                                ensure_ascii=False, indent=2)
+        exc.add_note("ModelScope lifecycle state before cleanup:\n" + diagnostic)
+        try:
+            (tmp_path / "lifecycle-failure.json").write_text(diagnostic, encoding="utf-8")
+        except OSError as error:
+            exc.add_note(f"Could not retain lifecycle-failure.json: {error}")
+        raise
     finally:
-        release.touch()
-        if pid is not None and pid_alive(pid):
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        try:
+            release.touch()
+            deadline = time.monotonic() + 5
+            while pid is not None and pid_alive(pid) and time.monotonic() < deadline:
+                time.sleep(.1)
+        finally:
+            stack.close()

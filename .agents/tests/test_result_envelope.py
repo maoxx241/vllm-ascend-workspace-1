@@ -32,14 +32,12 @@ from vaws_result_envelope import (  # noqa: E402
     EnvelopeError,
     child_digest,
     compact_view,
-    compose_child,
     default_exit_code,
     emit,
     emit_agent_view,
     escalate_child_layer,
     evidence_ref,
     failure_from_parts,
-    knowledge_reference,
     make_attempt,
     make_attempts,
     make_command,
@@ -49,7 +47,6 @@ from vaws_result_envelope import (  # noqa: E402
     make_next_step,
     make_operation,
     make_part,
-    make_remote_command,
     new_envelope,
     outcome_from_parts,
     progress,
@@ -328,12 +325,12 @@ class TaxonomyTests(unittest.TestCase):
                     "before /etc/hosts is fixed",
                 ],
                 knowledge=[
-                    knowledge_reference(
-                        entry_id="gloo-init-container-hostname-missing-from-etc-hosts",
-                        summary="fresh containers lack their own hostname mapping",
-                        avoidance="do not debug gloo/HCCL env vars first",
-                        score=7,
-                    )
+                    {
+                        "entry_id": "gloo-init-container-hostname-missing-from-etc-hosts",
+                        "summary": "fresh containers lack their own hostname mapping",
+                        "avoidance": "do not debug gloo/HCCL env vars first",
+                        "score": 7,
+                    }
                 ],
             ),
         )
@@ -712,148 +709,11 @@ class CompositionTests(unittest.TestCase):
             "tool",
         )
 
-    def test_nested_layer_propagates_unchanged(self) -> None:
-        parent = base_envelope()
-        child = self._child("remote_workload", "workload_nonzero_exit")
-        composed = compose_child(parent, child, ref=".vaws-local/x/child.json")
-        self.assertEqual(composed["outcome"], "failure")
-        self.assertEqual(composed["failure"]["layer"], "remote_workload")
-        self.assertEqual(composed["children"][0]["depth"], 1)
-
-    def test_nested_caller_fault_becomes_the_parents_tool_fault(self) -> None:
-        self.assertEqual(escalate_child_layer("caller"), "tool")
-        parent = base_envelope()
-        composed = compose_child(parent, self._child("caller", "bad_arguments"))
-        self.assertEqual(composed["failure"]["layer"], "tool")
-        self.assertTrue(
-            any(
-                "built the arguments" in item
-                for item in composed["failure"]["attribution_basis"]
-            )
-        )
-
-    def test_composition_inherits_child_do_not_guidance(self) -> None:
-        parent = base_envelope()
-        composed = compose_child(
-            parent, self._child("transport", "ssh_mux_stream_died")
-        )
-        self.assertIn(
-            "do not retry on the shared mux", composed["next_step"]["do_not"]
-        )
-
-    def test_parent_with_its_own_failure_keeps_it(self) -> None:
-        parent = base_envelope(
-            outcome="failure",
-            failure=make_failure(
-                layer="tool",
-                reason_code="non_json_output",
-                message="child returned non-JSON stdout",
-                attribution_basis=["stdout did not parse as JSON"],
-            ),
-            next_step=make_next_step(actions=["read the raw child stdout"]),
-        )
-        composed = compose_child(
-            parent, self._child("remote_workload", "workload_nonzero_exit")
-        )
-        self.assertEqual(composed["failure"]["layer"], "tool")
-
     def test_nested_envelope_in_children_is_rejected(self) -> None:
         parent = base_envelope()
         parent["children"] = [self._child("transport", "ssh_connect_failed")]
         with self.assertRaisesRegex(EnvelopeError, "must be a digest"):
             validate_envelope(parent)
-
-    def test_nested_caller_without_child_tool_exclusion_composes(self) -> None:
-        parent = base_envelope()
-        child = self._child("caller", "bad_arguments", outcome="blocked")
-        child_snapshot = json.loads(json.dumps(child))
-        validate_envelope(parent)
-        validate_envelope(child)
-        composed = compose_child(parent, child, ref="fixture-child.json")
-        validate_envelope(composed)
-        self.assertEqual(composed["outcome"], "blocked")
-        self.assertEqual(composed["failure"]["layer"], "tool")
-        self.assertEqual(composed["failure"]["ruled_out"], [])
-        self.assertEqual(child, child_snapshot)
-        self.assertEqual(composed["children"][0]["envelope_id"], child["envelope_id"])
-        self.assertEqual(composed["children"][0]["ref"], "fixture-child.json")
-        self.assertEqual(composed["children"][0]["layer"], "caller")
-        self.assertEqual(
-            composed["next_step"]["actions"][0]["description"],
-            "read the nested log",
-        )
-        self.assertIn(
-            "do not retry on the shared mux", composed["next_step"]["do_not"]
-        )
-
-    def test_nested_caller_with_child_tool_exclusion_drops_parent_tool(self) -> None:
-        parent = base_envelope()
-        child = self._child(
-            "caller",
-            "bad_arguments",
-            ruled_out=["tool"],
-            outcome="blocked",
-        )
-        child_snapshot = json.loads(json.dumps(child))
-        validate_envelope(parent)
-        validate_envelope(child)
-        composed = compose_child(parent, child, ref="fixture-child.json")
-        validate_envelope(composed)
-        self.assertEqual(composed["outcome"], "blocked")
-        self.assertEqual(composed["failure"]["layer"], "tool")
-        self.assertNotIn("tool", composed["failure"]["ruled_out"])
-        self.assertEqual(child, child_snapshot)
-        self.assertEqual(child["failure"]["layer"], "caller")
-        self.assertEqual(child["failure"]["ruled_out"], ["tool"])
-        self.assertEqual(composed["children"][0]["envelope_id"], child["envelope_id"])
-        self.assertEqual(composed["children"][0]["ref"], "fixture-child.json")
-        self.assertEqual(composed["children"][0]["layer"], "caller")
-        self.assertEqual(
-            composed["next_step"]["actions"][0]["description"],
-            "read the nested log",
-        )
-        self.assertIn(
-            "do not retry on the shared mux", composed["next_step"]["do_not"]
-        )
-
-    def test_nested_caller_keeps_downstream_exclusions(self) -> None:
-        parent = base_envelope()
-        child = self._child(
-            "caller",
-            "bad_arguments",
-            ruled_out=["tool", "transport", "device"],
-        )
-        child_snapshot = json.loads(json.dumps(child))
-        composed = compose_child(parent, child, ref="fixture-child.json")
-        validate_envelope(composed)
-        self.assertEqual(composed["failure"]["layer"], "tool")
-        self.assertEqual(composed["failure"]["ruled_out"], ["transport", "device"])
-        self.assertEqual(
-            child["failure"]["ruled_out"], ["tool", "transport", "device"]
-        )
-        self.assertEqual(child, child_snapshot)
-        self.assertEqual(composed["children"][0]["layer"], "caller")
-        self.assertEqual(composed["children"][0]["ref"], "fixture-child.json")
-
-    def test_unchanged_layer_keeps_child_exclusions(self) -> None:
-        parent = base_envelope()
-        child = self._child(
-            "transport",
-            "ssh_mux_stream_died",
-            ruled_out=["caller", "tool"],
-        )
-        child_snapshot = json.loads(json.dumps(child))
-        composed = compose_child(parent, child, ref="fixture-child.json")
-        validate_envelope(composed)
-        self.assertEqual(composed["failure"]["layer"], "transport")
-        self.assertEqual(composed["failure"]["ruled_out"], ["caller", "tool"])
-        self.assertEqual(child, child_snapshot)
-        self.assertEqual(composed["children"][0]["layer"], "transport")
-        self.assertEqual(composed["children"][0]["ref"], "fixture-child.json")
-        self.assertIn(
-            "do not retry on the shared mux", composed["next_step"]["do_not"]
-        )
-
 
 class BoundedOutputTests(unittest.TestCase):
     def test_short_text_is_inlined(self) -> None:
@@ -896,9 +756,11 @@ class BoundedOutputTests(unittest.TestCase):
 
 class ReproducibilityTests(unittest.TestCase):
     def test_remote_command_needs_argv_or_a_script_preview(self) -> None:
-        remote = make_remote_command(
-            endpoint_kind="container", endpoint_ref="session:demo-1"
-        )
+        remote = {
+            "endpoint": {"kind": "container", "ref": "session:demo-1"},
+            "argv": None, "script_preview": None, "script_ref": None,
+            "cwd": None, "env_keys": [], "timeout_seconds": None,
+        }
         command = base_command()
         with self.assertRaisesRegex(EnvelopeError, "reproducible by hand"):
             base_envelope(
@@ -911,15 +773,14 @@ class ReproducibilityTests(unittest.TestCase):
             )
 
     def test_remote_script_preview_carries_a_ref_when_truncated(self) -> None:
-        remote = make_remote_command(
-            endpoint_kind="container",
-            endpoint_ref="session:demo-1",
-            script="echo hello\n" * 2000,
-            script_ref=".vaws-local/remote-toolbox/logs/exec-1/script.sh",
-            cwd="/vllm-workspace",
-            env_keys=["ASCEND_RT_VISIBLE_DEVICES"],
-            timeout_seconds=600,
-        )
+        script_ref = ".vaws-local/remote-toolbox/logs/exec-1/script.sh"
+        remote = {
+            "endpoint": {"kind": "container", "ref": "session:demo-1"},
+            "argv": None,
+            "script_preview": text_preview("echo hello\n" * 2000, ref=script_ref),
+            "script_ref": script_ref, "cwd": "/vllm-workspace",
+            "env_keys": ["ASCEND_RT_VISIBLE_DEVICES"], "timeout_seconds": 600,
+        }
         command = base_command()
         envelope = base_envelope(
             attempt=make_attempt(

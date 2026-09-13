@@ -22,10 +22,9 @@ import re
 import shlex
 import sys
 import uuid
-from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Mapping, MutableMapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 SCHEMA_VERSION = "vaws.result-envelope.v1"
 ACCEPTED_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION})
@@ -424,38 +423,6 @@ def make_command(
     }
 
 
-def make_remote_command(
-    *,
-    endpoint_kind: str,
-    endpoint_ref: str | None = None,
-    argv: Sequence[str] | None = None,
-    script: str | None = None,
-    script_ref: str | None = None,
-    cwd: str | None = None,
-    env_keys: Sequence[str] | None = None,
-    timeout_seconds: float | None = None,
-) -> dict[str, Any]:
-    """The command as it actually ran on the far side of the transport.
-
-    Local ``argv`` alone is not reproducible for remote work: the agent needs
-    the exact remote script, bounded, plus a ref to the full text.
-    """
-    from vaws_diagnostics_adapter import redact_arguments, redact
-    if endpoint_kind not in TARGET_KINDS:
-        raise EnvelopeError(f"unsupported endpoint kind: {endpoint_kind!r}")
-    return {
-        "endpoint": {"kind": endpoint_kind, "ref": endpoint_ref},
-        "argv": redact_arguments(argv) if argv is not None else None,
-        "script_preview": (
-            text_preview(redact(script), ref=script_ref) if script is not None else None
-        ),
-        "script_ref": script_ref,
-        "cwd": cwd,
-        "env_keys": sorted({str(key) for key in (env_keys or ())}),
-        "timeout_seconds": timeout_seconds,
-    }
-
-
 def make_attempt(
     *,
     command: Mapping[str, Any],
@@ -607,21 +574,6 @@ def make_next_step(
         "actions": normalized,
         "do_not": [str(item) for item in (do_not or ())],
         "knowledge": [dict(item) for item in (knowledge or ())],
-    }
-
-
-def knowledge_reference(
-    *,
-    entry_id: str,
-    summary: str,
-    avoidance: str | None = None,
-    score: int | None = None,
-) -> dict[str, Any]:
-    return {
-        "entry_id": entry_id,
-        "summary": summary,
-        "avoidance": avoidance,
-        "score": score,
     }
 
 
@@ -885,102 +837,9 @@ def propagate_child_ruled_out(
     return excluded
 
 
-def compose_child(
-    parent: MutableMapping[str, Any],
-    child: Mapping[str, Any],
-    *,
-    ref: str | None = None,
-    adopt_failure: bool = True,
-    validate: bool = True,
-) -> dict[str, Any]:
-    """Attach a nested envelope to its parent and propagate attribution.
-
-    The parent keeps its own summary and command, adopts the child's layer
-    through :func:`escalate_child_layer` when it has no failure of its own,
-    and inherits the child's ``do_not`` guidance so a known signature is not
-    lost one frame up the stack.
-
-    Child exclusions are remapped through :func:`propagate_child_ruled_out`
-    so a child-frame ``tool`` exclusion is not treated as an exclusion of
-    the parent's wrapper after a ``caller`` → ``tool`` escalation. The
-    supplied child is not mutated; its original fields remain reachable
-    through the digest ``ref``.
-    """
-    composed = deepcopy(dict(parent))
-    depth = 1 + max(
-        (int(item.get("depth") or 1) for item in child.get("children") or ()),
-        default=0,
-    )
-    composed["children"] = list(composed.get("children") or ()) + [
-        child_digest(child, ref=ref, depth=depth)
-    ]
-    child_failure = child.get("failure")
-    if adopt_failure and child_failure and not composed.get("failure"):
-        child_layer = str(child_failure.get("layer") or "unknown")
-        layer = escalate_child_layer(child_layer)
-        basis = [
-            f"nested call {child.get('operation', {}).get('entry_point')} "
-            f"reported layer {child_layer}"
-        ]
-        if layer == "tool" and child_layer == "caller":
-            basis.append(
-                "a nested caller fault is this wrapper's fault: it built the "
-                "arguments"
-            )
-        else:
-            basis.extend(child_failure.get("attribution_basis") or ())
-        composed["failure"] = make_failure(
-            layer=layer,
-            reason_code=str(child_failure.get("reason_code") or "unattributed"),
-            message=str(child_failure.get("message") or "nested call failed"),
-            attribution_basis=basis,
-            confidence=str(child_failure.get("confidence") or "low")
-            if layer != "unknown"
-            else "low",
-            ruled_out=propagate_child_ruled_out(
-                child_failure.get("ruled_out") or (),
-                child_layer=child_layer,
-                parent_layer=layer,
-            ),
-            signals=child_failure.get("signals") or (),
-        )
-        child_outcome = str(child.get("outcome") or "failure")
-        if composed.get("outcome") == "success":
-            composed["outcome"] = (
-                child_outcome if child_outcome in FAILING_OUTCOMES else "failure"
-            )
-            composed["exit_code"] = default_exit_code(composed["outcome"])
-        child_next = child.get("next_step") or {}
-        parent_next = composed.get("next_step") or make_next_step()
-        merged_do_not = list(
-            dict.fromkeys(
-                list(parent_next.get("do_not") or ())
-                + list(child_next.get("do_not") or ())
-            )
-        )
-        parent_next["do_not"] = merged_do_not
-        if not parent_next.get("actions"):
-            parent_next["actions"] = list(child_next.get("actions") or ())
-        if not parent_next.get("knowledge"):
-            parent_next["knowledge"] = list(child_next.get("knowledge") or ())
-        composed["next_step"] = parent_next
-    if validate:
-        validate_envelope(composed)
-    return composed
-
-
 # ---------------------------------------------------------------------------
 # remote-dev.result.v1 → envelope slots (P21)
 # ---------------------------------------------------------------------------
-
-
-def remote_dev_mapping_is_lossy(outcome: str, slot: Literal["parts", "children"]) -> bool:
-    """True when the remote-dev token is not the same word in ``slot``."""
-    if slot == "parts":
-        return outcome in LOSSY_REMOTE_DEV_PART_OUTCOMES
-    if slot == "children":
-        return outcome in LOSSY_REMOTE_DEV_CHILD_OUTCOMES
-    raise EnvelopeError(f"unsupported conversion slot: {slot!r}")
 
 
 def remote_dev_outcome_pointer(
@@ -1004,39 +863,6 @@ def remote_dev_outcome_pointer(
             else f"remote-dev outcome {original_outcome!r} mapped onto {slot}"
         ),
     )
-
-
-def original_remote_dev_outcome_from_part(part: Mapping[str, Any]) -> str | None:
-    """Recover the remote-dev outcome stored in a part's ``refs``."""
-    for item in part.get("refs") or ():
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("name") != REMOTE_DEV_OUTCOME_REF_NAME:
-            continue
-        token = item.get("ref")
-        if token in REMOTE_DEV_OUTCOMES:
-            return str(token)
-    return None
-
-
-def original_remote_dev_outcome_from_child(child: Mapping[str, Any]) -> str | None:
-    """Recover the remote-dev outcome from a child's ``reason_code`` or ``ref``.
-
-    Children have no ``refs`` array. Do not fall back to ``outcome``: lossy
-    cells map onto a different token (``failed`` → ``failure``,
-    ``needs_input`` → ``blocked``).
-    """
-    reason = child.get("reason_code")
-    if isinstance(reason, str) and reason.startswith("remote_dev_"):
-        token = reason[len("remote_dev_") :]
-        if token in REMOTE_DEV_OUTCOMES:
-            return token
-    ref = child.get("ref")
-    if isinstance(ref, str) and ref.startswith("remote-dev:"):
-        parts = ref.split(":")
-        if len(parts) >= 2 and parts[1] in REMOTE_DEV_OUTCOMES:
-            return parts[1]
-    return None
 
 
 def convert_remote_dev_result(

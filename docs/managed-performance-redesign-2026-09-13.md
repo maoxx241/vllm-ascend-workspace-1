@@ -37,7 +37,8 @@ update from main is retained independently.
 Both real-machine pairs used coordinator baseline `384b89b71078bcad49212d3f6104ccc847485cec`
 and remote-dev `a65362882a85b4d460be3e1d15e90de9fb507e70`.
 The native candidate was frozen at `a91f19a9d7c63d8fe1228ad91aa02eecc6cd82ab`;
-later local-input validation repairs do not change the measured finalizer.
+the warm candidate used `d2095dca08c5c06052596798e5d3c02ae640ed5f`.
+Later local-input validation and Git stdin repairs do not change the measured finalizer.
 These are controlled task-submission measurements, not new fresh-Agent trials.
 
 | Boundary | Baseline | Candidate | Interpretation |

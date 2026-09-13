@@ -23,6 +23,9 @@ import time
 import uuid
 
 _active = ContextVar("vaws_workspace_observation", default=None)
+_UNSCOPED = object()
+_community_policy = ContextVar("vaws_workspace_community_policy", default=_UNSCOPED)
+_suspend_core = ContextVar("vaws_workspace_suspend_core", default=False)
 _entry = None
 _module = None
 _loaded = False
@@ -78,6 +81,8 @@ def _warn(category):
 
 def _api():
     global _module, _loaded
+    if _suspend_core.get():
+        return None
     if not _loaded:
         _loaded = True
         try:
@@ -120,7 +125,8 @@ def _fallback_failure(observation, error_type, category):
                               "category": category, "logging_failed": True}}
     try:
         from vaws_community import read_policy_file
-        policy_file = os.environ.get("VAWS_COMMUNITY_POLICY", "")
+        selected = _community_policy.get()
+        policy_file = (os.environ.get("VAWS_COMMUNITY_POLICY", "") if selected is _UNSCOPED else selected) or ""
         policy = Path(policy_file)
         if policy.is_absolute() and not policy_file.startswith(("\\\\", "//")) and len(policy_file) <= 4096:
             choice = read_policy_file(policy)
@@ -324,20 +330,35 @@ def context_metadata(metadata=None):
 def community_context(root):
     """Bind a configured gateway's workspace without changing process-global env."""
     scope = None
-    api = _api()
+    path = None
     try:
-        if api is not None and hasattr(api, "bind_community_policy"):
-            from vaws_community import local_policy_path
-            scope = api.bind_community_policy(local_policy_path(root))
-            scope.__enter__()
+        from vaws_community import local_policy_path
+        path = str(local_policy_path(root))
     except Exception:
-        scope = None
         _warn("community_scope_unavailable")
+    # Explicit None suppresses inherited process consent even when the source
+    # receipt is broken or the diagnostics owner has not been installed yet.
+    token = _community_policy.set(path)
+    suspended = None
     try:
+        api = _api()
+        if api is not None:
+            try:
+                scope = api.bind_community_policy(path)
+                scope.__enter__()
+            except Exception:
+                scope = None
+                suspended = _suspend_core.set(True)
+                _warn("community_scope_unavailable")
         yield
     finally:
-        if scope is not None:
-            scope.__exit__(None, None, None)
+        try:
+            if scope is not None:
+                scope.__exit__(None, None, None)
+        finally:
+            if suspended is not None:
+                _suspend_core.reset(suspended)
+            _community_policy.reset(token)
 
 
 @contextmanager

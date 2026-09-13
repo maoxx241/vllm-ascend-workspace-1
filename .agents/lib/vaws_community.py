@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import uuid
 from datetime import datetime, timezone
 
@@ -37,7 +38,17 @@ def read_policy_file(path: Path) -> dict | None:
     """Bounded stdlib reader also usable before the diagnostics package exists."""
     if not path.exists():
         return None
-    with path.open("rb") as stream:
+    if any(parent.is_symlink() for parent in (path, *path.parents)):
+        raise ValueError("Community choice must not traverse symlinks")
+    before = path.stat()
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError("Community choice must be a regular file")
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0)
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    with os.fdopen(fd, "rb") as stream:
+        after = os.fstat(stream.fileno())
+        if not stat.S_ISREG(after.st_mode) or (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+            raise ValueError("Community choice changed while opening")
         raw = stream.read(16385)
     if len(raw) > 16384:
         raise ValueError("Community choice exceeds its size limit")

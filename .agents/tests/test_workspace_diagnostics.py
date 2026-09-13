@@ -204,7 +204,12 @@ def test_updater_error_log_failure_does_not_mask_original(observed, tmp_path):
 def test_cli_inventory_actual_main_calls_use_one_bootstrap():
     # Detect future entry omissions using source structure, without executing tools.
     for path in ROOT.joinpath(".agents").rglob("*.py"):
-        if "tests" in path.parts or ".vaws-local" in path.parts:
+        relative = path.relative_to(ROOT)
+        if "tests" in relative.parts or ".vaws-local" in relative.parts:
+            continue
+        if relative.as_posix() == ".agents/lib/vaws_git_credential.py":
+            # Its only output is Git's private credential pipe. Auth tests prove
+            # it does not record or print credentials into diagnostic channels.
             continue
         source = path.read_text(encoding="utf-8-sig")
         tree = ast.parse(source)

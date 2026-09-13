@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from client_setup_fixtures import selected_runtime
+from vaws_environment_link import link_environment as real_link_environment
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("windows_client_setup", ROOT / ".agents/scripts/vaws_client_setup.py")
@@ -391,6 +392,8 @@ def test_foreign_provider_keeps_its_own_pin_and_policy(args, tmp_path):
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows junction and mounted-drive rendering")
 def test_shared_kimi_windows_and_wsl_use_identical_per_key_relative_alias(tmp_path, monkeypatch):
+    # This test exercises a real alias inside its own temporary project.
+    monkeypatch.setattr("vaws_environment_link.link_environment", real_link_environment)
     monkeypatch.setattr(setup, "ROOT", tmp_path)
     servers = {"vaws-task": {"command": sys.executable, "args": setup.task_server_args(),
                             "env": {"VAWS_AGENT_SESSIONS_DIR": str(tmp_path / "sessions")}}}

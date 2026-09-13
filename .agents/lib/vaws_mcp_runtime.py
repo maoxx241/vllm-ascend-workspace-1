@@ -18,7 +18,7 @@ from pathlib import Path
 import sys
 
 from vaws_environment import read_receipt, saved_ready, PIN_ENV
-from vaws_local_state import shared_workspace_root
+from vaws_local_state import prepared_workspace, shared_workspace_root
 from vaws_session_state import task_dir
 
 
@@ -80,14 +80,18 @@ def selection(root: Path, context: dict | None = None, *, catalog: bool = False,
         target = Path(context["attachment"]["cwd"]) if context else root
         target = target.resolve(strict=True)
         if context:
-            from vaws_workspace_update import common_dir, git
-            shared_git = common_dir(root)
-            target = Path(git(target, "rev-parse", "--show-toplevel")).resolve()
-            actual_git = Path(git(target, "rev-parse", "--absolute-git-dir")).resolve()
-            selected_file = target / ".vaws-local/environment-selection" / f"{sys.platform}.json"
-            if (common_dir(target) != shared_git or not selected_file.is_file()
-                    or (require_prepared and actual_git == shared_git)):
-                raise ValueError("This new task has no prepared workspace. Run the project vaws_start.py entry once, then reuse its context.")
+            prepared = prepared_workspace(target, root, owner=shared)
+            if prepared is not None:
+                target = prepared.resolve(strict=True)
+            else:
+                from vaws_workspace_update import common_dir, git
+                shared_git = common_dir(root)
+                target = Path(git(target, "rev-parse", "--show-toplevel")).resolve()
+                actual_git = Path(git(target, "rev-parse", "--absolute-git-dir")).resolve()
+                selected_file = target / ".vaws-local/environment-selection" / f"{sys.platform}.json"
+                if (common_dir(target) != shared_git or not selected_file.is_file()
+                        or (require_prepared and actual_git == shared_git)):
+                    raise ValueError("This new task has no prepared workspace. Run the project vaws_start.py entry once, then reuse its context.")
         receipt = saved_ready(target)
     return Selection(target, receipt["receipt"], receipt["python"], receipt["key"],
                      context["context_file"] if context else "")

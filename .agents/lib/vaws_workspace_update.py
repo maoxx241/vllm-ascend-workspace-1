@@ -17,10 +17,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 CANONICAL = "vllm-ascend-workspace/vllm-ascend-workspace"
 UPSTREAM = f"https://github.com/{CANONICAL}.git"
-SUBMODULES = {"vllm": "vllm-project/vllm", "vllm-ascend": "vllm-project/vllm-ascend"}
 
 
 class Deferred(RuntimeError):
@@ -56,7 +56,7 @@ def run(argv: list[str], *, cwd: Path, timeout: int = 120, env=None, check=True)
 
 
 def git(root: Path, *args: str, check=True) -> str:
-    return run(["git", *args], cwd=root, check=check).stdout.strip()
+    return run(["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []), *args], cwd=root, check=check).stdout.strip()
 
 
 def read_json(path: Path) -> dict:
@@ -92,7 +92,15 @@ def update_lock(root: Path, *, wait_seconds: float = 0):
     from vaws_local_owner import windows_mounted_workspace
     if windows_mounted_workspace(root):
         raise Deferred("windows_owner_required", "run workspace_update.py with the native Windows owner")
-    path = common_dir(root) / "vaws-update.lock"
+    with path_lock(common_dir(root) / "vaws-update.lock", wait_seconds=wait_seconds):
+        yield
+
+
+@contextmanager
+def path_lock(path: Path, *, wait_seconds: float = 180):
+    """Serialize one operation by its explicit file without requiring Git."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+b") as handle:
         acquired = False
         try:
@@ -163,27 +171,27 @@ def clean_checkout(root: Path, *, branch: str | None, expected: set[str] | None 
             raise Deferred("git_operation_in_progress", marker)
     current_branch = git(root, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     if current_branch != (branch or ""):
-        raise Deferred("working_branch", f"automatic updates require {branch or 'a detached submodule checkout'}")
+        raise Deferred("working_branch", f"automatic updates require {branch or 'a detached checkout'}")
     if git(root, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=all"):
         raise Deferred("dirty_checkout")
     if expected is not None and git(root, "rev-parse", "HEAD") not in expected:
-        raise Deferred("submodule_local_commit")
+        raise Deferred("source_local_commit")
 
 
-def gitlinks(root: Path, revision: str) -> dict[str, str]:
-    data = run(["git", "ls-tree", "-rz", revision], cwd=root).stdout
-    links = {}
-    for entry in data.split("\0"):
-        if entry:
-            metadata, path = entry.split("\t", 1)
-            mode, _, sha = metadata.split(" ")
-            if mode == "160000":
-                links[path] = sha
-    return links
-
-
-def initialized(root: Path, path: str) -> bool:
-    return (root / path / ".git").exists()
+def available_sources(root: Path) -> dict[str, str]:
+    """Use the explicit selection or the two already populated business roots."""
+    from vaws_workspace_entry import prepared_sources
+    selected = prepared_sources(root)
+    if selected is not None:
+        return {name: path for name, path in selected.items() if name != "workspace"}
+    result = {}
+    for name in ("vllm", "vllm-ascend"):
+        path = root / name
+        if (path / ".git").exists():
+            if Path(git(path, "rev-parse", "--show-toplevel")).resolve() != path.resolve():
+                raise Deferred("invalid_source_root", str(path))
+            result[name] = str(path.resolve())
+    return result
 
 
 def ancestor(root: Path, old: str, new: str) -> bool:
@@ -194,8 +202,13 @@ def ancestor(root: Path, old: str, new: str) -> bool:
 
 
 class WorkspaceUpdater:
-    def __init__(self, root: Path, *, client=None):
+    def __init__(self, root: Path, *, source_root: Path | None = None,
+                 source_channel: str = "development", client=None):
+        if source_channel not in {"development", "release"}:
+            raise ValueError("source_channel must be development or release")
         self.root = root.resolve()
+        self.source_root = (source_root or root).resolve()
+        self.source_channel = source_channel
         self.base = self.root / ".vaws-local/updates"
         self.client = client
         self.state = read_json(self.base / "state.json")
@@ -205,10 +218,6 @@ class WorkspaceUpdater:
             # Successful progress supersedes the last failure; raw logs remain.
             self.state.pop("reason", None)
             self.state.pop("error_log", None)
-        if "target" in fields:
-            # Older receipts described Releases; the target is now a branch SHA.
-            self.state.pop("tag", None)
-            self.state.pop("release_id", None)
         self.state.update(fields)
         self.state["checked_at"] = datetime.now(timezone.utc).isoformat()
         write_json(self.base / "state.json", self.state)
@@ -274,106 +283,128 @@ class WorkspaceUpdater:
         head = git(self.root, "rev-parse", "HEAD")
         if not ancestor(self.root, head, release["target"]):
             raise Deferred("local_not_fast_forward")
-        old_links = gitlinks(self.root, "HEAD")
-        target_links = gitlinks(self.root, release["target"])
-        resuming = self.state.get("target") == release["target"] and self.state.get("phase") in (
-            "ready", "local_updated", "submodules_updated")
-        original = self.state.get("original_submodules", {}) if resuming else {}
-        active = {path: sha for path, sha in old_links.items() if initialized(self.root, path)}
-        for path, sha in active.items():
-            if path not in SUBMODULES or path not in target_links:
-                raise Deferred("submodule_layout_changed", path)
-            accepted = {sha}
-            if resuming and head == release["target"] and path in original:
-                accepted.add(original[path])
-            clean_checkout(self.root / path, branch=None, expected=accepted)
-            # Nested modules are outside this workspace's managed source contract.
-            if any(initialized(self.root / path, child) for child in gitlinks(self.root / path, "HEAD")):
-                raise Deferred("nested_submodule_initialized", path)
-        return active
+        # Root gitlinks belong to the retired layout. Do not let an in-place
+        # merge delete uninitialized source directories containing user files.
+        if any(row.startswith("160000 ") for row in git(self.root, "ls-files", "--stage").splitlines()):
+            raise Deferred("independent_workspace_required")
+        return available_sources(self.source_root)
 
     def preparation_inputs(self, release: dict) -> dict[str, str]:
-        """Preparation copies committed objects without requiring an idle editing tree."""
-        target_links = gitlinks(self.root, release["target"])
-        return {path: sha for path, sha in gitlinks(self.root, "HEAD").items()
-                if path in SUBMODULES and path in target_links and initialized(self.root, path)}
+        return available_sources(self.source_root)
+
+    def stage_key(self, release: dict, active: dict) -> str:
+        selection = hashlib.sha256("\0".join(sorted(active)).encode()).hexdigest()[:12]
+        return f"{release['target']}-{self.source_channel}-{selection}"
+
+    def stage_path(self, release: dict, active: dict) -> Path:
+        key = self.stage_key(release, active)
+        locations = self.state.get("stage_ids", {})
+        if not isinstance(locations, dict):
+            raise Deferred("invalid_update_state", "invalid private stage cache")
+        stage_id = locations.get(key, "")
+        if not isinstance(stage_id, str) or (stage_id and not re.fullmatch(r"[0-9a-f]{32}", stage_id)):
+            raise Deferred("invalid_update_state", "invalid private stage id")
+        suffix = "-" + stage_id if stage_id else ""
+        return self.base / "releases" / (key + suffix)
+
+    def same_selection(self, release: dict, active: dict) -> bool:
+        return (self.state.get("target") == release["target"]
+                and self.state.get("source_channel") == self.source_channel
+                and self.state.get("selected_sources") == sorted(active))
+
+    def preparation_attempt(self, release: dict, active: dict) -> dict:
+        """Keep a failed private stage intact and choose another on a retry."""
+        same = self.same_selection(release, active)
+        if (same and self.state.get("phase") == "preparing" and self.state.get("status") == "deferred"
+                and self.state.get("error_log")):
+            previous = self.stage_path(release, active)
+            referenced = (self.state.get("prepared") or {}).get("stage")
+            if referenced and Path(referenced).resolve() == previous.resolve():
+                raise Deferred("prepared_stage_referenced", "retaining the previously published staging checkout")
+            if previous.exists():
+                # No move, reset or deletion: even edits made while diagnosing
+                # this failed preparation remain at their original path.
+                # Remember recovered cache locations by code/channel/source
+                # selection, so alternating root-only and full preparations
+                # cannot return to an old incomplete directory.
+                locations = dict(self.state.get("stage_ids", {}))
+                locations[self.stage_key(release, active)] = uuid.uuid4().hex
+                return {"stage_ids": locations, "retained_failed_stage": str(previous)}
+        return {}
 
     def validate_prepared(self, release: dict, prepared: dict) -> Path:
         stage = Path(prepared["stage"])
-        if stage.resolve() != (self.base / "releases" / release["target"]).resolve():
+        sources = prepared["sources"]
+        revisions = prepared["revisions"]
+        if set(revisions) != {"workspace", *sources} or revisions["workspace"] != release["target"]:
+            raise Deferred("prepared_revisions_changed")
+        if prepared.get("source_channel") != self.source_channel or stage.resolve() != self.stage_path(release, sources).resolve():
             raise Deferred("prepared_checkout_changed")
-        if git(stage, "rev-parse", "HEAD") != release["target"]:
-            raise Deferred("prepared_checkout_changed")
-        clean_checkout(stage, branch=None)
+        if not (stage / ".git").is_dir() or (stage / ".git/objects/info/alternates").exists():
+            raise Deferred("prepared_checkout_not_independent")
+        clean_checkout(stage, branch=None, expected={release["target"]})
+        if sources:
+            from vaws_source_lock import selected_sources
+            locked = selected_sources(stage, self.source_channel)
+            for name, value in sources.items():
+                path = Path(value)
+                if name not in locked or path.resolve() != (stage / name).resolve():
+                    raise Deferred("prepared_source_changed", name)
+                if revisions[name] != locked[name]["revision"]:
+                    raise Deferred("prepared_revisions_changed", name)
+                if not (path / ".git").is_dir() or (path / ".git/objects/info/alternates").exists():
+                    raise Deferred("prepared_source_not_independent", name)
+                clean_checkout(path, branch=None, expected={locked[name]["revision"]})
         if not Path(prepared["receipt"]["receipt"]).is_file():
             raise Deferred("prepared_environment_unavailable")
         return stage
 
     def prepare(self, release: dict, active: dict[str, str]) -> dict:
+        from vaws_native_workspace import prepare_source
         target = release["target"]
-        stage = self.base / "releases" / target
+        stage = self.stage_path(release, active)
         if not stage.exists():
-            stage.parent.mkdir(parents=True, exist_ok=True)
-            git(self.root, "worktree", "add", "--detach", str(stage), target)
-        if git(stage, "rev-parse", "HEAD") != target:
-            raise Deferred("prepared_checkout_changed")
-        clean_checkout(stage, branch=None)
+            prepare_source(stage, repository=CANONICAL, revision=target, local_source=self.root)
+        if not (stage / ".git").is_dir() or (stage / ".git/objects/info/alternates").exists():
+            raise Deferred("prepared_checkout_not_independent")
+        clean_checkout(stage, branch=None, expected={target})
+        sources = {}
+        revisions = {"workspace": target}
+        if active:
+            from vaws_source_lock import selected_sources
+            locked = selected_sources(stage, self.source_channel)
+            for name, source in active.items():
+                if name not in locked:
+                    raise Deferred("invalid_source_name", name)
+                destination = stage / name
+                spec = locked[name]
+                if not destination.exists():
+                    prepare_source(destination, **spec, local_source=Path(source))
+                else:
+                    # Only a fully completed owned checkout is reusable. An
+                    # interrupted clone never becomes ready by file existence.
+                    if not (destination / ".git").is_dir() or (destination / ".git/objects/info/alternates").exists():
+                        raise Deferred("prepared_source_incomplete", name)
+                    clean_checkout(destination, branch=None, expected={spec["revision"]})
+                sources[name] = str(destination)
+                revisions[name] = spec["revision"]
         environment = dict(os.environ)
         for name in ("VAWS_ENV_RECEIPT", "VAWS_MANAGED_ENV_RECEIPT", "VAWS_TOP_FROM", "VIRTUAL_ENV",
                      "VAWS_SKIP_VENV_REEXEC", "VAWS_VENV_REEXEC", "PYTHONPATH"):
             environment.pop(name, None)
         interpreter = getattr(sys, "_base_executable", sys.executable)
         print(f"preparing locked packages for {release['branch']} at {target[:12]}", file=sys.stderr, flush=True)
-        command = [interpreter, str(stage / ".agents/scripts/vaws_deps.py"), "sync", "--locked"]
-        prepared = run(command, cwd=stage, timeout=1800, env=environment)
+        prepared = run([interpreter, str(stage / ".agents/scripts/vaws_deps.py"),
+                        "sync", "--locked"], cwd=stage, timeout=1800, env=environment)
         if prepared.stderr:
             print(prepared.stderr, file=sys.stderr, end="", flush=True)
         payload = json.loads(prepared.stdout)
         if not payload.get("ok") or not payload.get("receipt"):
             raise Deferred("dependencies_pending")
-        environment["VAWS_ENV_RECEIPT"] = payload["receipt"]["receipt"]
-        print("caching the pinned monitor package; existing services keep running", file=sys.stderr, flush=True)
-        monitor = run([interpreter, str(stage / ".agents/scripts/manage_monitor.py"), "deploy"],
-                      cwd=stage, timeout=600, env=environment)
-        if monitor.stderr:
-            print(monitor.stderr, file=sys.stderr, end="", flush=True)
-        if not json.loads(monitor.stdout).get("ok"):
-            raise Deferred("monitor_package_pending")
-        target_links = gitlinks(self.root, target)
-        for path in active:
-            # Never follow a submodule branch; cache precisely the workspace gitlink.
-            url = f"https://github.com/{SUBMODULES[path]}.git"
-            verified_git_url(self.root / path, url, SUBMODULES[path])
-            git(self.root / path, "fetch", "--no-tags", url, target_links[path])
-            self.prepare_submodule(stage, path, target_links[path])
-        return {"receipt": payload["receipt"], "knowledge": payload.get("knowledge", {}), "stage": str(stage)}
-
-    def prepare_submodule(self, stage: Path, path: str, target: str) -> None:
-        """Give new editing copies the existing initialized modules, from local objects."""
-        source, destination = self.root / path, stage / path
-        if not initialized(stage, path):
-            git(self.root, "clone", "--local", "--no-checkout", "--", str(source), str(destination))
-        index = Path(git(destination, "rev-parse", "--git-path", "index"))
-        if not index.is_absolute():
-            index = destination / index
-        # A no-checkout clone interrupted before its first checkout has no index
-        # and no files outside .git. Only that exact unfinished state is resumed.
-        unfinished = not index.exists() and all(item.name == ".git" for item in destination.iterdir())
-        if not unfinished:
-            clean_checkout(destination, branch=None, expected={target})
-        git(destination, "checkout", "--detach", target)
-        for remote in git(destination, "remote").splitlines():
-            git(destination, "remote", "remove", remote)
-        # Preserve all remote settings, including multiple URLs and refspecs;
-        # never leave the local staging/source path as the development origin.
-        values = run(["git", "config", "--null", "--get-regexp", r"^remote\."], cwd=source, check=False)
-        if values.returncode not in (0, 1):
-            raise Deferred("submodule_remotes_unavailable", path)
-        for entry in values.stdout.split("\0"):
-            if entry:
-                key, value = entry.split("\n", 1)
-                git(destination, "config", "--local", "--add", key, value)
-        clean_checkout(destination, branch=None, expected={target})
+        result = {"receipt": payload["receipt"], "stage": str(stage), "sources": sources, "revisions": revisions,
+                  "source_channel": self.source_channel}
+        self.validate_prepared(release, result)
+        return result
 
     def activate_environment(self, prepared: dict) -> None:
         # Use the prepared revision's implementation, and publish only the next
@@ -390,32 +421,22 @@ class WorkspaceUpdater:
             cwd=self.root, env=environment)
 
     def activate(self) -> dict:
-        if self.state.get("phase") not in ("ready", "local_updated", "submodules_updated"):
+        if self.state.get("phase") not in ("ready", "local_updated"):
             return {"status": "pending", "reason": "no_prepared_update"}
         release = self.state
-        active = self.safe_inputs(release)
+        self.safe_inputs(release)
         prepared = self.state["prepared"]
         self.validate_prepared(release, prepared)
-        target_links = gitlinks(self.root, release["target"])
-        for path in active:
-            git(self.root / path, "cat-file", "-e", f"{target_links[path]}^{{commit}}")
-        if git(self.root, "rev-parse", "HEAD") != release["target"]:
-            # Preparation can have happened on another business branch. Record
-            # only the clean sources just proven safe for this activation.
-            self.save(original_submodules=active)
         git(self.root, "merge", "--ff-only", release["target"])
         self.save(phase="local_updated")
-        for path in active:
-            # No network on client startup; prepare has already cached objects.
-            git(self.root / path, "checkout", "--detach", target_links[path])
-        self.save(phase="submodules_updated")
+        # Existing business roots keep their branches and working edits. The
+        # locked inputs live in the separately validated prepared bundle.
         self.safe_inputs(release)
         self.activate_environment(prepared)
         self.save(phase="active", active=release["target"], status="current")
-        return {"status": "applied", "branch": release["branch"], "target": release["target"],
-                "knowledge": prepared.get("knowledge", {})}
+        return {"status": "applied", "branch": release["branch"], "target": release["target"]}
 
-    def step(self, *, apply: bool = False, activate: bool = True, for_session: bool = False) -> dict:
+    def step(self, *, apply: bool = False, activate: bool = True) -> dict:
         try:
             release = self.discover()
             public = {key: value for key, value in release.items() if key != "push_url"}
@@ -427,21 +448,22 @@ class WorkspaceUpdater:
                 except Deferred as exc:
                     result["local_apply_deferred"] = exc.reason
                 return result
-            # A new session must be able to adopt this revision before spending
-            # time preparing it. Explicit preparation can still cache updates
-            # while the editing source is dirty or on a business branch.
-            active = self.safe_inputs(release) if activate or for_session else self.preparation_inputs(release)
-            if self.state.get("active") == release["target"] and git(self.root, "rev-parse", "HEAD") == release["target"]:
+            # Canonical preparation does not gate on the editing branch.
+            active = self.safe_inputs(release) if activate else self.preparation_inputs(release)
+            if activate and self.state.get("active") == release["target"] and git(self.root, "rev-parse", "HEAD") == release["target"]:
                 self.save(status="current")
                 return {"status": "current", **public}
-            if self.state.get("target") == release["target"] and self.state.get("phase") in (
-                "ready", "local_updated", "submodules_updated"):
-                self.save(status="ready")
+            if self.same_selection(release, active) and self.state.get("phase") in (
+                "ready", "local_updated", "active"):
+                self.validate_prepared(release, self.state["prepared"])
+                self.save(status="ready", phase="ready")
                 return self.activate() if activate else {"status": "ready", **public}
-            if self.state.get("target") == release["target"] and self.state.get("phase") == "prepared":
+            if self.same_selection(release, active) and self.state.get("phase") == "prepared":
                 self.validate_prepared(release, self.state["prepared"])
             else:
-                self.save(**public, phase="preparing", status="preparing", original_submodules=active)
+                attempt = self.preparation_attempt(release, active)
+                self.save(**public, phase="preparing", status="preparing", selected_sources=sorted(active),
+                          source_channel=self.source_channel, **attempt)
                 prepared = self.prepare(release, active)
                 self.save(phase="prepared", status="prepared", prepared=prepared)
                 # Dependencies may take minutes; explicit activation must check
@@ -463,33 +485,3 @@ class WorkspaceUpdater:
         except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as exc:
             # Missing gh/auth/network are recoverable next time; no busy loop.
             return self.failure(exc)
-
-
-def prepared_source(root: Path) -> Path | None:
-    """Read a prepared revision for a new editing copy; never modify this root.
-
-    A personal branch, local commit or unfinished edit continues from its own
-    source instead of silently being replaced by the upstream tree.
-    """
-    try:
-        updater = WorkspaceUpdater(root)
-        state = updater.state
-        if state.get("phase") not in ("ready", "active"):
-            return None
-        active = updater.safe_inputs(state)
-        sha = state["target"]
-        stage = Path(state["prepared"]["stage"])
-        expected = updater.base / "releases" / sha
-        if not re.fullmatch(r"[0-9a-f]{40,64}", sha) or stage.resolve() != expected.resolve():
-            return None
-        if git(stage, "rev-parse", "HEAD") != sha:
-            return None
-        clean_checkout(stage, branch=None)
-        for path, target in gitlinks(root, sha).items():
-            if initialized(stage, path) != (path in active):
-                return None
-            if path in active:
-                clean_checkout(stage / path, branch=None, expected={target})
-        return stage
-    except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError):
-        return None

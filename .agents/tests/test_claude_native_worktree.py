@@ -9,6 +9,8 @@ import subprocess
 import sys
 
 import pytest
+from test_native_worktree_setup import make_repository, setup as preparation
+from vaws_workspace_entry import write_preparation
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
@@ -26,7 +28,7 @@ entry, creator = load("vaws_claude_entry"), load("vaws_claude_worktree")
 
 
 def git(root, *args):
-    return subprocess.check_output(["git", "-C", str(root), *args], text=True, stderr=subprocess.PIPE).strip()
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True, encoding="utf-8", stderr=subprocess.PIPE).strip()
 
 
 @pytest.fixture
@@ -34,8 +36,8 @@ def repository(tmp_path):
     root = tmp_path / "source 用户"
     root.mkdir()
     git(root, "init", "-b", "main")
-    (root / ".gitignore").write_text(".claude/\n.vaws-local/\n.mcp.json\n")
-    (root / "README.md").write_text("source unchanged\n")
+    (root / ".gitignore").write_text(".claude/\n.vaws-local/\n.mcp.json\n", encoding="utf-8")
+    (root / "README.md").write_text("source unchanged\n", encoding="utf-8")
     for relative in ("lib/vaws_environment.py", "scripts/vaws_claude_entry.py", "scripts/vaws_claude_worktree.py",
                      "hooks/vaws_session.py", "hooks/knowledge_summary.py"):
         path = root / ".agents" / relative
@@ -46,21 +48,28 @@ def repository(tmp_path):
     return root
 
 
-def test_create_native_worktree_preserves_source_and_custom_configuration(repository, monkeypatch):
+def test_create_native_worktree_preserves_source_and_custom_configuration(tmp_path, monkeypatch):
+    f = make_repository(tmp_path, monkeypatch)
+    repository = f.source
     settings = repository / ".claude/settings.local.json"
     settings.parent.mkdir()
-    settings.write_text('{"permissions":{"deny":["Bash(rm *)"]}}')
-    (repository / ".mcp.json").write_text('{"mcpServers":{"user-owned":{"command":"custom"}}}')
+    settings.write_text('{"permissions":{"deny":["Bash(rm *)"]}}', encoding="utf-8")
+    (repository / ".mcp.json").write_text('{"mcpServers":{"user-owned":{"command":"custom"}}}', encoding="utf-8")
     original = git(repository, "rev-parse", "HEAD")
-    calls = []
-    monkeypatch.setattr(creator, "prepare", lambda source, target: calls.append((source, target)) or {"status": "ready"})
+    monkeypatch.setattr(creator, "prepare", lambda source, target, **kwargs:
+                        preparation.prepare_worktree("claude", source, target, **kwargs))
     target, result = creator.create_worktree({"hook_event_name": "WorktreeCreate", "cwd": str(repository), "name": "native-task"})
-    assert calls == [(repository, target)]
-    assert git(target, "symbolic-ref", "--short", "HEAD") == "worktree/native-task"
+    assert target.parent == repository.parent and (target / ".git").is_dir()
+    assert git(target, "rev-parse", "HEAD") == f.new
     assert git(repository, "rev-parse", "HEAD") == original
-    assert (target / ".claude/settings.local.json").read_text() == settings.read_text()
-    assert json.loads((target / ".mcp.json").read_text())["mcpServers"]["user-owned"]["command"] == "custom"
-    assert json.loads((target / ".vaws-local/claude-worktree-setup.json").read_text()) == result
+    assert (target / ".claude/settings.local.json").read_text(encoding="utf-8") == settings.read_text(encoding="utf-8")
+    assert json.loads((target / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["user-owned"]["command"] == "custom"
+    assert json.loads((target / ".vaws-local/claude-worktree-setup.json").read_text(encoding="utf-8")) == result
+    (target / "task.txt").write_text("unfinished work", encoding="utf-8")
+    monkeypatch.setattr(preparation, "configure_target", lambda *a: pytest.fail("resume reconfigured"))
+    repeated, reused = creator.create_worktree({"hook_event_name": "WorktreeCreate", "cwd": str(repository), "name": "native-task"})
+    assert repeated == target and reused["status"] == "reused"
+    assert (target / "task.txt").read_text(encoding="utf-8") == "unfinished work"
 
 
 @pytest.mark.parametrize("name", ["../escape", "has/slash", "$(touch evil)", "", "has..dots"])
@@ -70,18 +79,50 @@ def test_invalid_name_never_creates_directory(repository, name):
     assert "worktree/" not in git(repository, "branch", "--list")
 
 
-def test_setup_failure_retains_owned_worktree_with_facts(repository, monkeypatch):
-    def fail(source, target):
+def test_setup_failure_retains_owned_worktree_with_facts(tmp_path, monkeypatch):
+    f = make_repository(tmp_path, monkeypatch)
+    repository = f.source
+    def fail(*args, **kwargs):
         raise RuntimeError("fixture dependency preparation failed")
-    monkeypatch.setattr(creator, "prepare", fail)
+    monkeypatch.setattr(preparation, "configure_target", fail)
+    monkeypatch.setattr(creator, "prepare", lambda source, target, **kwargs:
+                        preparation.prepare_worktree("claude", source, target, **kwargs))
     payload = {"hook_event_name": "WorktreeCreate", "cwd": str(repository), "name": "failed"}
     with pytest.raises(RuntimeError, match="retained"):
         creator.create_worktree(payload)
-    target = repository / ".claude/worktrees/failed"
-    assert (target / "README.md").is_file()
-    assert "fixture dependency" in json.loads((target / ".vaws-local/claude-worktree-setup.json").read_text())["error"]
-    with pytest.raises(ValueError, match="resume"):
+    target = repository.parent / (repository.name + "-vaws-claude-failed")
+    assert (target / "README").is_file()
+    assert "fixture dependency" in json.loads((target / ".vaws-local/claude-worktree-setup.json").read_text(encoding="utf-8"))["error"]
+    with pytest.raises(ValueError, match="incomplete"):
         creator.create_worktree(payload)
+
+
+def test_claude_fork_from_selected_child_uses_durable_owner_and_actual_result(tmp_path, monkeypatch):
+    f = make_repository(tmp_path, monkeypatch, submodule=True)
+    result = preparation.prepare_worktree("claude", f.source, f.target)
+    bundle = Path(result["workspace"])
+    actual = tmp_path / "returned-bundle"
+    actual.mkdir()
+    def prepare(source, target, *, preserve_source):
+        assert source == bundle and preserve_source is True
+        assert target.parent == f.source.parent and f.target not in target.parents
+        assert target.name == f.source.name + "-vaws-claude-forked"
+        assert not target.exists()
+        return {"status": "ready", "workspace": str(actual)}
+    monkeypatch.setattr(creator, "prepare", prepare)
+    target, _ = creator.create_worktree({"hook_event_name": "WorktreeCreate", "cwd": str(bundle / "vllm"),
+                                        "name": "forked", "source": "fork"})
+    assert target == actual
+
+
+def test_claude_existing_target_cannot_belong_to_another_project(repository, monkeypatch):
+    target = repository.parent / (repository.name + "-vaws-claude-foreign")
+    git(repository, "clone", "--no-local", str(repository), str(target))
+    write_preparation(target, project_root=repository.parent / "other", native_workspace=target,
+                      workspace=target, sources={})
+    monkeypatch.setattr(creator, "prepare", lambda *a, **k: pytest.fail("unowned target was prepared"))
+    with pytest.raises(ValueError, match="another project"):
+        creator.create_worktree({"hook_event_name": "WorktreeCreate", "cwd": str(repository), "name": "foreign"})
 
 
 def test_actual_cwd_selects_linked_worktree_and_never_parent_pin(repository, tmp_path, monkeypatch):

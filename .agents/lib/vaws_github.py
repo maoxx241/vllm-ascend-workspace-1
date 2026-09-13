@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Plan or establish verified personal GitHub forks using only the standard library.
 
-No branch is switched, pushed or reset. Missing submodules are initialized at
-the recorded gitlink; initialized business checkouts retain their current HEAD.
+Existing business branches and edits stay in place. Missing source repositories
+are created as independent clones at the versions in sources.lock.json.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import re
 import subprocess
 import tempfile
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 REPOSITORIES = {
@@ -253,17 +254,27 @@ def verify_remotes(repo: Path, plan: dict) -> None:
                 raise ForkPolicyError(f"Effective {name} URL does not match the verified repository; inspect Git URL rewrites")
 
 
-def missing_submodule(root: Path, role: str) -> dict:
+def independent_source_path(root: Path, role: str) -> None:
+    if role == "workspace":
+        return
+    if git(root, "ls-files", "--", role).stdout.strip():
+        raise ForkPolicyError(f"{role} must be an independent source repository, not tracked by the workspace")
+    modules = root / ".gitmodules"
+    if modules.is_file():
+        entries = git(root, "config", "--file", str(modules), "--get-regexp", r"^submodule\..*\.path$", check=False)
+        if any(line.split(None, 1)[-1].strip("/") == role for line in entries.stdout.splitlines()):
+            raise ForkPolicyError(f"{role} still has a .gitmodules entry; remove the old submodule topology first")
+
+
+def missing_source(root: Path, role: str) -> dict:
+    from vaws_source_lock import selected_sources
+
     path = root / REPOSITORIES[role]["path"]
-    if path.exists() and any(path.iterdir()):
+    if path.is_symlink() or (path.exists() and (not path.is_dir() or any(path.iterdir()))):
         raise ForkPolicyError(f"{role} is not an initialized repository and its directory is not empty")
-    rows = git(root, "ls-files", "--stage", "--", role).stdout.splitlines()
-    if len(rows) != 1 or not rows[0].startswith("160000 ") or rows[0].split()[2] != "0":
-        raise ForkPolicyError(f"{role} is not one unconflicted recorded submodule gitlink")
-    module_url = git(root, "config", "-f", ".gitmodules", "--get", f"submodule.{role}.url").stdout.strip()
-    if (parse_github_url(module_url) or "").casefold() != REPOSITORIES[role]["upstream"].casefold():
-        raise ForkPolicyError(f".gitmodules must retain the official URL for {role}")
-    return {"role": role, "gitlink": rows[0].split()[1]}
+    independent_source_path(root, role)
+    locked = selected_sources(root)[role]
+    return {"role": role, **locked}
 
 
 def canonical_redirect(payload: dict, requested: str, upstream: str) -> bool:
@@ -302,6 +313,8 @@ def setup(repo_root: Path, github_user: str | None = None, *, apply: bool = Fals
     selected = list(dict.fromkeys(roles or REPOSITORIES))
     if any(role not in REPOSITORIES for role in selected):
         raise ForkPolicyError("Unknown repository role")
+    for role in selected:
+        independent_source_path(root, role)
     planned, missing = [], []
     known_forks = dict((saved or {}).get("forks") or {})
     for role in selected:
@@ -309,7 +322,7 @@ def setup(repo_root: Path, github_user: str | None = None, *, apply: bool = Fals
         path = root / spec["path"]
         initialized = repository_root(path)
         if not initialized:
-            missing.append(missing_submodule(root, role))
+            missing.append(missing_source(root, role))
         personal = known_forks.get(role) or f"{login}/{spec['upstream'].split('/')[-1]}"
         try:
             existing = client.api(f"repos/{personal}")
@@ -326,7 +339,7 @@ def setup(repo_root: Path, github_user: str | None = None, *, apply: bool = Fals
                         "legacy_redirect": legacy_redirect,
                         "resolved_full_name": existing.get("full_name") if existing else None,
                         "personal_fork": existing is not None and not legacy_redirect,
-                        "initialize_submodule": not initialized,
+                        "initialize_source": not initialized,
                         "remotes": remotes})
     result = {"status": "planned", "github_user": login, "repositories": planned}
     if not apply:
@@ -373,13 +386,26 @@ def setup(repo_root: Path, github_user: str | None = None, *, apply: bool = Fals
             # Another initializer may have completed during the GitHub requests.
             # Its business checkout is now initialized and must remain untouched.
             continue
-        if missing_submodule(root, role) != item:
-            raise ForkPolicyError(f"{role} gitlink changed during setup; inspect the updated plan")
-        # Override only this invocation, never tracked .gitmodules or global settings.
-        git(root, "-c", f"submodule.{role}.url=https://github.com/{REPOSITORIES[role]['upstream']}.git",
-            "submodule", "update", "--init", "--recursive", "--checkout", "--", role)
-        if not repository_root(path) or git(path, "rev-parse", "HEAD").stdout.strip() != item["gitlink"]:
-            raise ForkPolicyError(f"{role} did not initialize at its recorded gitlink")
+        if missing_source(root, role) != item:
+            raise ForkPolicyError(f"{role} source selection changed during setup")
+        from vaws_native_workspace import prepare_source
+        from vaws_workspace_update import path_lock
+
+        # The actual user path is published only after the complete fixed source
+        # has checked out. An incomplete private clone remains available to inspect.
+        with path_lock(state_root / "source-initialization.lock"):
+            if repository_root(path):
+                continue
+            staging = state_root / "source-initialization" / (role + "-" + uuid.uuid4().hex)
+            staging.parent.mkdir(parents=True, exist_ok=True)
+            prepare_source(staging, repository=item["repository"], revision=item["revision"])
+            if missing_source(root, role) != item:
+                raise ForkPolicyError(f"{role} source selection changed while preparing; copy retained at {staging}")
+            if path.exists():
+                path.rmdir()  # Only the empty path just checked above is eligible.
+            staging.rename(path)
+        if not repository_root(path) or git(path, "rev-parse", "HEAD").stdout.strip() != item["revision"]:
+            raise ForkPolicyError(f"{role} did not initialize at its locked source revision")
     for item in planned:
         path = root / REPOSITORIES[item["role"]]["path"]
         # Recheck after network calls and initialization before any remote edit.

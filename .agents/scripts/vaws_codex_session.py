@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / ".agents/scripts"))
 def scoped_workspace(payload: dict, source: Path) -> Path | None:
     """Use only native cwd, including a subdirectory of a linked worktree."""
     from vaws_local_owner import accessible_windows_path
+    from vaws_local_state import prepared_workspace
     from vaws_workspace_update import common_dir, git
 
     value = payload.get("cwd")
@@ -30,6 +31,9 @@ def scoped_workspace(payload: dict, source: Path) -> Path | None:
     if not cwd.is_absolute():
         return None
     try:
+        prepared = prepared_workspace(cwd, source)
+        if prepared is not None:
+            return prepared
         target = Path(git(cwd, "rev-parse", "--show-toplevel")).resolve()
         return target if common_dir(target).resolve() == common_dir(source).resolve() else None
     except (OSError, RuntimeError, subprocess.SubprocessError):

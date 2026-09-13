@@ -1,146 +1,105 @@
-# 个人 Fork 与主仓自动更新
+# 个人 Fork 与源码更新
 
-Status: current
+Status: current, 2026-09-13
 
 用户明确初始化，或受管操作真正需要尚未确认的个人容器身份时，建立个人开发
-配置。需要独立本地编辑或受管准备的新任务采用本轮主仓版本和配套组件，开始工作
-后保持固定。普通 Review 和直接 endpoint 工作无需准备。入口不依赖 Skill 或个人
-修改版客户端。遵循[九条设计原则](design-principles.md)。
+配置。普通 Review、已有源码和直接 endpoint/container 工作不触发初始化或
+完整源码准备。配套版本与目录生命周期遵循[源码合同](source-workspace.md)
+和[九条设计原则](design-principles.md)。
 
-## 首次使用
+## 首次配置与个人 Fork
 
-仅在用户明确初始化，或需要准备的操作报告尚未建立所需个人身份时，读取根
-`AGENTS.md` 指向的[一次性初始化参考](../.agents/bootstrap/repo-init/SKILL.md)。
-该参考位于自动 Skill 发现目录之外，后续新会话、更新和修复不再触发它。
-初始化通过 `workspace_forks.py`、`vaws_deps.py sync` 和
-`vaws_client_setup.py --client all --apply` 配置个人 Fork、依赖和已安装的五种客户端。
-普通本地文件、Git/PR review 或显式 remote-dev endpoint（含现有容器）不因缺少
-`github.json` 询问身份、建 Fork、同步源码或初始化。原生客户端负责项目与 hook
-信任；Git clone 和写配置文件不等于已启用。实际验收见
-[统一启动验收](unified-session-validation-2026-09-13.md)及
-[现有容器验收](existing-container-validation-2026-09-13.md)。
+只有明确初始化请求，或所需受管身份尚未建立时，读取根 `AGENTS.md` 指向的
+[一次性初始化参考](../.agents/bootstrap/repo-init/SKILL.md)。它不进入自动 Skill
+发现，也不因新会话、普通更新或知识 pending 而重新触发。初始化按需准备源码、
+锁定依赖并一次配置已安装的客户端。写配置不等于获得原生信任或通过实际验收。
 
-需要首次初始化时，确认个人 GitHub 用户名。`gh` 登录是候选，不能静默代替用户选择。
-确认结果位于未跟踪的 `.vaws-local/github.json`，不包含凭据。
-coordinator 自动将它用于 native session 的用户归属，SSH 仍使用 root；见
-[用户与协调](identity-and-agent-coordination.md)。身份待确认时，独立本地查询
-和 Review 可继续，不重复追问或添加任务检查清单。
-
-显式准备入口复用现有身份配置，不要求 Agent 检查状态文件。若已保存客户端初始化
-记录却缺少身份文件，返回缺失路径和现有记录，按具体故障修复；不会将已初始化
-的仓库重新当作第一次使用。损坏的配置、环境缺失和客户端接线变化也直接使用
-下面的维护入口，不重新运行完整初始化。
-
-## 个人 Fork
+GitHub 用户名使用用户已明确确认的个人账号；`gh` 登录只是候选，不能代替选择。
+确认结果保存于未跟踪的 `.vaws-local/github.json`，不含凭据。coordinator 在需要时
+使用它作用户归属，显式 remote-dev endpoint 不要求该身份。既有确认重复使用，
+缺失或损坏的配置按具体故障修复，不把整个仓库重新当作第一次使用。
 
 ```text
 uv run --no-project python .agents/scripts/workspace_forks.py
 uv run --no-project python .agents/scripts/workspace_forks.py --github-user USER --apply
 ```
 
-默认只读计划；用户接受后 apply。默认覆盖 workspace、vLLM、vLLM-Ascend，
-`--repo workspace` 可只配置主仓。入口为纯标准库，不依赖 Skill 或 VAWS runtime。
-工具核对认证 User、实际仓库名、个人所有者及 canonical fork network，拒绝组织
-Fork、其他所有者的 redirect 和无关同名仓库。`origin` 是个人 Fork，`upstream`
-是官方来源；GitHub 分配不同 Fork 名时保存并复用实际地址。
-`.gitmodules` 保留社区 URL；先初始化子模块再配置其 remotes。
+默认返回计划；`--repo workspace` 可只配置主仓。工具核对个人 User、实际仓库名
+和 canonical fork network，拒绝组织 Fork、其他所有者的 redirect 和无关同名仓库。
+`origin` 指向个人 Fork，`upstream` 保留官方来源；GitHub 分配不同 Fork 名时保留
+实际地址。业务仓是普通独立 Git 仓库，其来源由 `sources.lock.json` 记录。
 
-重复执行复用正确 Fork，保留额外 remote、脏内容和 Git HEAD。复杂 fetch/push
-配置报告具体差异，显式替换时保存备份。组件只在需要贡献时 fork，安装使用
-工作区锁定的版本。公开知识贡献由 knowledge package 管理；配置代码 Fork
-不会启用知识发布。所有开发 Fork 都应属于个人 GitHub User。
+重复配置复用正确 remotes，保留额外 remote、脏内容和 Git HEAD。复杂 fetch/push
+差异明确报告；组件只在需要贡献时 fork。公开知识贡献由 knowledge package
+按既有配置管理，代码 Fork 不会启用知识发布。这些入口不拦截任意终端 Git 命令。
 
-工作区入口校验上述三个开发仓库；外部组件的贡献入口由其 owner 负责。
-这不是拦截任意终端 Git 命令的权限系统。
-
-## 需要独立编辑或受管环境时准备一次
+## 独立编辑与版本选择
 
 | 场景 | 行为 |
 |---|---|
-| 原生客户端已经创建独立 worktree，并由 setup 选定环境 | 直接使用已有目录和环境 |
-| 需要独立本地编辑或受管准备的新任务尚未准备 | 运行一次 `vaws_start.py --client CLIENT` |
-| 普通 Review、原目录本地工作或直接 endpoint/container | 使用原生工具或 remote-dev，不调用 `vaws_start`、不检查身份、不准备知识 |
-| 同一任务重复准备 | 返回已完成的选择，不再 fetch、安装或创建目录 |
-| 恢复会话 | 沿用原任务、目录和环境，无准备或更新步骤 |
+| 已有完整准备结果 | 复用实际 workspace、已选 sources 和环境 |
+| 需要独立编辑或受管准备，尚未准备 | 运行一次 `vaws_start.py --client CLIENT` |
+| 普通 Review、原目录工作、直接 endpoint/container | 使用原生工具或 remote-dev，不准备两个业务仓或知识库 |
+| 恢复或同一任务再次请求准备 | 沿用已保存选择，不 fetch、安装或新建目录 |
+| 比较不同组合或明确 fork | 新独立目录保留所选来源，不切换正在编辑的业务分支 |
 
-`vaws_start.py` 在母仓外的同级位置创建独立工作树，返回 `workspace`、`head`、
-`environment` 和 `context_file`，并绑定任务的默认 sources。用户继续使用原客户端，
-无需启动 VAWS launcher。客户端 UI/default cwd 可以保持原目录；后续 shell
-以返回目录为 cwd，文件、搜索和补丁使用该目录下的绝对路径。
-官方 Kimi 从已有 hook 取得 context，并将其传给启动命令及 task 工具；
-remote-dev 和 knowledge 可选接收该 context，用于选择该任务的环境。
-各客户端短指引和边界见[编辑隔离合同](native-workspace-isolation.md)。
+准备入口在客户端临时 worktree 清理范围之外创建独立多仓目录。根仓与选中的
+业务仓均采用独立 local clone；同卷可复用对象硬链接，不使用长期 alternates。
+先完成源码、环境及配置，再发布 ready。失败保留阶段与证据，不将半成品作为
+下一次复用结果；不自动 stash、reset、rebase 或强推用户分支。
 
-准备检查 canonical 默认分支一次（当前为 main），不依赖 tag 或 Release。
-独立准备目录固定此次取得的精确 SHA；`vaws_deps.py sync --locked` 复用或创建
-该版本的不可变环境，并复用配套 monitor wheel。准备成功后，个人 Fork 默认分支
-仅 fast-forward 到该提交。同一提交已准备完成就复用，不重复下载。
-沿用 `.vaws-local/updates/releases/<SHA>` 缓存名不代表要求发布 Release。
+新任务检查 canonical 默认分支一次，采用精确 VAWS 提交。组件由该提交的
+`pyproject.toml`、`uv.lock` 和 monitor pin 固定，业务源码由 `sources.lock.json` 固定。
+`development` 默认使用同一 Ascend SHA 声明的 verified vLLM commit；`release`
+使用它声明的 vLLM 发布 tag 所对应的完整 SHA。后者不是完整稳定 Ascend 发布栈。
+用户指定正式 release、PR 或 commit 时保留该选择及其兼容依据。
 
-Codex 本地环境 setup、Cursor setup-worktree，以及客户端已有的原生创建回调
-仍可提前完成准备；它们只处理客户端刚创建的目录，不通过 hook 修改父进程 cwd。
-已有用户 setup 命令保留，VAWS 准备置于其前。已有环境选择的目录再次 setup
-只复用和修复接线。原生机制见
-[Codex 本地环境](https://learn.chatgpt.com/docs/environments/local-environment) 和
-[Cursor worktrees](https://cursor.com/docs/configuration/worktrees)。
+已有实际源码按任务需要复用；lock 是候选组合，不是强制物化两个仓库的任务 gate。
+fork 复制实际 HEAD、index、工作内容和普通 untracked，不跟随新的默认 lock。
+只改业务源码不重装相同工具环境，只改工具不重写业务代码。网络不可用时使用
+可用的已接受本地组合并报告实际 SHA；没有可用准备结果时明确返回失败。
 
-原生回调可采用主仓更新的基线包括：新目录精确复制母仓当前 HEAD，或 Codex 的
-detached 新目录精确匹配可识别的本地默认 tip。母仓处于 feature 分支或有未完成
-改动，本身不阻止这个干净的新目录采用主仓。不同于这两类基线的显式 HEAD、
-fork 来源、已选环境及新目录中的编辑继续保留。客户端没有提供用户选择 ref
-的完整标记，显式选择恰好同一基线时无法再区分；结果记录这个边界。回调不初始化
-尚未拉取的子模块，也不覆盖准备期间发生的编辑。普通 fallback 在另一个目录
-准备主仓，不改母仓的业务分支。
+主仓维护工作流统一解析和检查上游配套关系，生成源码锁更新 PR。Ascend main
+只解析一次，其声明读取固定在同一 SHA；发布 tag 解析为 commit。缺失声明和
+格式变化不猜测，也不从镜像名称解析 ref。兼容结论依赖相应实验；可获取性与
+源码配套检查不能代替 NPU 验收。候选更新失败留在维护流程中，不成为业务 Agent
+每日 setup 步骤。准备缓存目录中的 releases 名称不要求发布 GitHub Release。
 
-更新不可用时可使用可用的本地版本，并返回未更新原因。若本地依赖或接线也无法
-准备，则返回实际失败及证据，不报告已就绪。不自动 stash、reset、rebase 或强推。
+## 原生目录、来源与环境
 
-## 组件和知识
+`workspace` 是实际编辑目录。启动入口与 native attachment 自动展开稳定逻辑名
+`workspace` 及选中的业务源码，不让 Agent 手写 map；显式 task/run `sources={}`
+始终优先。执行接纳时由 coordinator 捕获逐仓实际修改，父仓 status 不能替代它。
+源码丢失不得降级为空默认。完整规则见[源码合同](source-workspace.md)。
 
-主仓提交通过 `pyproject.toml`、`uv.lock`、vaws-top wheel pin 和 submodule gitlink
-确定配套版本。维护者更新并验证这组输入；需要准备的新任务取得主仓所选组合，不各自追逐
-所有组件仓库的分支头。Release 可作为里程碑，不是更新触发条件。
+原生入口和独立 clone 通过既有 preparation receipt 的 `project_root`、
+`native_workspace`、`workspace` 与 `sources` 关联；复制 stage 不是状态所有者，
+common-dir 不是独立 clone 家族的证明。task 身份仍来自明确的 native context。
+稳定 MCP gateway 复用该任务的固定环境，恢复时不跳到较新的 catalog。
 
-稳定的 MCP gateway 根据明确的 native context 路由到该任务固定的环境，启动
-其中的 coordinator、remote-dev 和 knowledge 后端。已有客户端 MCP 连接也可为
-新任务选择新后端；旧任务继续使用原环境，不被新任务升级。目录和环境选择记录在
-任务的 `start.json`，原生已准备目录也可从其已保存环境选择中复用。
-Gateway 不从最近任务或 cwd 猜身份，亦不将“最新环境”当旧任务的默认值。
-
-同一工作区家族共享知识配置、项目知识快照、候选内容和包维护的模型/index 缓存。
-共享知识内容更新独立于任务代码版本；普通任务无需复制知识库、重建相同索引或
-单独维护模型。用户自定义知识根和发布选择保留，默认不开启公开贡献。
-知识 MCP 未使用时不启动后端或维护；有效 query 或成功 capture 按需激活，自动总结仅本地保存。
-活动且后端可用时，包按持久 3600 秒期限审计向量完整性；未使用或停止的连接不承诺
-一小时内后台修复，下一次实际使用恢复到期工作。pending 不阻止独立工具。
-详见[知识合同](target-state.md#54-knowledge)和[依赖合同](dependency-plane.md)。
-
-coordinator daemon 的 idle 升级和 monitor 的实例管理仍由各包负责；忙碌实例的
-状态不由 workspace 强制改写。没有每五分钟轮询、常驻代码 watcher 或工作中换版本。
+显式 native launcher 在实际 workspace 启动客户端进程。Kimi/Claude 支持的目录
+返回回调可交回这个路径；采用结果仍需实际验收。Codex/Cursor native worktree
+setup 回调不能改变父客户端 UI 根目录，只能返回实际 workspace 并接通自动 scope。
+人可以打开该目录查看源码，Agent 使用其 cwd 和绝对路径；不得把 reference receipt
+当作 UI 已切换。客户端具体能力见[编辑隔离合同](native-workspace-isolation.md)。
 
 ## 显式维护与证据
 
-维护由具体请求或工具报告的故障触发，无需调用初始化参考，也没有统一全量探测。
+同一明确关联的工程共享知识配置、项目 Markdown、候选内容及包维护的模型/index
+缓存；共享参考内容与 task 固定源码是不同对象。未使用的知识连接不启动后端
+或维护；有效 query 或成功 capture 才按需激活，自动总结只复用已有最终文本。
+活动且后端可用时，持久 3600 秒期限驱动向量审计；未使用、停止或不可用的后端
+不承诺一小时内修复。pending 不阻止独立工作。见[知识合同](target-state.md#54-knowledge)。
+
+维护由具体请求或故障触发，不要求先运行全量初始化。
 
 | 需要处理的问题 | 入口 |
 |---|---|
-| 依赖或 pin 状态不明 | `uv run --no-project python .agents/scripts/vaws_deps.py doctor` |
-| 需要准备当前锁定的依赖 | `uv run --no-project python .agents/scripts/vaws_deps.py sync` |
-| 某个客户端接线需修改或修复 | `uv run --no-project python .agents/scripts/vaws_client_setup.py --client CLIENT --apply` |
-| 身份文件缺失、损坏或个人 Fork remote 有冲突 | 恢复已有快照，或用已确认用户名运行 `workspace_forks.py --github-user USER` 查看计划；只 apply 已判明需要的修复 |
-| 知识准备重试或配置变化 | `uv run --no-project python .agents/scripts/knowledge_setup.py` |
-
-`CLIENT` 使用实际客户端名；明确要求重新配置全部已安装客户端才使用 `all`。
-知识准备重试本身无需重配客户端；只有 provider 配置实际变化时才运行相应客户端
-配置入口。`knowledge_setup.py` 保留已有根目录和发布选择，默认不开启公开贡献。
-公开贡献设置与脱敏边界见[知识合同](target-state.md#54-knowledge)。
-
-显式要求 vLLM 与 Ascend 的 CI ref 对齐时，可在已初始化的 `vllm-ascend/` 上使用
-`uv run --no-project python .agents/bootstrap/repo-init/scripts/resolve_vllm_ci_pin.py --vllm-ascend-dir vllm-ascend`。
-它返回 ref 及来源；是否采用该 ref 由请求、现有改动和兼容依据决定。普通更新遵守
-主仓的 submodule gitlink，不顺带改成别的 CI ref。可选 Git topology helper
-`.agents/bootstrap/repo-init/scripts/repo_topology.py` 仅用于明确的 remote/main
-查询或操作，个人 Fork 配置仍使用上面的验证入口。
+| 依赖或 pin 状态 | `uv run --no-project python .agents/scripts/vaws_deps.py doctor` |
+| 准备当前锁定依赖 | `uv run --no-project python .agents/scripts/vaws_deps.py sync` |
+| 某客户端接线修复 | `uv run --no-project python .agents/scripts/vaws_client_setup.py --client CLIENT --apply` |
+| 身份或 Fork remote 故障 | 恢复既有快照，或用已确认用户名运行 workspace_forks.py 查看计划 |
+| 明确的知识配置或维护 | `uv run --no-project python .agents/scripts/knowledge_setup.py` |
 
 ```text
 uv run --no-project python .agents/scripts/workspace_update.py check
@@ -148,16 +107,11 @@ uv run --no-project python .agents/scripts/workspace_update.py prepare
 uv run --no-project python .agents/scripts/workspace_update.py apply
 ```
 
-这些是主动维护入口。`check` 查版本，`prepare` 准备精确提交，`apply` 只更新
-干净、无 merge/rebase 的默认分支；已初始化子模块须无业务改动，且只采用记录的
-gitlink。普通任务无需运行它们。`vaws_client.py` 仍是可选终端便利入口，恢复已有
-目录需给原 `--workspace PATH`；日常新任务使用项目指引即可。
+这些是主动维护入口，普通任务无需运行。已有编辑目录不因准备新的候选而重写。
+更新状态和失败命令保存在未跟踪的 `.vaws-local/updates/`；它们记录事实，不承担
+task 或设备所有权。不存在每工具上游检查、常驻源码 watcher 或工作中换版本。
+默认不自动删除完整任务目录，不为对象复用增设租约或回收服务。
 
-`.vaws-local/updates/state.json` 保留检测提交、当前步骤、结果和未完成原因，
-失败命令证据保留在 logs 子目录。更新目录 `config.json` 的 `enabled: false`
-暂停新任务自动更新；显式命令仍可用于维护。同一 Git 公共目录使用 OS 锁串行更新。
-状态记录事实，不承担任务或设备权属。
-
-Windows 挂载工作区的原生 setup 使用 Windows owner，不从 WSL 的 `/mnt` 路径
-运行该回调，也不承诺混合系统 linked-worktree 行为。原生 owner、回调和安装边界
-见[平台合同](platform-contract.md)。
+Windows/WSL 的进程和共享目录 owner 边界见[平台合同](platform-contract.md)。
+客户端信任、实际目录展示及生命周期验收单独记录；历史 worktree 实验不能作为
+新多仓布局已在全部客户端完成验收的证明。

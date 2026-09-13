@@ -25,7 +25,7 @@ immutable environment in the operating system's user data directory. Its key
 includes dependency inputs, Python identity, platform, architecture and selected
 groups/extras. Workspaces with identical inputs reuse that environment; changing
 dependencies prepares a new one. `uv.lock` records the resolved commits.
-CI validates the lock with `vaws_deps.py sync --packages-only --locked --group dev`. Do not copy those
+CI validates the lock with `vaws_deps.py sync --locked --group dev`. Do not copy those
 SHAs into workflows.
 
 Sources may select release tags or validated commit revisions; `uv.lock`
@@ -103,18 +103,12 @@ last. The selected base Python and store paths are resolved to physical paths so
 an interpreter alias change cannot replace a running client's dependencies.
 An ordinary command reads the ready receipt and never installs packages.
 
-After a successful install, `sync` invokes the installed knowledge package's
-preparation APIs in the selected interpreter, using the shared service
-configuration to prepare the model and index. The JSON retains the dependency
-install result and reports
-`knowledge.status` and `knowledge.ready` separately. Pending knowledge does not
-change a successful dependency install's exit code or block ordinary tools.
-
-For package installation alone, `sync --packages-only` skips knowledge model and
-index preparation. The result records that preparation was not requested; it
-does not infer whether an existing knowledge instance is ready. Local CI uses
-this mode because its knowledge tests use in-memory or mocked owners. Ordinary
-sync still prepares knowledge, and real provider readiness is checked separately.
+`sync` installs or reuses packages and reports only their environment receipt.
+It does not import the knowledge service, inspect its readiness, prepare a model
+or index, or start maintenance. Knowledge MCP activates those capabilities on
+actual use. Explicit knowledge configuration or repair uses
+`.agents/scripts/knowledge_setup.py`; its result remains separate from package
+installation.
 
 Entry scripts select a prepared platform environment. Interpreter flags and `-m`
 module calls survive re-execution; native Windows launches use UTF-8 and retain
@@ -168,7 +162,7 @@ release wheel.
 ## Shared knowledge corpus
 
 The installed `vaws-knowledge` package provides the engine and a bootstrap
-corpus. Dependency installation prepares the local model and index. For an
+corpus. Actual knowledge use prepares its local model and index on demand. For an
 explicit retry or configuration change, `uv run --no-project python .agents/scripts/knowledge_setup.py`
 uses the same package preparation entry. New setup enables local knowledge and
 shared downloads; it does not create a fork or enable public contribution.

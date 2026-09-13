@@ -113,6 +113,20 @@ def test_other_git_project_uses_installed_source_without_losing_target_scope(fam
     assert first["mcp_servers"]["vaws-task"][0] == str(primary / ".agents/scripts/vaws_native_mcp.py")
 
 
+@pytest.mark.parametrize("client", ["codex", "cursor", "claude", "grok", "kimi"])
+def test_independent_copy_configures_shared_owner_before_publishing_ready(family, client):
+    primary, _, _, modules, _ = family
+    target = primary.parent / "independent copy"
+    git(primary, "clone", "--local", "--no-hardlinks", str(primary), str(target))
+    assert not (target / ".vaws-local/native-workspace.json").exists()
+    plan = modules[0].build_plan(client, target, owner_project=primary)
+    assert plan["configuration_owner"] == str(primary)
+    assert plan["task_registry"] == str(primary / ".vaws-local/agent-sessions")
+    assert plan["launch_cwd"] == str(target)
+    assert not (target / ".vaws-local/native-workspace.json").exists()
+    assert modules[0]._CONFIGURATION_OWNER is None
+
+
 def test_old_linked_hook_is_replaced_once_and_foreign_hook_is_preserved(family):
     primary, linked, _, modules, _ = family
     setup = modules[1]

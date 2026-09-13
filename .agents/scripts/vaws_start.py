@@ -7,70 +7,93 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
 
 from vaws_environment import read_receipt, saved_ready, select_environment
 from vaws_knowledge_service import knowledge_config_path
-from vaws_local_state import shared_workspace_root
-from vaws_native_workspace import create_workspace
+from vaws_local_state import prepared_workspace, shared_workspace_root
+from vaws_native_workspace import create_prepared_workspace
 from vaws_session_state import task_dir, write_json
 from vaws_task_target import resolve_context_file
 from vaws_venv import configure_windows_stdio, ensure_workspace_interpreter
-from vaws_workspace_entry import FIRST_USE_REFERENCE, MAINTENANCE_REFERENCE, copy_workspace_identity, workspace_entry
-from vaws_workspace_update import WorkspaceUpdater, common_dir, git, redact, update_lock
-from vaws_worktree_setup import configure_target, prepare_selected_knowledge, unpinned_environment
+from vaws_workspace_entry import (FIRST_USE_REFERENCE, MAINTENANCE_REFERENCE, copy_workspace_identity,
+                                  prepared_sources, read_preparation, workspace_entry, write_preparation)
+from vaws_workspace_update import WorkspaceUpdater, git, path_lock, redact, update_lock
+from vaws_worktree_setup import configure_target, unpinned_environment
 
 CLIENTS = ("codex", "cursor", "claude", "grok", "kimi")
 
 
 def native_prepared(context: dict, project: Path) -> tuple[Path, dict] | None:
-    """Reuse a prepared native linked worktree, including an explicitly old ref."""
+    """Use the explicitly prepared directory, including independent clones."""
     cwd = Path(context["attachment"]["cwd"])
-    try:
-        workspace = Path(git(cwd, "rev-parse", "--show-toplevel")).resolve()
-        shared = common_dir(project)
-        if common_dir(workspace) != shared:
-            return None
-        if Path(git(workspace, "rev-parse", "--absolute-git-dir")).resolve() == shared:
-            return None
-    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+    selected = prepared_workspace(cwd, project)
+    if selected is None:
         return None
-    selection = workspace / ".vaws-local/environment-selection" / f"{sys.platform}.json"
-    return (workspace, saved_ready(workspace)) if selection.is_file() else None
+    return selected, saved_ready(selected)
 
 
-def prepare_latest(project: Path) -> tuple[Path, dict, dict]:
+def prepare_latest(project: Path, source_channel: str = "development") -> tuple[Path, dict, dict]:
     """Prepare canonical HEAD without activating or inspecting the editing branch."""
-    updater = WorkspaceUpdater(project)
-    update = updater.step(apply=True, activate=False)
-    if update.get("status") not in {"ready", "current"}:
-        error = RuntimeError(update.get("detail") or update.get("reason") or "upstream preparation failed")
-        error.evidence = update
-        raise error
-    prepared = updater.state.get("prepared")
-    if not prepared:
-        # An already-current main checkout can lack a preparation cache. Use
-        # the updater's clean committed stage, never copy its working edits.
-        prepared = updater.prepare(update, updater.preparation_inputs(update))
-        updater.save(**{key: value for key, value in update.items() if key != "status"},
-                     prepared=prepared, phase="ready", status="ready")
-    stage = updater.validate_prepared(update, prepared)
-    return stage, prepared, update
+    with update_lock(project, wait_seconds=180):
+        updater = WorkspaceUpdater(project, source_channel=source_channel)
+        update = updater.step(apply=True, activate=False)
+        if update.get("status") not in {"ready", "current"}:
+            previous = updater.state
+            if previous.get("phase") in {"ready", "active"} and previous.get("prepared"):
+                try:
+                    stage = updater.validate_prepared(previous, previous["prepared"])
+                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+                    pass
+                else:
+                    return stage, previous["prepared"], {
+                        "status": "cached", "target": previous["target"],
+                        "upstream_check": update,
+                    }
+            error = RuntimeError(update.get("detail") or update.get("reason") or "upstream preparation failed")
+            error.evidence = update
+            raise error
+        prepared = updater.state.get("prepared")
+        if not prepared:
+            prepared = updater.prepare(update, updater.preparation_inputs(update))
+            updater.save(**{key: value for key, value in update.items() if key != "status"},
+                         prepared=prepared, phase="ready", status="ready")
+        stage = updater.validate_prepared(update, prepared)
+        return stage, prepared, update
 
 
 def selected_result(workspace: Path, receipt: dict, context: dict, *, status: str, evidence: Path,
                     **facts) -> dict:
     config = knowledge_config_path(workspace)
+    editor = workspace / ".vaws-local/vaws.code-workspace"
     return {"status": status, "workspace": str(workspace), "head": git(workspace, "rev-parse", "HEAD"),
+            "editor_workspace": str(editor) if editor.is_file() else None,
             "environment": {key: receipt[key] for key in ("key", "python", "receipt")},
             "context_file": context["context_file"], "native_cwd": context["attachment"]["cwd"],
             "knowledge_config": str(config) if config.is_file() else None,
             "evidence": str(evidence), **facts}
 
 
-def start(client: str, project: Path = ROOT, context_file: str | None = None) -> dict:
+def reuse(record: Path) -> dict:
+    """Resume a completed selection without shared locks, Git or preparation."""
+    previous = json.loads(record.read_text(encoding="utf-8"))
+    workspace = Path(previous["workspace"])
+    if not workspace.is_dir() or not (workspace / ".git").exists():
+        raise ValueError(f"selected editing directory is unavailable: {workspace}")
+    for name, path in previous.get("sources", {}).items():
+        if not (Path(path) / ".git").exists():
+            raise ValueError(f"selected source {name} is unavailable: {path}")
+    receipt = read_receipt(previous["environment"]["receipt"])
+    if receipt["key"] != previous["environment"]["key"]:
+        raise ValueError("selected task environment receipt changed")
+    return {**previous, "status": "reused"}
+
+
+def start(client: str, project: Path = ROOT, context_file: str | None = None,
+          *, source_channel: str = "development") -> dict:
     from vaws_coordinator.agent_session import AgentSessions, load_context
 
     phase, context, record, workspace = "context", None, None, None
@@ -80,48 +103,56 @@ def start(client: str, project: Path = ROOT, context_file: str | None = None) ->
             raise ValueError("--client differs from the existing native attachment")
         project = shared_workspace_root(project.resolve())
         record = task_dir(context["session"]["id"], project) / "start.json"
+        phase = "reuse"
+        if record.is_file():
+            return reuse(record)
         phase = "preparation_lock"
-        # The repository lock also serializes two callers preparing one task.
-        # Nothing in the completed path checks upstream or changes task sources.
-        with update_lock(project, wait_seconds=180):
+        # Only callers for this native task wait for its copy and client wiring.
+        # The project lock is confined to preparing the shared immutable stage.
+        with path_lock(record.with_name("start.lock"), wait_seconds=180):
             phase = "reuse"
             if record.is_file():
-                previous = json.loads(record.read_text(encoding="utf-8"))
-                workspace = Path(previous["workspace"])
-                receipt = read_receipt(previous["environment"]["receipt"])
-                return selected_result(workspace, receipt, context, status="reused", evidence=record,
-                                       preparation=previous["preparation"], knowledge=previous.get("knowledge", {}))
+                return reuse(record)
             prepared_native = native_prepared(context, project)
-            update, knowledge = {}, {}
+            update = {}
             if prepared_native:
                 workspace, receipt = prepared_native
                 preparation = "native"
+                sources = prepared_sources(workspace)
+                source_channel = read_preparation(workspace)["source_channel"]
             else:
                 phase = "upstream"
                 print("VAWS: preparing the canonical workspace and its locked components", file=sys.stderr, flush=True)
-                stage, prepared, update = prepare_latest(project)
-                knowledge = prepared.get("knowledge", {})
+                stage, prepared, update = prepare_latest(project, source_channel)
                 workspace = project.parent / (project.name + "-" + context["session"]["id"])
-                phase = "worktree"
+                if workspace.exists():
+                    # An interrupted copy may contain edits made during repair.
+                    # Retain it and retry in a fresh sibling without a reset.
+                    workspace = workspace.with_name(workspace.name + "-" + uuid.uuid4().hex[:8])
+                phase = "workspace_copy"
                 print(f"VAWS: creating {workspace}", file=sys.stderr, flush=True)
-                create_workspace(stage, workspace, linked=True)
+                copied = create_prepared_workspace(prepared, workspace)
+                sources = copied["sources"]
                 copy_workspace_identity(project, workspace)
                 phase = "environment"
                 environment = unpinned_environment()
                 # The updater prepared this exact committed stage. Do not let
                 # the caller's old VAWS_ENV_RECEIPT select the new task runtime.
                 receipt = prepared["receipt"]
-                configure_target(client, workspace, receipt, environment)
+                configure_target(client, workspace, receipt, environment, owner_project=project)
                 select_environment(workspace, receipt)
+                write_preparation(workspace, project_root=project,
+                                  native_workspace=Path(context["attachment"]["cwd"]), workspace=workspace,
+                                  sources=sources, source_channel=source_channel, environment=receipt)
                 preparation = "created"
-            phase = "knowledge"
-            knowledge = prepare_selected_knowledge(workspace, receipt)
             phase = "sources"
             store = AgentSessions(Path(context["state_dir"]))
-            # This is a task source selection, not a native cwd handoff.
-            context = store.bind_sources(context, {project.name: str(workspace)})
+            # Defaults belong to this attachment. Explicit user sources, including
+            # an empty map, retain precedence in the coordinator.
+            context = store.bind_native_sources(context, sources=sources)
             result = selected_result(workspace, receipt, context, status="ready", evidence=record,
-                                     preparation=preparation, update=update, knowledge=knowledge)
+                                     preparation=preparation, update=update, sources=sources,
+                                     source_channel=source_channel)
             write_json(record, result)
             if preparation == "created":
                 write_json(project / ".vaws-local/latest-runtime.json",
@@ -146,6 +177,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--client", choices=CLIENTS, required=True)
     parser.add_argument("--context-file", help="existing native context, when the shell cannot provide it")
+    parser.add_argument("--source-channel", choices=("development", "release"), default="development",
+                        help="vLLM baseline paired with the selected Ascend commit; existing tasks keep their selection")
     args = parser.parse_args(argv)
     setup = workspace_entry(shared_workspace_root(ROOT), announce=False)
     if setup["state"] != "configured":
@@ -160,7 +193,7 @@ def main(argv=None) -> int:
                           "setup": setup, "reference": reference, "next": next_step}, ensure_ascii=False))
         return 1
     ensure_workspace_interpreter(repo_root=ROOT)
-    result = start(args.client, ROOT, args.context_file)
+    result = start(args.client, ROOT, args.context_file, source_channel=args.source_channel)
     print(json.dumps(result, ensure_ascii=False), flush=True)
     return 1 if result["status"] == "failed" else 0
 

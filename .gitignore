@@ -28,6 +28,10 @@ docs/superpowers/
 .machine-inventory.json
 .worktrees/
 
+# Business repositories have their own Git history and are selected by sources.lock.json.
+/vllm/
+/vllm-ascend/
+
 # Generated MCP configuration contains local environment paths.
 # Share client guidance and skill projections only.
 .cursor/*

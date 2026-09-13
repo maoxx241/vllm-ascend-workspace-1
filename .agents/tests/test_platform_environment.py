@@ -43,7 +43,6 @@ def test_bootstrap_does_not_need_installed_packages(monkeypatch):
     receipt = {"root": str(ROOT), "key": "f" * 64, "receipt": "ready-receipt"}
     monkeypatch.setattr(module, "ensure_workspace_interpreter", lambda **kwargs: pytest.fail("bootstrap tried to re-exec"))
     monkeypatch.setattr(module, "prepare_environment", lambda root, **kwargs: calls.append((root, kwargs)) or receipt)
-    monkeypatch.setattr(module, "prepare_knowledge", lambda root: {"status": "pending", "ready": False})
     import vaws_environment_link
     monkeypatch.setattr(vaws_environment_link, "link_environment", lambda *args, **kwargs: ROOT)
     assert module.main(["sync", "--locked", "--group", "dev"]) == 0

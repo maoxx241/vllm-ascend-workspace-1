@@ -18,7 +18,7 @@ PR review 直接使用原生 Git 和文件工具。已有容器任务直接把 h
 
 > 初始化这个工作区，配好 vLLM Ascend 的开发环境。
 
-初始化复用已有配置，安装锁定依赖，并通过 `vaws_client_setup.py --client all --apply` 一次配置已安装的 Codex、Cursor、Claude、Grok 和 Kimi；无需用户手动调用 Skill 或安装个人修改版客户端。需要独立本地编辑或受管准备时，项目短指引让新任务准备一次编辑目录、主仓版本及配套环境；已有原生 worktree setup 的结果直接复用。普通 Review 和直接 endpoint 任务不调用 `vaws_start`。用户继续在原客户端表达目标，恢复会话沿用原目录和环境。实际边界见[编辑隔离合同](docs/native-workspace-isolation.md)，本轮实测进度见[验收记录](docs/unified-session-validation-2026-09-13.md)。安装与平台行为见 [dependency-plane.md](docs/dependency-plane.md) 和 [platform-contract.md](docs/platform-contract.md)。
+初始化复用已有配置，按需准备源码与锁定依赖，并一次配置已安装的 Codex、Cursor、Claude、Grok 和 Kimi。需要完整多仓编辑时，准备整个独立目录：VAWS、`vllm/` 和 `vllm-ascend/` 都是普通独立 clone，同卷可复用对象硬链接，不依赖 alternates 或父 worktree 的清理行为。已有实际源码和准备结果直接复用，普通 Review 和直接 endpoint 任务不调用 `vaws_start`。恢复会话沿用原目录、来源和环境。版本选择见[源码合同](docs/source-workspace.md)，客户端实际目录能力见[编辑隔离合同](docs/native-workspace-isolation.md)；历史[验收记录](docs/unified-session-validation-2026-09-13.md)不代表新布局已在全部客户端通过。安装与平台行为见 [dependency-plane.md](docs/dependency-plane.md) 和 [platform-contract.md](docs/platform-contract.md)。
 
 日常工作只需说明目标和影响结果的输入，例如：
 
@@ -70,10 +70,12 @@ Agent 按任务选择工具或技能；执行引用、状态推进和报告由�
 
 ## 仓库与本地状态
 
-规范仓库是 `vllm-ascend-workspace/vllm-ascend-workspace`。`vllm/`、`vllm-ascend/` 是指向社区上游的 Git 子模块。首次初始化由 AGENTS 指向一次性的 [repo-init](.agents/bootstrap/repo-init/SKILL.md)，完成后不再自动触发。明确初始化，或受管操作真正需要尚未确认的个人容器身份时，才进行 GitHub 身份确认；普通 review 和显式远端 I/O 不触发这套流程。开发 Fork 必须属于个人账号，`origin` 指向个人 Fork，`upstream` 保留官方来源。
+规范仓库是 `vllm-ascend-workspace/vllm-ascend-workspace`。`vllm/`、`vllm-ascend/` 是按需准备的普通独立 Git 仓库，仍可直接查看和修改。`sources.lock.json` 固定官方来源与精确组合：默认 `development` 使用同一 Ascend SHA 声明的 verified vLLM commit，`release` 使用其发布 tag 对应的完整 SHA；后者不代表完整稳定 Ascend 发布栈。人可以分别运行 `git -C vllm diff` 和 `git -C vllm-ascend diff`，父 status 不能代表内仓修改。
 
-需要独立编辑或受管准备的新任务检查一次 VAWS 主仓，采用该提交的锁定组件组合并同步个人 Fork，无需等待 Release。启动入口绑定返回目录的 sources，MCP gateway 为该任务固定组件环境；客户端 UI 可以保持原目录，Agent 在返回目录中编辑。工作中和恢复会话不检查或切换版本，知识配置、内容和模型/index 缓存按工作区家族复用。见[个人 Fork 与自动更新](docs/forks-and-updates.md)。共享 root 下的用户容器命名、随正常调用投递的留言和算子产物缓存由组件处理；权重沿用服务器现有路径，初始化后无需 Agent 填写身份、轮询或登记成果。见[身份与协调](docs/identity-and-agent-coordination.md)。
+首次初始化由 AGENTS 指向一次性的 [repo-init](.agents/bootstrap/repo-init/SKILL.md)。明确初始化，或受管操作真正需要尚未确认的个人容器身份时，才确认 GitHub 身份；普通 review 和显式远端 I/O 不触发这套流程。开发 Fork 必须属于个人账号，`origin` 指向个人 Fork，`upstream` 保留官方来源。
+
+需要独立编辑或受管准备时，新任务一次选择精确主仓、组件与实际源码，准备入口和 native attachment 自动展开 sources；显式 `sources={}` 保持优先。MCP gateway 固定该任务的组件环境，恢复时不改版本。原生 launcher 在实际目录启动进程；Codex/Cursor worktree 回调只能返回实际 workspace 并接通 scope，不能声称替父 UI 切换目录。人可打开返回目录查看源码，Agent 使用实际 cwd 和绝对路径。知识配置、内容和模型/index 缓存按明确的工程关联复用。见[个人 Fork 与自动更新](docs/forks-and-updates.md)。共享 root 下的容器命名、留言和算子产物缓存由组件处理，权重沿用服务器现有路径，无需 Agent 填写身份或登记成果。见[身份与协调](docs/identity-and-agent-coordination.md)。
 
 `.agents/skills/` 保存业务技能，`.agents/lib/` 保存共享消费代码，`.agents/scripts/` 保存客户端接线和维护工具。客户端投影统一指向规范技能。运行状态和私人配置放在未跟踪的 `.vaws-local/`，凭据不入库。公开知识只使用包生成的脱敏副本。
 
-工作区许可证独立于子模块；两个子模块分别遵循其上游许可证。
+工作区许可证独立于两个业务仓库；它们分别遵循各自上游许可证。

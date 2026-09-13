@@ -4239,8 +4239,8 @@ wheels = [
 
 [[package]]
 name = "vaws-coordinator"
-version = "0.4.1.dev2"
-source = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=384b89b71078bcad49212d3f6104ccc847485cec#384b89b71078bcad49212d3f6104ccc847485cec" }
+version = "0.5.0.dev1"
+source = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=9f94f27964437f962e6037529ccf2f0b1c709ede#9f94f27964437f962e6037529ccf2f0b1c709ede" }
 dependencies = [
     { name = "setuptools-scm" },
     { name = "vaws-remote-dev" },
@@ -4248,8 +4248,8 @@ dependencies = [
 
 [[package]]
 name = "vaws-knowledge"
-version = "0.5.1"
-source = { git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=3a65926db4be36f39bf5efb516d1f74bd37702c5#3a65926db4be36f39bf5efb516d1f74bd37702c5" }
+version = "0.6.0"
+source = { git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=485ddc0d71e86915487a1204032426a3d874ba0e#485ddc0d71e86915487a1204032426a3d874ba0e" }
 dependencies = [
     { name = "fastembed" },
     { name = "openviking" },
@@ -4285,8 +4285,8 @@ dev = [
 requires-dist = [
     { name = "mcp", specifier = "==1.30.0" },
     { name = "pillow", specifier = ">=11" },
-    { name = "vaws-coordinator", git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=384b89b71078bcad49212d3f6104ccc847485cec" },
-    { name = "vaws-knowledge", git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=3a65926db4be36f39bf5efb516d1f74bd37702c5" },
+    { name = "vaws-coordinator", git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=9f94f27964437f962e6037529ccf2f0b1c709ede" },
+    { name = "vaws-knowledge", git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=485ddc0d71e86915487a1204032426a3d874ba0e" },
     { name = "vaws-remote-dev", git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=a65362882a85b4d460be3e1d15e90de9fb507e70" },
 ]
 

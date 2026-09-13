@@ -8,21 +8,26 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
 import uuid
 from pathlib import Path
 
+REPOSITORIES = {"workspace": "vllm-ascend-workspace/vllm-ascend-workspace",
+                "vllm": "vllm-project/vllm", "vllm-ascend": "vllm-project/vllm-ascend"}
+
 
 class WorkspaceCopyError(RuntimeError):
     pass
 
 
-def git(root: Path, *args: str, data: bytes | None = None, env=None) -> bytes:
+def git(root: Path, *args: str, data: bytes | None = None, env=None, timeout: int = 120) -> bytes:
     result = subprocess.run(
-        ["git", "--no-optional-locks", "-C", str(root), *args], input=data, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, env=env, timeout=120, check=False,
+        ["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []),
+         "--no-optional-locks", "-C", str(root), *args], input=data, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, env=env, timeout=timeout, check=False,
     )
     if result.returncode:
         raise WorkspaceCopyError(result.stderr.decode("utf-8", "replace").strip())
@@ -56,6 +61,22 @@ def _file_state(path: Path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return ["file", stat.S_IMODE(info.st_mode), info.st_size, digest.hexdigest()]
+
+
+def _configuration_entries(source: Path) -> list[tuple[str, str]]:
+    return [tuple(entry.split("\n", 1)) for entry in git(source, "config", "--null", "--list").decode("utf-8").split("\0")
+            if "\n" in entry]
+
+
+def _checkout_configuration(entries: list[tuple[str, str]]) -> dict[str, str]:
+    policy = {"core.autocrlf": "false", "core.eol": "native", "core.safecrlf": "false",
+              "core.filemode": "true", "core.ignorecase": "false", "core.symlinks": "true"}
+    for key, value in entries:
+        if key in policy:
+            policy[key] = value
+    if policy["core.eol"] == "native":
+        policy["core.eol"] = "crlf" if os.name == "nt" else "lf"
+    return policy
 
 
 def _capture(source: Path) -> dict:
@@ -100,14 +121,7 @@ def _capture(source: Path) -> dict:
             children[name] = {"uninitialized": True, "directory": path.is_dir()}
         else:
             children[name] = _capture(path)
-    defaults = {"core.autocrlf": "false", "core.eol": "native", "core.safecrlf": "false",
-                "core.filemode": "true", "core.ignorecase": "false", "core.symlinks": "true"}
-    configuration = {key: git(source, "config", "--default", default, "--get", key).decode().strip()
-                     for key, default in defaults.items()}
-    # Freeze the effective end-of-line policy, rather than inheriting a different
-    # Windows/macOS/WSL user's Git config. "native" itself is platform-relative.
-    if configuration["core.eol"] == "native":
-        configuration["core.eol"] = "crlf" if os.name == "nt" else "lf"
+    configuration = _checkout_configuration(_configuration_entries(source))
     status = git(source, "status", "--porcelain=v1", "-z", "--untracked-files=all")
     status = b"\0".join(row for row in status.split(b"\0")
                          if not (row.startswith(b"?? ") and _private(os.fsdecode(row[3:]))))
@@ -117,24 +131,110 @@ def _capture(source: Path) -> dict:
             "working_diff": git(source, "diff", "--no-ext-diff", "--no-textconv", "--binary").hex()}
 
 
-def _copy_repository(source: Path, destination: Path, snapshot: dict, *, linked: bool = False) -> None:
-    if linked:
-        git(source, "worktree", "add", "--detach", "--no-checkout", str(destination), snapshot["head"])
-        # Ordinary linked trees already share the source's repository config.
-        # If per-worktree config is enabled, preserve only the captured file
-        # interpretation settings in this new tree, without editing the source.
-        if git(source, "config", "--type=bool", "--default", "false", "--get", "extensions.worktreeConfig").strip() == b"true":
-            for key, value in snapshot["configuration"].items():
-                git(destination, "config", "--worktree", key, value)
-        git(destination, "read-tree", snapshot["tree"])
-        _copy_contents(source, destination, snapshot, linked=True)
-        return
+def _copy_remotes(source: Path, destination: Path, entries: list[tuple[str, str]] | None = None) -> None:
+    for remote in git(destination, "remote").decode().splitlines():
+        git(destination, "remote", "remove", remote)
+    for key, value in _configuration_entries(source) if entries is None else entries:
+        if key.startswith("remote."):
+            git(destination, "config", "--local", "--add", key, value)
+
+
+def prepare_source(destination: Path, *, repository: str, revision: str,
+                   local_source: Path | None = None) -> None:
+    """Create a self-contained checkout at one locked canonical commit.
+
+    Only the new destination is written. Existing destinations are rejected,
+    including failed earlier attempts, so user work is never reset implicitly.
+    """
+    if repository not in REPOSITORIES.values() or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise WorkspaceCopyError("source requires a supported canonical repository and full commit SHA")
+    destination = destination.absolute()
+    if destination.exists() or destination.is_symlink():
+        raise WorkspaceCopyError(f"source destination already exists: {destination}")
+    url = f"https://github.com/{repository}.git"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if local_source is not None:
+        local_source = Path(local_source).resolve(strict=True)
+        storage = Path(os.fsdecode(git(local_source, "rev-parse", "--git-path", "objects/info/alternates").strip()))
+        if not storage.is_absolute():
+            storage = local_source / storage
+        if storage.exists():
+            raise WorkspaceCopyError("source uses object alternates; a self-contained source is required")
+        entries = _configuration_entries(local_source)
+        configuration = [f"--config={key}={value}" for key, value in _checkout_configuration(entries).items()]
+        git(local_source, "clone", "--local", "--no-checkout", *configuration, "--", str(local_source), str(destination))
+        _copy_remotes(local_source, destination, entries)
+    else:
+        from vaws_github import check_url_rewrites
+        check_url_rewrites(destination.parent, url, repository)
+        git(destination.parent, "clone", "--no-checkout", "--", url, str(destination), timeout=1800)
+        for key, value in _checkout_configuration(_configuration_entries(destination)).items():
+            git(destination, "config", "--local", key, value)
+    if (destination / ".git/objects/info/alternates").exists():
+        raise WorkspaceCopyError("prepared source unexpectedly depends on object alternates")
+    if os.name == "nt":
+        git(destination, "config", "core.longpaths", "true")
+    try:
+        git(destination, "cat-file", "-e", revision + "^{commit}")
+    except WorkspaceCopyError:
+        from vaws_github import check_url_rewrites
+        check_url_rewrites(destination, url, repository)
+        git(destination, "fetch", "--no-tags", url, revision, timeout=600)
+    git(destination, "checkout", "--detach", revision)
+    if git(destination, "rev-parse", "HEAD").decode().strip() != revision:
+        raise WorkspaceCopyError("prepared source did not select the requested commit")
+    if not git(destination, "remote").strip():
+        git(destination, "remote", "add", "origin", url)
+
+
+def create_prepared_workspace(prepared: dict, destination: Path) -> dict:
+    """Clone the updater's fixed revisions without scanning mutable workfiles.
+
+    Canonical preparation has already validated this plan. Revisions remain
+    explicit so even a later staging workfile edit cannot change copied code.
+    Dirty editing copies and conversation forks use create_workspace instead.
+    """
+    stage = Path(prepared["stage"]).resolve(strict=True)
+    destination = destination.absolute()
+    from vaws_local_owner import windows_mounted_workspace
+    if windows_mounted_workspace(stage):
+        raise WorkspaceCopyError("prepared workspace cloning requires the native Windows owner")
+    if destination.exists() or destination.is_symlink():
+        raise WorkspaceCopyError(f"workspace destination already exists: {destination}")
+    destination = destination.resolve()
+    sources = prepared["sources"]
+    revisions = prepared["revisions"]
+    if set(revisions) != {"workspace", *sources} or any(name not in REPOSITORIES or name == "workspace" for name in sources):
+        raise WorkspaceCopyError("prepared source names and revisions do not match")
+    roots = {"workspace": stage, **{name: Path(path).resolve(strict=True) for name, path in sources.items()}}
+    for name, source in roots.items():
+        if not re.fullmatch(r"[0-9a-f]{40}", revisions[name]):
+            raise WorkspaceCopyError("prepared sources require full commit SHAs")
+        if name != "workspace" and source != stage / name:
+            raise WorkspaceCopyError("prepared business source is outside its stage")
+        if source == destination or source in destination.parents or destination in source.parents:
+            raise WorkspaceCopyError("prepared source overlaps the destination")
+        if not (source / ".git").is_dir() or (source / ".git/objects/info/alternates").exists():
+            raise WorkspaceCopyError("prepared source must have independent Git storage")
+    result_sources = {}
+    for name, source in roots.items():
+        target = destination if name == "workspace" else destination / name
+        prepare_source(target, repository=REPOSITORIES[name], revision=revisions[name], local_source=source)
+        result_sources[name] = str(target)
+    return {"schema": "vaws.workspace-copy.v1", "state": "ready", "source": str(stage),
+            "workspace": str(destination), "sources": result_sources,
+            "head": revisions["workspace"], "revisions": dict(revisions)}
+
+
+def _copy_repository(source: Path, destination: Path, snapshot: dict) -> None:
     # Local clone copies/hardlinks objects, with independent refs and .git dirs.
     # Unlike linked-worktree absolute gitdir pointers, these are readable by
     # native Windows Git and WSL Git on the same mounted filesystem.
     git(source, "clone", "--local", "--no-checkout", "--", str(source), str(destination))
     if (destination / ".git/objects/info/alternates").exists():
         raise WorkspaceCopyError("source uses object alternates; create a self-contained source checkout first")
+    if os.name == "nt":
+        git(destination, "config", "core.longpaths", "true")
     for key, value in snapshot["configuration"].items():
         git(destination, "config", key, value)
     git(destination, "update-ref", "HEAD", snapshot["head"])
@@ -144,22 +244,11 @@ def _copy_repository(source: Path, destination: Path, snapshot: dict, *, linked:
         stream.write("\n.vaws-local/\n")
     # Preserve upstream remotes instead of making the source working copy a
     # development remote. Credentials, if any, are never included in receipts.
-    for remote in git(destination, "remote").decode().splitlines():
-        git(destination, "remote", "remove", remote)
-    for remote in git(source, "remote").decode().splitlines():
-        urls = git(source, "remote", "get-url", "--all", remote).decode().splitlines()
-        if urls:
-            git(destination, "remote", "add", remote, urls[0])
-            for url in urls[1:]:
-                git(destination, "remote", "set-url", "--add", remote, url)
-            push_urls = git(source, "remote", "get-url", "--push", "--all", remote).decode().splitlines()
-            if push_urls != urls:
-                for url in push_urls:
-                    git(destination, "remote", "set-url", "--add", "--push", remote, url)
+    _copy_remotes(source, destination)
     _copy_contents(source, destination, snapshot)
 
 
-def _copy_contents(source: Path, destination: Path, snapshot: dict, *, linked: bool = False) -> None:
+def _copy_contents(source: Path, destination: Path, snapshot: dict) -> None:
     for name, state in snapshot["files"].items():
         if state is None or state[0] == "link":
             continue
@@ -171,7 +260,7 @@ def _copy_contents(source: Path, destination: Path, snapshot: dict, *, linked: b
             if child["directory"]:
                 (destination / name).mkdir(parents=True)
         else:
-            _copy_repository(source / name, destination / name, child, linked=linked)
+            _copy_repository(source / name, destination / name, child)
     # Targets, including submodules, exist before links are created. Explicit
     # Windows link types also preserve directory and dangling-directory links.
     for name, state in snapshot["files"].items():
@@ -198,20 +287,21 @@ import json, sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from vaws_native_workspace import create_workspace
-print(json.dumps(create_workspace(Path(sys.argv[2]), Path(sys.argv[3])), ensure_ascii=True))
+selection = json.loads(sys.argv[4])
+print(json.dumps(create_workspace(Path(sys.argv[2]), Path(sys.argv[3]), sources=selection), ensure_ascii=True))
 """
 
 _WINDOWS_LAUNCH = """
 import sys
 sys.path.insert(0, sys.argv[1])
 from vaws_windows import owned_process
-command = [sys.executable, '-I', '-X', 'utf8', '-c', sys.argv[4], *sys.argv[1:4]]
+command = [sys.executable, '-I', '-X', 'utf8', '-c', sys.argv[5], *sys.argv[1:5]]
 with owned_process(command, stdin=sys.stdin.buffer, stdout=sys.stdout.buffer, stderr=sys.stderr.buffer) as process:
     raise SystemExit(process.wait())
 """
 
 
-def _copy_with_windows(source: Path, destination: Path, *, python: str) -> dict:
+def _copy_with_windows(source: Path, destination: Path, *, python: str, sources: dict | None = None) -> dict:
     """One bounded Windows-owned copy, callable directly by real bridge tests.
 
     Only mounted-drive paths are mapped. No path guessing, shell, RPC service,
@@ -223,10 +313,12 @@ def _copy_with_windows(source: Path, destination: Path, *, python: str) -> dict:
     try:
         arguments = [managed_path(value, windows=True)
                      for value in (Path(__file__).resolve().parent, source, destination)]
+        selection = None if sources is None else {name: managed_path(Path(path), windows=True)
+                                                  for name, path in sources.items()}
     except ValueError as exc:
         raise WorkspaceCopyError("Windows-owned workspace copying requires mounted-drive source, destination and helper paths") from exc
     command = [accessible_windows_path(python), "-I", "-X", "utf8", "-c", _WINDOWS_LAUNCH,
-               *arguments, _WINDOWS_COPY]
+               *arguments, json.dumps(selection), _WINDOWS_COPY]
     try:
         result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, timeout=600, check=False)
@@ -238,20 +330,22 @@ def _copy_with_windows(source: Path, destination: Path, *, python: str) -> dict:
         raise WorkspaceCopyError(result.stderr.decode("utf-8", "replace").strip() or "Windows copy owner failed")
     try:
         receipt = json.loads(result.stdout)
-        if not isinstance(receipt, dict) or receipt.get("schema") != "vaws.native-workspace.v1" or receipt.get("state") != "ready":
+        if not isinstance(receipt, dict) or receipt.get("schema") != "vaws.workspace-copy.v1" or receipt.get("state") != "ready":
             raise ValueError("Windows copy did not return a ready workspace")
         return {**receipt, "source": accessible_windows_path(receipt["source"]),
-                "workspace": accessible_windows_path(receipt["workspace"])}
+                "workspace": accessible_windows_path(receipt["workspace"]),
+                "sources": {name: accessible_windows_path(path) for name, path in receipt["sources"].items()}}
     except (ValueError, KeyError, TypeError) as exc:
         raise WorkspaceCopyError(f"invalid Windows copy response: {exc}") from exc
 
 
-def create_workspace(source: Path, destination: Path, *, linked: bool = False) -> dict:
-    """Copy HEAD, staged/working content and ordinary untracked files.
+def create_workspace(source: Path, destination: Path, *, sources: dict[str, Path] | None = None) -> dict:
+    """Copy one independent root and explicitly selected source repositories.
 
-    Ignored files are excluded. Git storage is independent by default; native
-    forks can retain the source's worktree family for the root and initialized
-    submodules. Uninitialized gitlinks stay uninitialized without fetching.
+    None reuses a valid preparation's source roots; an empty map copies only
+    the root. Business repositories' own submodules retain their Git semantics.
+    All Git storage is independent. Ignored files are excluded, so source roots
+    are copied explicitly and never discovered by recursively scanning .git.
     Existing destinations are never replaced. A failed copy stays
     visible for diagnosis and is never published as ready.
     """
@@ -259,8 +353,6 @@ def create_workspace(source: Path, destination: Path, *, linked: bool = False) -
     from vaws_local_owner import windows_mounted_workspace
 
     if windows_mounted_workspace(source):
-        if linked:
-            raise WorkspaceCopyError("create linked worktrees with the native Windows owner for this mounted workspace")
         # WSL-created NTFS symlinks can use Linux-only reparse points. Native
         # Windows owns the whole operation, including Git pointer interpretation.
         # Lookup is read-only; an unavailable environment is never synthesized.
@@ -270,29 +362,50 @@ def create_workspace(source: Path, destination: Path, *, linked: bool = False) -
             interpreter = windows_ready(Path(__file__).resolve().parents[2])["python"]
         except EnvironmentError as exc:
             raise WorkspaceCopyError(f"Windows workspace copy owner is not ready: {exc}") from exc
-        return _copy_with_windows(source, destination, python=interpreter)
+        return _copy_with_windows(source, destination, python=interpreter, sources=sources)
     if destination.exists():
         raise WorkspaceCopyError(f"workspace destination already exists: {destination}")
     top = Path(os.fsdecode(git(source, "rev-parse", "--show-toplevel").strip())).resolve()
     if top != source:
         raise WorkspaceCopyError("source must be the repository root")
     before = _capture(source)
+    if sources is None:
+        from vaws_workspace_entry import prepared_sources
+        sources = {name: path for name, path in (prepared_sources(source) or {}).items() if name != "workspace"}
+    selected = {}
+    for name, path in sources.items():
+        if name not in {"vllm", "vllm-ascend"}:
+            raise WorkspaceCopyError(f"unsupported business source name: {name!r}")
+        path = Path(path).resolve(strict=True)
+        if not (path / ".git").exists() or Path(os.fsdecode(git(path, "rev-parse", "--show-toplevel").strip())).resolve() != path:
+            raise WorkspaceCopyError(f"selected source is not a Git repository root: {path}")
+        if path == source or destination.resolve() == path or destination.resolve() in path.parents:
+            raise WorkspaceCopyError(f"selected source overlaps the destination or root: {path}")
+        selected[name] = path
+    for name in selected:
+        if name in before["modules"] or any(path == name or path.startswith(name + "/") for path in before["files"]):
+            raise WorkspaceCopyError(f"selected source path is also tracked or untracked root content: {name}")
+    source_snapshots = {name: _capture(path) for name, path in selected.items()}
     destination.parent.mkdir(parents=True, exist_ok=True)
-    _copy_repository(source, destination, before, linked=linked)
+    _copy_repository(source, destination, before)
+    with (destination / ".git/info/exclude").open("a", encoding="utf-8") as stream:
+        stream.write("".join(f"\n/{name}/\n" for name in selected))
+    for name, path in selected.items():
+        _copy_repository(path, destination / name, source_snapshots[name])
     if _capture(source) != before:
         raise WorkspaceCopyError(f"source changed while copying; incomplete workspace kept at {destination}")
     if _capture(destination) != before:
         raise WorkspaceCopyError(f"copied Git or file state differs; incomplete workspace kept at {destination}")
-    receipt = {"schema": "vaws.native-workspace.v1", "source": str(source),
+    for name, path in selected.items():
+        if _capture(path) != source_snapshots[name] or _capture(destination / name) != source_snapshots[name]:
+            raise WorkspaceCopyError(f"selected source changed or copied state differs: {name}; incomplete workspace kept at {destination}")
+    receipt = {"schema": "vaws.workspace-copy.v1", "source": str(source),
                "workspace": str(destination), "head": before["head"],
                "staged_tree": before["tree"], "submodules": list(before["modules"]),
+               "sources": {"workspace": str(destination), **{name: str(destination / name) for name in selected}},
+               "source_snapshots": {name: {"head": value["head"], "staged_tree": value["tree"]}
+                                    for name, value in source_snapshots.items()},
                "state": "ready", "ignored_files": "excluded"}
-    record = destination / ".vaws-local/native-workspace.json"
-    record.parent.mkdir(parents=True, exist_ok=True)
-    record.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # Preparation owners publish the native receipt only after environment and
+    # wiring succeed. A completed file copy alone does not bind a task.
     return receipt
-
-
-def create_linked_workspace(source: Path, destination: Path) -> dict:
-    """Fork current editing state inside its existing native Git worktree family."""
-    return create_workspace(source, destination, linked=True)

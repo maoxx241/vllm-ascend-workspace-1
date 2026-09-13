@@ -19,7 +19,7 @@ REAL_PREPARE = updates.WorkspaceUpdater.prepare
 
 
 def git(root, *args):
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
+    result = subprocess.run(["git", "-c", "core.longpaths=true", "-C", str(root), *args], capture_output=True, text=True,
                             encoding="utf-8", env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1"})
     assert result.returncode == 0, result.stderr
     return result.stdout.strip()
@@ -55,7 +55,7 @@ def fixture(tmp_path, monkeypatch):
     upstream = tmp_path / "upstream"
     upstream.mkdir()
     git(upstream, "init", "-b", "stable")
-    (upstream / ".gitignore").write_text(".vaws-local/\n", encoding="utf-8")
+    (upstream / ".gitignore").write_text(".vaws-local/\nvllm/\nvllm-ascend/\n", encoding="utf-8")
     old = commit(upstream, "before")
     fork = tmp_path / "fork.git"
     git(tmp_path, "clone", "--bare", str(upstream), str(fork))
@@ -72,7 +72,8 @@ def fixture(tmp_path, monkeypatch):
     calls = []
 
     def local_run(argv, **kwargs):
-        calls.append(list(argv))
+        normalized = [arg for i, arg in enumerate(argv) if not (arg == "core.longpaths=true" or (arg == "-c" and i + 1 < len(argv) and argv[i + 1] == "core.longpaths=true"))]
+        calls.append(normalized)
         # Exercise the real fetch and push protocols against local Git repositories.
         # Stored remotes retain their GitHub identities for the policy checks.
         actual = [str(upstream) if arg == updates.UPSTREAM else str(fork) if arg == url else arg for arg in argv]
@@ -84,14 +85,15 @@ def fixture(tmp_path, monkeypatch):
 
     def prepare(self, release, active):
         prepares.append(release["target"])
-        stage = self.base / "releases" / release["target"]
+        stage = self.stage_path(release, active)
         if not stage.exists():
             stage.parent.mkdir(parents=True, exist_ok=True)
-            git(root, "worktree", "add", "--detach", str(stage), release["target"])
+            git(root, "clone", "--local", "--no-checkout", str(root), str(stage))
+            git(stage, "checkout", "--detach", release["target"])
         receipt = self.base / "fixture-receipt.json"
         updates.write_json(receipt, {})
         return {"stage": str(stage), "receipt": {"receipt": str(receipt)},
-                "knowledge": {"ready": False, "status": "pending"}}
+                "sources": {}, "revisions": {"workspace": release["target"]}, "source_channel": self.source_channel}
 
     monkeypatch.setattr(updates.WorkspaceUpdater, "prepare", prepare)
     activated = []
@@ -144,23 +146,6 @@ def test_prepare_follows_new_default_branch_commits_without_tags(fixture):
     assert git(fixture["fork"], "rev-parse", "stable") == next_head
     assert git(root, "rev-parse", "HEAD") == fixture["old"]
     assert not fixture["activated"]
-
-
-@pytest.mark.parametrize("change, reason", [("dirty", "dirty_checkout"), ("branch", "working_branch")])
-def test_session_skips_preparation_when_it_would_keep_business_source(fixture, change, reason):
-    root = fixture["root"]
-    if change == "dirty":
-        (root / "README").write_text("unfinished session edit", encoding="utf-8")
-    else:
-        git(root, "checkout", "-b", "business")
-    result = updater(fixture).step(apply=True, activate=False, for_session=True)
-    assert result["status"] == "deferred"
-    assert result["reason"] == reason
-    assert not fixture["prepares"]
-    assert not fixture["activated"]
-    assert git(root, "rev-parse", "HEAD") == fixture["old"]
-    assert git(fixture["fork"], "rev-parse", "stable") == fixture["old"]
-    assert fixture["api"].calls.count(f"repos/{updates.CANONICAL}") == 1
 
 
 def test_successful_preparation_and_reuse_clear_stale_failure_but_keep_logs(fixture, monkeypatch):
@@ -230,7 +215,6 @@ def test_prepare_preserves_dirty_business_checkout(fixture):
     assert git(root, "diff", "--cached") == staged
     assert git(root, "diff") == working
     assert (root / "notes.txt").read_text(encoding="utf-8") == "untracked notes"
-    assert updates.prepared_source(root) is None
     checked = updater(fixture).step(apply=False)
     assert checked["status"] == "available"
     assert checked["local_apply_deferred"] == "working_branch"
@@ -349,7 +333,7 @@ def test_push_retry_reuses_prepared_dependencies(fixture, monkeypatch):
     failed = False
     def run(argv, **kwargs):
         nonlocal failed
-        if argv[:2] == ["git", "push"] and not failed:
+        if argv[0] == "git" and "push" in argv and not failed:
             failed = True
             raise updates.Deferred("temporary_push_failure")
         return original(argv, **kwargs)
@@ -457,89 +441,7 @@ def test_command_timeout_keeps_captured_diagnostics(fixture, monkeypatch):
     assert evidence["timeout"] == 1
 
 
-@pytest.fixture
-def subfixture(fixture):
-    root, upstream = fixture["root"], fixture["upstream"]
-    source = root.parent / "module"
-    source.mkdir()
-    git(source, "init", "-b", "main")
-    module_old = commit(source, "module before")
-    module_new = commit(source, "module released")
-    git(root, "-c", "protocol.file.allow=always", "submodule", "add", str(source), "vllm")
-    git(root / "vllm", "checkout", "--detach", module_old)
-    base = commit(root, "workspace with old module")
-    git(upstream, "fetch", str(root), base)
-    git(upstream, "checkout", "-B", "stable", base)
-    git(upstream, "update-index", "--cacheinfo", f"160000,{module_new},vllm")
-    git(upstream, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "released module pin")
-    target = git(upstream, "rev-parse", "HEAD")
-    return {**fixture, "old": base, "new": target, "module_old": module_old, "module_new": module_new}
-
-
-def test_submodule_follows_exact_gitlink(subfixture):
-    result = updater(subfixture).step(apply=True)
-    assert result["status"] == "applied"
-    root = subfixture["root"]
-    assert git(root / "vllm", "rev-parse", "HEAD") == subfixture["module_new"]
-    assert not git(root, "status", "--porcelain")
-
-
-@pytest.mark.parametrize("kind,reason", [("dirty", "dirty_checkout"), ("branch", "working_branch"),
-                                       ("local_commit", "submodule_local_commit")])
-def test_submodule_user_work_is_preserved(subfixture, kind, reason):
-    child = subfixture["root"] / "vllm"
-    if kind == "dirty":
-        (child / "README").write_text("unfinished", encoding="utf-8")
-    elif kind == "branch":
-        git(child, "checkout", "-b", "business")
-    else:
-        commit(child, "local detached commit")
-    before = git(child, "rev-parse", "HEAD")
-    assert updater(subfixture).step(apply=True)["reason"] == reason
-    assert git(child, "rev-parse", "HEAD") == before
-
-
-def test_uninitialized_submodule_stays_uninitialized(subfixture):
-    root = subfixture["root"]
-    git(root, "submodule", "deinit", "vllm")
-    assert updater(subfixture).step(apply=True)["status"] == "applied"
-    assert not updates.initialized(root, "vllm")
-    assert not any("--remote" in call for call in subfixture["calls"])
-
-
-def test_interrupted_submodule_activation_can_resume(subfixture, monkeypatch):
-    root = subfixture["root"]
-    assert updater(subfixture).step(apply=True, activate=False)["status"] == "ready"
-    # Simulate interruption after the superproject FF, before its child checkout.
-    git(root, "merge", "--ff-only", subfixture["new"])
-    state_path = root / ".vaws-local/updates/state.json"
-    state = updates.read_json(state_path)
-    state["phase"] = "local_updated"
-    updates.write_json(state_path, state)
-    subfixture["api"].api = lambda *_: pytest.fail("offline resume queried GitHub")
-    assert updater(subfixture).activate()["status"] == "applied"
-    assert git(root / "vllm", "rev-parse", "HEAD") == subfixture["module_new"]
-
-
-def test_wsl_windows_mount_requires_single_native_owner(monkeypatch):
-    monkeypatch.setattr("vaws_local_owner.windows_mounted_workspace", lambda _: True)
-    with pytest.raises(updates.Deferred, match="native Windows owner"):
-        with updates.update_lock(Path("/mnt/c/workspace")):
-            pytest.fail("WSL acquired a separate lock on a Windows checkout")
-
-
-def test_prepared_source_is_read_only_and_preserves_business_sources(fixture):
-    root = fixture["root"]
-    assert updates.prepared_source(root) is None
-    assert updater(fixture).step(apply=True, activate=False)["status"] == "ready"
-    stage = updates.prepared_source(root)
-    assert stage and git(stage, "rev-parse", "HEAD") == fixture["new"]
-    assert git(root, "rev-parse", "HEAD") == fixture["old"]
-    git(root, "checkout", "-b", "business")
-    assert updates.prepared_source(root) is None
-
-
-def test_prepare_uses_target_scripts_locked_pins_and_deploy_only(fixture, monkeypatch):
+def test_prepare_uses_only_target_locked_packages(fixture, monkeypatch):
     root = fixture["root"]
     monkeypatch.setenv("VAWS_ENV_RECEIPT", "old-client-pin")
     monkeypatch.setenv("VAWS_TOP_FROM", "local-custom-monitor")
@@ -552,7 +454,7 @@ def test_prepare_uses_target_scripts_locked_pins_and_deploy_only(fixture, monkey
         if len(argv) > 1 and argv[1].endswith(("vaws_deps.py", "manage_monitor.py")):
             commands.append((argv, {**kwargs, "env": dict(kwargs["env"])}))
             if argv[1].endswith("vaws_deps.py"):
-                payload = {"ok": True, "receipt": {"receipt": str(receipt)}, "knowledge": {"ready": False}}
+                payload = {"ok": True, "receipt": {"receipt": str(receipt)}}
             else:
                 payload = {"ok": True}
             return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
@@ -561,44 +463,196 @@ def test_prepare_uses_target_scripts_locked_pins_and_deploy_only(fixture, monkey
     monkeypatch.setattr(updates, "run", run)
     monkeypatch.setattr(updates.WorkspaceUpdater, "prepare", REAL_PREPARE)
     assert updater(fixture).step(apply=True, activate=False)["status"] == "ready"
+    assert len(commands) == 1
     assert commands[0][0][-2:] == ["sync", "--locked"]
-    assert commands[1][0][-1] == "deploy"
     assert "VAWS_ENV_RECEIPT" not in commands[0][1]["env"]
-    assert commands[1][1]["env"]["VAWS_ENV_RECEIPT"] == str(receipt)
-    assert "VAWS_TOP_FROM" not in commands[1][1]["env"]
+    assert "VAWS_TOP_FROM" not in commands[0][1]["env"]
     assert fixture["new"] in commands[0][0][1]
     assert git(root, "rev-parse", "HEAD") == fixture["old"]
 
 
-def test_prepared_source_keeps_initialized_submodule_and_personal_remotes(subfixture, monkeypatch):
-    root = subfixture["root"]
+def business_fixture(fixture, monkeypatch):
+    root, upstream = fixture["root"], fixture["upstream"]
     child = root / "vllm"
-    git(child, "remote", "set-url", "origin", "https://github.com/alice/vllm.git")
+    child.mkdir()
+    git(child, "init", "-b", "operator-work")
+    before = commit(child, "operator before")
+    after = commit(child, "operator after")
+    git(child, "checkout", "operator-work")
+    git(child, "reset", "--hard", before)
+    git(child, "remote", "add", "origin", "https://github.com/alice/vllm.git")
     git(child, "config", "remote.origin.pushurl", "git@github.com:alice/vllm.git")
-    git(child, "remote", "add", "upstream", "https://github.com/vllm-project/vllm.git")
-    git(child, "remote", "add", "extra", "https://example.invalid/mirror.git")
+    git(child, "config", "--add", "remote.origin.fetch", "+refs/custom/*:refs/custom/*")
+    lock = {"schema_version": 1,
+            "vllm-ascend": {"repository": "vllm-project/vllm-ascend", "revision": after},
+            "vllm": {"repository": "vllm-project/vllm", "development": {"revision": after},
+                     "release": {"tag": "v0.28.0", "revision": before}}}
+    (upstream / "sources.lock.json").write_text(json.dumps(lock))
+    fixture["new"] = commit(upstream, "locked business sources")
     receipt = root / ".vaws-local/prepared-env.json"
     updates.write_json(receipt, {})
     original = updates.run
+    packages = []
     def run(argv, **kwargs):
         if len(argv) > 1 and argv[1].endswith("vaws_deps.py"):
-            data = {"ok": True, "receipt": {"receipt": str(receipt)}}
-            return subprocess.CompletedProcess(argv, 0, json.dumps(data), "")
-        if len(argv) > 1 and argv[1].endswith("manage_monitor.py"):
-            return subprocess.CompletedProcess(argv, 0, '{"ok":true}', "")
-        mapped = [str(root.parent / "module") if arg == "https://github.com/vllm-project/vllm.git" else arg for arg in argv]
-        return original(mapped, **kwargs)
+            packages.append(argv)
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"ok": True, "receipt": {"receipt": str(receipt)}}), "")
+        return original(argv, **kwargs)
     monkeypatch.setattr(updates, "run", run)
     monkeypatch.setattr(updates.WorkspaceUpdater, "prepare", REAL_PREPARE)
-    assert updater(subfixture).step(apply=True, activate=False)["status"] == "ready"
-    stage = updates.prepared_source(root)
-    assert stage is not None
-    assert updates.initialized(stage, "vllm")
-    assert git(stage / "vllm", "rev-parse", "HEAD") == subfixture["module_new"]
-    assert git(child, "rev-parse", "HEAD") == subfixture["module_old"]
-    assert git(stage / "vllm", "remote", "get-url", "origin") == "https://github.com/alice/vllm.git"
-    assert git(stage / "vllm", "remote", "get-url", "--push", "origin") == "git@github.com:alice/vllm.git"
-    assert git(stage / "vllm", "remote", "get-url", "extra") == "https://example.invalid/mirror.git"
-    # A staging child edit must never become the source of a new editing copy.
-    (stage / "vllm/README").write_text("modified staging child", encoding="utf-8")
-    assert updates.prepared_source(root) is None
+    return child, before, after, packages
+
+
+def test_preparation_uses_lock_in_independent_sources_and_preserves_actual_work(fixture, monkeypatch):
+    child, before, after, packages = business_fixture(fixture, monkeypatch)
+    (child / "README").write_text("staged operator")
+    git(child, "add", "README")
+    (child / "README").write_text("working operator")
+    staged, working = git(child, "diff", "--cached"), git(child, "diff")
+    subject = updater(fixture)
+    assert subject.step(apply=True, activate=False)["status"] == "ready"
+    stage = subject.validate_prepared(subject.state, subject.state["prepared"])
+    prepared_child = stage / "vllm"
+    assert git(prepared_child, "rev-parse", "HEAD") == after
+    assert git(child, "rev-parse", "HEAD") == before
+    assert git(child, "diff", "--cached") == staged and git(child, "diff") == working
+    assert (stage / ".git").is_dir() and (prepared_child / ".git").is_dir()
+    assert not (prepared_child / ".git/objects/info/alternates").exists()
+    assert git(prepared_child, "config", "--get-all", "remote.origin.fetch") == git(child, "config", "--get-all", "remote.origin.fetch")
+    assert git(prepared_child, "remote", "get-url", "--push", "origin") == "git@github.com:alice/vllm.git"
+    assert len(packages) == 1 and packages[0][-2:] == ["sync", "--locked"]
+    assert subject.activate()["status"] == "applied"
+    assert git(child, "rev-parse", "HEAD") == before and git(child, "diff") == working
+
+
+def test_prepared_child_tamper_never_reuses_ready(fixture, monkeypatch):
+    child, before, after, packages = business_fixture(fixture, monkeypatch)
+    subject = updater(fixture)
+    assert subject.step(apply=True, activate=False)["status"] == "ready"
+    stage = Path(subject.state["prepared"]["stage"])
+    (stage / "vllm/README").write_text("edited cache")
+    directories = set(stage.parent.iterdir())
+    assert updater(fixture).step(apply=True, activate=False)["reason"] == "dirty_checkout"
+    assert updater(fixture).step(apply=True, activate=False)["reason"] == "dirty_checkout"
+    assert set(stage.parent.iterdir()) == directories
+    assert (stage / "vllm/README").read_text() == "edited cache"
+    assert not fixture["activated"]
+
+
+def test_explicit_release_and_development_have_distinct_complete_caches(fixture, monkeypatch):
+    child, before, after, packages = business_fixture(fixture, monkeypatch)
+    development = updater(fixture)
+    assert development.step(apply=True, activate=False)["status"] == "ready"
+    release = updates.WorkspaceUpdater(fixture["root"], client=fixture["api"], source_channel="release")
+    assert release.step(apply=True, activate=False)["status"] == "ready"
+    dev_stage = Path(development.state["prepared"]["stage"])
+    release_stage = Path(release.state["prepared"]["stage"])
+    assert dev_stage != release_stage
+    assert git(dev_stage / "vllm", "rev-parse", "HEAD") == after
+    assert git(release_stage / "vllm", "rev-parse", "HEAD") == before
+
+
+def test_failed_child_clone_retries_in_new_stage_without_altering_failed_files(fixture, monkeypatch):
+    import vaws_native_workspace as copying
+    child, before, after, packages = business_fixture(fixture, monkeypatch)
+    original = copying.prepare_source
+    def fail(destination, **kwargs):
+        if destination.name == "vllm":
+            destination.mkdir()
+            (destination / "partial.txt").write_text("injected incomplete clone")
+            raise RuntimeError("injected source failure")
+        return original(destination, **kwargs)
+    monkeypatch.setattr(copying, "prepare_source", fail)
+    subject = updater(fixture)
+    assert subject.step(apply=True, activate=False)["status"] == "deferred"
+    assert not packages and not fixture["activated"]
+    assert subject.state["phase"] == "preparing"
+    previous = subject.stage_path(subject.state, subject.preparation_inputs(subject.state))
+    partial = previous / "vllm/partial.txt"
+    assert partial.read_text() == "injected incomplete clone"
+    (previous / "diagnosis.txt").write_text("keep user diagnosis in failed staging directory")
+    monkeypatch.setattr(copying, "prepare_source", original)
+    retry = updater(fixture)
+    assert retry.step(apply=True, activate=False)["status"] == "ready"
+    prepared = retry.state["prepared"]
+    assert Path(prepared["stage"]) != previous
+    assert retry.state["retained_failed_stage"] == str(previous)
+    assert partial.read_text() == "injected incomplete clone"
+    assert (previous / "diagnosis.txt").read_text() == "keep user diagnosis in failed staging directory"
+    assert len(packages) == 1
+    assert git(Path(prepared["stage"]) / "vllm", "rev-parse", "HEAD") == after
+    reused = updater(fixture)
+    assert reused.step(apply=True, activate=False)["status"] == "ready"
+    assert reused.state["prepared"]["stage"] == prepared["stage"] and len(packages) == 1
+    from vaws_native_workspace import create_workspace
+    from vaws_workspace_entry import write_preparation
+    root_only = fixture["root"].parent / "root-only-donor"
+    copied = create_workspace(fixture["root"], root_only, sources={})
+    write_preparation(root_only, project_root=fixture["root"], native_workspace=root_only,
+                      workspace=root_only, sources=copied["sources"])
+    other = updates.WorkspaceUpdater(fixture["root"], source_root=root_only, client=fixture["api"])
+    assert other.step(apply=True, activate=False)["status"] == "ready"
+    returned = updater(fixture)
+    assert returned.step(apply=True, activate=False)["status"] == "ready"
+    assert returned.state["prepared"]["stage"] == prepared["stage"]
+    assert partial.read_text() == "injected incomplete clone"
+    assert git(child, "rev-parse", "HEAD") == before
+
+
+def test_recovery_never_replaces_a_published_stage_reference(fixture):
+    subject = updater(fixture)
+    assert subject.step(apply=True, activate=False)["status"] == "ready"
+    stage = Path(subject.state["prepared"]["stage"])
+    subject.save(phase="preparing")
+    subject.failure(updates.Deferred("injected_preparation_failure"))
+    retry = updater(fixture)
+    assert retry.step(apply=True, activate=False)["reason"] == "prepared_stage_referenced"
+    assert retry.state["prepared"]["stage"] == str(stage)
+    assert len(list(stage.parent.iterdir())) == 1
+
+
+def test_root_only_prepare_never_reads_source_lock(fixture, monkeypatch):
+    monkeypatch.setattr("vaws_source_lock.selected_sources", lambda *args: pytest.fail("root-only read source lock"))
+    assert updater(fixture).step(apply=True, activate=False)["status"] == "ready"
+    assert updater(fixture).state["prepared"]["sources"] == {}
+
+
+def test_path_lock_works_without_git_and_other_tasks_are_independent(tmp_path):
+    one, two = tmp_path / "one/start.lock", tmp_path / "two/start.lock"
+    with updates.path_lock(one):
+        with updates.path_lock(two):
+            pass
+        with pytest.raises(updates.Deferred):
+            with updates.path_lock(one, wait_seconds=0):
+                pytest.fail("same task acquired its lock twice")
+
+
+def test_same_owner_donors_reuse_canonical_cache_and_keep_explicit_root_only(fixture, monkeypatch):
+    from vaws_native_workspace import create_workspace
+    from vaws_workspace_entry import write_preparation
+    child, before, after, packages = business_fixture(fixture, monkeypatch)
+    owner = fixture["root"]
+    sibling = owner / "vllm-ascend"
+    git(child, "clone", "--local", str(child), str(sibling))
+    donors = []
+    for index in range(3):
+        donor = owner.parent / f"donor-{index}"
+        copied = create_workspace(owner, donor, sources={"vllm": child, "vllm-ascend": sibling})
+        selected = copied["sources"] if index != 2 else {"workspace": str(donor)}
+        write_preparation(donor, project_root=owner, native_workspace=donor, workspace=donor, sources=selected)
+        donors.append(donor)
+    one = updates.WorkspaceUpdater(owner, source_root=donors[0], client=fixture["api"])
+    assert one.step(apply=True, activate=False)["status"] == "ready"
+    two = updates.WorkspaceUpdater(owner, source_root=donors[1], client=fixture["api"])
+    assert two.step(apply=True, activate=False)["status"] == "ready"
+    assert one.base == two.base == owner / ".vaws-local/updates"
+    assert one.state["prepared"]["stage"] == two.state["prepared"]["stage"]
+    assert len(packages) == 1
+    root_only = updates.WorkspaceUpdater(owner, source_root=donors[2], client=fixture["api"])
+    assert root_only.step(apply=True, activate=False)["status"] == "ready"
+    prepared = root_only.state["prepared"]
+    assert prepared["sources"] == {} and set(prepared["revisions"]) == {"workspace"}
+    assert not (Path(prepared["stage"]) / "vllm").exists()
+    assert not (Path(prepared["stage"]) / "vllm-ascend").exists()
+    assert len(packages) == 2
+    assert all(not (donor / ".vaws-local/updates").exists() for donor in donors)

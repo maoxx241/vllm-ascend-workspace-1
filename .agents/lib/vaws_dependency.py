@@ -35,7 +35,9 @@ VAWS_TOP_NAME = "vaws-top"
 KNOWN_NAMES = PACKAGE_NAMES
 GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 REQUIREMENT_RE = re.compile(
-    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?P<spec>==\s*(?P<version>[^;]+))?"
+    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*"
+    r"(?:\[\s*[A-Za-z0-9._-]+(?:\s*,\s*[A-Za-z0-9._-]+)*\s*\]\s*)?"
+    r"(?P<spec>==\s*(?P<version>[^;]+))?"
 )
 
 

@@ -41,6 +41,8 @@ Agent 按任务选择工具或技能；执行引用、状态推进和报告由�
 
 工作区负责项目材料、客户端接线和业务技能。`remote-dev` 负责明确 endpoint 的远程 I/O，`vaws-coordinator` 负责托管源码、环境、NPU 与执行，`vaws-knowledge` 负责 Markdown 知识查询和捕获，`vaws-top` 负责集群观察。观察不分配设备；任务身份来自原生客户端关联。已有容器和无关工作树继续保留。
 
+知识库面向 vLLM-Ascend、vLLM、NPU、AI 和推理基础设施。外部资料导入、PR 经验整理、专题研究和跨次摘要由独立工具或 Grok Bot 维护；普通任务仍然按需查询、阅读原文或留存 Markdown。图片和扫描件优先使用 Agent 自身能力，任务启动不加载新的多模态模型。能力与资源边界见[知识维护说明](docs/knowledge-maintenance.md)，VAWS 工具自身的验证证据见[独立归档](docs/validation/README.md)。
+
 ## 业务技能
 
 首次仓库设置见一次性 [repo-init](.agents/bootstrap/repo-init/SKILL.md)；本地监控生命周期使用[监控命令](docs/npu-fleet-monitor.md)。两者均不进入业务 Skill 自动发现。

@@ -264,6 +264,11 @@ responsible for the scope of a conclusion.
 
 ### 5.4 Knowledge
 
+The library serves vLLM-Ascend development: vLLM, Ascend NPU, AI and inference
+infrastructure. Automatic PR experience sources are vllm-project/vllm and
+vllm-project/vllm-ascend. VAWS engineering validation is maintained separately
+in [the capability evidence archive](validation/README.md).
+
 Use `knowledge_query(text)`, `knowledge_explain(ref)` and `knowledge_capture(title, content)`
 when they help. A title and non-empty Markdown body suffice; no frontmatter,
 fixed headings, labels, evidence form or task association is required by the
@@ -315,6 +320,30 @@ Readable local notes remain searchable during vector outages, with the actual
 degraded state retained. Hits include matching text, source lines and a hash of
 the observed normalized text; shared hits identify the indexed snapshot when
 available. Ranking expresses relevance, never knowledge authority.
+
+The package maintains a rebuildable lexical catalog outside query. Unchanged
+sources reuse their extraction and vectors; a query validates bounded selected
+originals. Missing catalogs use a bounded incomplete fallback. Hash-bound
+aliases and topics expire when their source changes. Result excerpts preserve
+source headings, conditions, table/code context and exact spans within one
+output budget. Optional project/topic preferences select useful references;
+cross-topic lookup remains possible. Shared releases bind prepared Markdown,
+reference metadata and vectors to the same source revision.
+
+External import is a separately installable tool that produces ordinary
+Markdown/assets for mounts. Network fetching, document parsers, optional OCR
+and native-agent image interpretation stay outside the MCP process. No local
+multimodal embedding model is added. Static Python/C++ code maps and explicit
+document/source associations are maintenance tools, not a replacement for the
+native client's code index or evidence of device execution.
+
+Independent agents can maintain topic pages, PR cases, aliases and cross-task
+digests from selected existing sources. Prefer Grok Bot's own cloud computer
+and routines when configured. Package curation records snapshots and reversible
+history; public-source export prepares a verified Markdown generation. A
+separate mechanical feed synchronizer can place it in a configured mount.
+Ordinary task agents do not dispatch, poll, write maintenance forms or wait for
+this process. See [VA reference maintenance](knowledge-maintenance.md).
 
 Active package maintenance also refreshes a cached local worklist of exact
 duplicates, age hints and observed linked-source changes. The package CLI

@@ -25,6 +25,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [coordinator-consumption.md](coordinator-consumption.md) — how this scaffold consumes the installed vaws-coordinator package.
 - [dependency-plane.md](dependency-plane.md) — `uv.lock` is the only pin; `vaws_deps.py status|doctor|sync`. Covers immutable preparation and capability reporting.
 - [npu-fleet-monitor.md](npu-fleet-monitor.md) — local deploy and lifecycle of the standalone vaws-top fleet monitor.
+- [knowledge-maintenance.md](knowledge-maintenance.md) — VA/NPU/AI/infra reference capabilities, independent Grok curation and decoupled feed transport; ordinary tasks keep three optional knowledge tools.
 - [property-testing.md](property-testing.md) — property-based tests for the deterministic cores.
 - [remote-dev-consumption.md](remote-dev-consumption.md) — direct existing-container/code/script work, full-ID endpoint reuse, unsupported boundaries and installed remote-dev wiring.
 - [target-state.md](target-state.md) — current component ownership and runtime contracts, including the single minimal knowledge contract: optional reference, plain Markdown and no per-task bookkeeping.
@@ -33,6 +34,12 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Dated design and validation evidence
 
+- [knowledge-platform-validation-2026-09-13.md](knowledge-platform-validation-2026-09-13.md) — final knowledge component selection, exact CI, installed-reference acceptance and independent maintenance deployment; engineering evidence, not domain knowledge.
+
+- [validation/README.md](validation/README.md) — separate VAWS engineering archive: versioned evidence, all runtime/tool families and 18 business skills, measured limits and explicit gaps; not development-domain knowledge.
+- [validation/knowledge-component-2026-09-13.md](validation/knowledge-component-2026-09-13.md) — knowledge PR30–32 exact CI provenance, retained local results and actual Grok export/Windows scheduled feed return; later final installation remains separate.
+- [validation/coverage.json](validation/coverage.json) — bounded capability-to-source/test/evidence index used only by archive maintenance.
+- [validation/check_archive.py](validation/check_archive.py) and [validation/test_check_archive.py](validation/test_check_archive.py) — read-only archive and retained-JUnit integrity checks; no runtime startup or test replay.
 - [source-workspace-validation-2026-09-13.md](source-workspace-validation-2026-09-13.md) — final installed four-machine source validation, three-platform CI, Kimi review, actual migration and task reuse, measured costs, and automatic source-lock PR validation and merge.
 - [managed-performance-redesign-2026-09-13.md](managed-performance-redesign-2026-09-13.md) — implemented preparation, wait, evidence and serving changes; real native and warm measurements with explicit limitations.
 

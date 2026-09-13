@@ -68,7 +68,7 @@ def make_repository(tmp_path, monkeypatch, *, submodule=False, detached=False, m
 
     def prepare(path, baseline=None, **kwargs):
         calls["prepare"].append(path)
-        return {"status": "ready", "target": new}, {"stage": str(stage),
+        return {"status": "ready", "target": new}, {"stage": str(stage), "receipt": receipt_new,
             "sources": {"vllm": str(stage / "vllm")} if submodule else {},
             "revisions": {"workspace": new, **({"vllm": module_new} if submodule else {})}}
 
@@ -298,8 +298,10 @@ def test_canonical_preparation_uses_durable_owner_and_explicit_source_selection(
             calls.append(("updater", root, options))
             self.state = {"phase": "ready", "prepared": {"stage": str(f.stage), "sources": {},
                           "revisions": {"workspace": f.new}}}
+        def local_prepare(self):
+            return {"status": "ready", "upstream_checked": False}, self.state["prepared"]
         def step(self, **options):
-            return {"status": "ready", "branch": "main"}
+            pytest.fail("ordinary native preparation contacted upstream")
         def validate_prepared(self, *_):
             return f.stage
     monkeypatch.setattr(setup, "workspace_entry", lambda root: {"state": "configured"})
@@ -313,7 +315,7 @@ def test_canonical_preparation_uses_durable_owner_and_explicit_source_selection(
     monkeypatch.setattr(original, "WorkspaceUpdater", Updater)
     result, prepared = original.prepare_canonical(f.stage, source_channel="release")
     assert result["status"] == "ready" and prepared["sources"] == {}
-    assert calls == [("lock", f.source), ("updater", f.source, {"source_root": f.stage, "source_channel": "release"})]
+    assert calls == [("lock", f.source), ("updater", f.source, {"source_root": f.stage, "source_channel": "release", "source_names": None})]
 
 
 def test_malformed_optional_identity_is_reported_without_losing_copy(fixture):

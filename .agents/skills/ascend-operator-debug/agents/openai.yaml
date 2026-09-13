@@ -1,5 +1,4 @@
 interface:
-  display_name: Ascend Operator Debug
-  short_description: Reduce and validate isolated Ascend operator failures
-  default_prompt: Use $ascend-operator-debug to reduce a reproduced failure to one
-    operator and compare its actual outputs against a trusted reference.
+  display_name: "Ascend Operator Debug"
+  short_description: "Run isolated operator callables against a reference"
+  default_prompt: "Use $ascend-operator-debug to reproduce one operator failure with real callable inputs and compare its outputs against a reference."

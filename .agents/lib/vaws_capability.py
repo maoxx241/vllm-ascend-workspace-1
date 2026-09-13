@@ -19,9 +19,19 @@ SHARED_ABSENT = "absent"
 SHARED_SOURCE_REPO = "vllm-ascend-workspace/vaws-knowledge"
 
 
-def probe_shared() -> dict[str, Any]:
+def probe_shared(repo_root: Path | None = None) -> dict[str, Any]:
+    from vaws_dependency import capability_distribution, _distribution_spec
+    split, distribution = capability_distribution("vaws-knowledge", repo_root or ROOT)
     try:
-        from vaws_knowledge import corpus as packaged
+        if split:
+            if distribution is None:
+                raise ImportError("knowledge owner package is missing")
+            root = Path(distribution.locate_file("vaws_knowledge/data/corpus"))
+            source_ref = _distribution_spec("vaws-knowledge", distribution)["commit"]
+        else:
+            from vaws_knowledge import corpus as packaged
+            root = packaged.corpus_root()
+            source_ref = packaged.installed_commit()
     except ImportError:
         return {
             "status": SHARED_ABSENT,
@@ -33,8 +43,6 @@ def probe_shared() -> dict[str, Any]:
             "source_repo": SHARED_SOURCE_REPO,
             "source_ref": None,
         }
-    root = packaged.corpus_root()
-    source_ref = packaged.installed_commit()
     if not root.is_dir():
         return {
             "status": SHARED_ABSENT,
@@ -46,7 +54,9 @@ def probe_shared() -> dict[str, Any]:
             "source_repo": SHARED_SOURCE_REPO,
             "source_ref": source_ref,
         }
-    files = list(packaged.iter_entry_files())
+    files = ([path for path in sorted(root.rglob("*.md")) if path.is_file()
+              and not any(part.startswith(".") for part in path.relative_to(root).parts)]
+             if split else list(packaged.iter_entry_files()))
     return {
         "status": SHARED_AVAILABLE,
         "path": str(root),
@@ -137,8 +147,7 @@ def _dep_degradation(
 
 
 def _shared_degradation(repo_root: Path) -> dict[str, Any] | None:
-    del repo_root
-    capability = probe_shared()
+    capability = probe_shared(repo_root)
     if capability["status"] == SHARED_AVAILABLE:
         return None
     return {

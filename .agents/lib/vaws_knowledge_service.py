@@ -110,7 +110,8 @@ def knowledge_server_env(repo_root: Path) -> dict[str, str]:
 
 def knowledge_owner_python(repo_root: Path) -> str:
     """A Windows-mounted workspace has one Windows knowledge database owner."""
-    return managed_python(repo_root)
+    from vaws_environment import capability_receipt
+    return accessible_windows_path(capability_receipt(managed_receipt(repo_root), "knowledge")["python"])
 
 
 def knowledge_owner_path(repo_root: Path, value: object) -> str:
@@ -134,7 +135,9 @@ def knowledge_owner_env(repo_root: Path) -> dict[str, str]:
 def _run_knowledge(repo_root: Path, arguments: Sequence[str], *, receipt: dict | None = None,
                    prepare: bool = False) -> tuple[int, dict[str, Any]]:
     try:
-        executable = accessible_windows_path(receipt["python"]) if receipt else knowledge_owner_python(repo_root)
+        from vaws_environment import capability_receipt
+        executable = (accessible_windows_path(capability_receipt(receipt, "knowledge")["python"])
+                      if receipt else knowledge_owner_python(repo_root))
     except (OSError, ValueError, RuntimeError) as exc:
         return 1, {"status": "pending", "ready": False, "reason": str(exc)}
     if not Path(executable).is_file():

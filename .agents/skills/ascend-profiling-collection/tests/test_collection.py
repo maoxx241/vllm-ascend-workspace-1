@@ -251,6 +251,39 @@ def _patch_collection(run_dir: Path, **overrides: object):
 
 
 class CollectionOrchestrationTests(unittest.TestCase):
+    def test_default_receipt_retains_full_responses_only_in_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / 'run'
+            run_dir.mkdir()
+            response = _ok_request()
+            response.body['long_completion'] = 'business output ' * 10000
+            stdout = io.StringIO()
+            with mock.patch.object(collect.time, 'sleep'), _patch_collection(run_dir,
+                    _run_benchmark_wave=mock.Mock(return_value=[response])), \
+                    contextlib.redirect_stdout(stdout), mock.patch.dict(os.environ, {'VAWS_FULL_ENVELOPE':'0'}):
+                code = collect.main(collect_argv(tmp))
+            receipt = json.loads(stdout.getvalue())
+            full = json.loads(Path(receipt['manifest_ref']).read_text(encoding='utf-8'))
+            self.assertEqual(code, 0)
+            self.assertEqual(receipt['status'], full['status'])
+            self.assertEqual(receipt['request_count'], 1)
+            self.assertEqual(full['benchmark_results'][0]['body']['long_completion'], response.body['long_completion'])
+            self.assertNotIn('benchmark_results', receipt)
+            self.assertLess(len(stdout.getvalue()), 2500)
+
+    def test_full_output_opt_in_and_failure_details_are_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = {'run_dir':tmp, 'status':'failed', 'error':{'message':'actual failure'},
+                        'stop_error':'cleanup unavailable', 'benchmark_results':[{'body':'raw'}]}
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout), mock.patch.dict(os.environ, {'VAWS_FULL_ENVELOPE':'1'}):
+                collect.print_collection_result(manifest)
+            self.assertEqual(json.loads(stdout.getvalue()), manifest)
+            receipt = collect.collection_receipt(manifest)
+            self.assertEqual(receipt['status'], 'failed')
+            self.assertEqual(receipt['error'], manifest['error'])
+            self.assertEqual(receipt['stop_error'], 'cleanup unavailable')
+
     def test_start_stop_bracket_writes_ok_manifest(self) -> None:
         order: list[str] = []
 

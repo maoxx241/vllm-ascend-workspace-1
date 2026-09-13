@@ -9,7 +9,7 @@ import.
 
 ## Packages
 
-`pyproject.toml` declares the three in-process packages. `[tool.uv.sources]`
+`pyproject.toml` declares the three packages. `[tool.uv.sources]`
 names public git+https sources because `vaws-coordinator` depends on
 `vaws-remote-dev`, which is not on PyPI.
 
@@ -17,14 +17,18 @@ names public git+https sources because `vaws-coordinator` depends on
 |---|---|---|---|
 | `vaws-remote-dev` | `remote_dev` | from `pyproject.toml` | process-in import + MCP server |
 | `vaws-coordinator` | `vaws_coordinator` | from `pyproject.toml` | process-in import + stdio MCP |
-| `vaws-knowledge` | `vaws_knowledge` | from `pyproject.toml` | process-in import + MCP |
+| `vaws-knowledge` | `vaws_knowledge` | from `pyproject.toml` | separate knowledge interpreter and MCP |
 | `vaws-top` | — | uvx only | fleet dashboard; not imported |
 
 `uv run --no-project python .agents/scripts/vaws_deps.py sync` prepares a locked,
-immutable environment in the operating system's user data directory. Its key
-includes dependency inputs, Python identity, platform, architecture and selected
-groups/extras. Workspaces with identical inputs reuse that environment; changing
-dependencies prepares a new one. `uv.lock` records the resolved commits.
+immutable selection in the operating system's user data directory. Normal
+clients use a small runtime owner and a separate knowledge owner. Each key covers
+its exact dependency closure from `uv.lock`, Python identity, platform,
+architecture and selected extras. Updating knowledge alone reuses the runtime
+owner. A small immutable receipt fixes both owners for a task; it is published
+only after both are ready. Ordinary commands never install packages. An explicit
+`--group dev` keeps one complete environment for tests that import multiple
+components. There is no additional client configuration choice.
 CI validates the lock with `vaws_deps.py sync --locked --group dev`. Do not copy those
 SHAs into workflows.
 
@@ -33,9 +37,11 @@ records their resolved commits. Read exact installed/locked identities through
 `vaws_deps.py status` instead of maintaining a second SHA table. Acceptance
 uses installed packages, including their public APIs and packaged data.
 
-The [workspace updater](forks-and-updates.md) consumes this exact
-combination from the official default branch. It invokes that revision's sync
-entry in an isolated checkout and prepares its pinned vaws-top wheel.
+The [workspace updater](forks-and-updates.md) consumes this exact combination.
+New tasks select the current local committed revision and reuse a matching
+validated preparation. They do not check GitHub identity or sync a Fork. Explicit
+`--latest` requests upstream maintenance. A missing locked environment alone
+invokes that revision's sync entry; monitor deployment is separate.
 Configured Codex/Cursor native worktree setup prepares once after the client
 creates a directory and before the Agent starts. It fixes the chosen environment
 and that directory's MCP/hook wiring. All five official clients also receive the
@@ -44,8 +50,8 @@ is reused. When independent local editing or managed preparation is needed,
 the task calls
 `uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT`
 with the existing `--context-file PATH` when needed. This bounded entry prepares
-the canonical default branch with its latest locked components, creates an
-independent worktree, binds explicit sources and saves the task selection in
+the selected fixed revision, creates an independent editing directory, binds
+explicit sources and saves the task selection in
 `.vaws-local/tasks/<task-id>/start.json` under the shared primary worktree.
 Ordinary review and direct remote endpoints do not call this preparation entry.
 It requires no Skill or client fork. Resume and repeated calls reuse that
@@ -70,7 +76,7 @@ git.
 
 | state | Meaning |
 |---|---|
-| `missing` | not installed in this interpreter, or pyproject/lock cannot describe it |
+| `missing` | not installed in its selected capability owner, or pyproject/lock cannot describe it |
 | `off_spec` | installed, but version or commit does not match pyproject / lock |
 | `ready` | installed version and commit match the lock |
 
@@ -114,6 +120,10 @@ Entry scripts select a prepared platform environment. Interpreter flags and `-m`
 module calls survive re-execution; native Windows launches use UTF-8 and retain
 child-process ownership. A missing installation returns the bootstrap command
 as its remedy. Hooks and the native MCP gateway start in a prepared environment.
+Schema v1 single-environment receipts remain readable. Schema v2 receipts fix
+runtime and knowledge owners separately; `root` and `python` describe the runtime
+owner, while `key` and `receipt` identify the immutable combined selection.
+Knowledge commands and summary hooks select the knowledge interpreter internally.
 The gateway (`vaws_native_mcp.py` / `vaws_mcp_runtime.py`) resolves calls from an
 existing `context_file` or supported native metadata and reads the task's fixed
 workspace/receipt. It launches task, remote-dev and knowledge package backends
@@ -124,7 +134,13 @@ context use the configured workspace's saved environment, without task-registry,
 Git or latest-catalog discovery. Supplied context retains its fixed task selection;
 an ordinary checkout's saved environment suffices for these companion calls.
 
-Backends are retained by workspace and receipt. A long-lived gateway can serve
+Backends are retained by workspace and receipt. A definite child exit or failed
+startup permits a fresh connection on the next new request; no in-flight command
+is replayed. A native-scoped tool listing uses that task's fixed environment.
+When a client retains a newer catalog, calls to an older environment are checked
+against its cached supported schema before submission. Unsupported calls return
+the actual schema and `submitted: false`, without changing the task's version.
+A long-lived gateway can serve
 tasks with different fixed environments; later syncs or a newer catalog selection
 do not replace their imported dependencies. Tool results expose the selected
 environment, workspace, Python and backend stderr path. Official Kimi passes the
@@ -157,7 +173,7 @@ release wheel.
 | `task_pool` | `vaws-coordinator` |
 | `host_npu_authority` | `vaws-coordinator` |
 | `fleet_observation` | `uvx`, `vaws-top` |
-| `shared_knowledge` | `vaws-knowledge` (importable, with packaged corpus) |
+| `shared_knowledge` | `vaws-knowledge` in its selected owner, with packaged corpus |
 
 ## Shared knowledge corpus
 

@@ -21,6 +21,10 @@ if str(LIB) not in sys.path:
 
 from vaws_venv import ensure_workspace_interpreter  # noqa: E402
 
+if __name__ == "__main__" and sys.argv[1:2] == ["run"]:
+    from vaws_operator_runner import ensure_operator_entry
+    ensure_operator_entry(ROOT, __file__)
+
 ensure_workspace_interpreter(repo_root=ROOT)
 
 
@@ -498,6 +502,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "run":
+        from vaws_operator_runner import main as run_operator
+        return run_operator(arguments[1:], workspace_root=ROOT)
     args = build_parser().parse_args(argv)
     try:
         payload = build_report(args.config, args.results, output_dir=args.output_dir)

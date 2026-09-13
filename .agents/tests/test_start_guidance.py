@@ -32,8 +32,10 @@ def test_all_clients_share_one_agents_block_and_resume_contract(tmp_path):
         assert ".agents/scripts/vaws_start.py --client CLIENT" in text
         assert "--context-file PATH" in text
         assert all(name in text for name in CLIENTS)
-        assert "Skill" not in text
+        assert ".agents/bootstrap/repo-init/SKILL.md" not in text
         assert "absolute paths under W" in text
+        assert "`cwd` and `repository`" in text
+        assert "local fixed commit" in text and "`--latest` explicitly checks upstream" in text
         assert notes[-1]["skill_required"] is False
         assert notes[-1]["resume"] == "reuse-existing-workspace"
         repeated, _ = plan(tmp_path, client, dict(files))

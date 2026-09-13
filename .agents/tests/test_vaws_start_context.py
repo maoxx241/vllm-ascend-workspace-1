@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,41 @@ sys.path.insert(0, str(ROOT / ".agents/lib"))
 import vaws_environment as environments
 import vaws_start_context as hints
 from vaws_coordinator.agent_session import AgentSessions
+
+
+@pytest.mark.parametrize("repository", ["vllm-ascend", "vllm", "workspace"])
+def test_prepared_hint_uses_recorded_focus_without_reopening_state(tmp_path, monkeypatch, repository):
+    workspace = tmp_path / "bundle"
+    cwd = workspace if repository == "workspace" else workspace / repository
+    selected = SimpleNamespace(workspace=workspace, cwd=cwd, repository=repository,
+                               key="fixed", python="selected-python")
+    monkeypatch.setattr(hints, "selection", lambda *args: selected)
+    def forbidden(*args, **kwargs):
+        pytest.fail("focus projection must not repeat Git or state reads")
+    monkeypatch.setattr(Path, "read_text", forbidden)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    result = hints.preparation_hint(workspace, {})
+    assert f"Default shell and file directory: {cwd.resolve()} (Git repository: {repository})" in result
+    assert "VAWS scripts and skills remain under W" in result
+    assert "explicitly requested repository or endpoint takes precedence" in result
+
+
+def test_legacy_selected_task_hint_keeps_original_workspace(tmp_path, monkeypatch):
+    workspace = tmp_path / "bundle"
+    (workspace / "vllm-ascend").mkdir(parents=True)
+    selected = SimpleNamespace(workspace=workspace, key="fixed", python="selected-python")
+    monkeypatch.setattr(hints, "selection", lambda *args: selected)
+    result = hints.preparation_hint(workspace, {})
+    assert f"Default shell and file directory: {workspace.resolve()}\n" in result
+    assert str(workspace / "vllm-ascend") not in result
+
+
+def test_hint_rejects_foreign_editing_directory(tmp_path, monkeypatch):
+    selected = SimpleNamespace(workspace=tmp_path / "bundle", cwd=tmp_path / "outside",
+                               repository="vllm-ascend", key="fixed", python="selected-python")
+    monkeypatch.setattr(hints, "selection", lambda *args: selected)
+    with pytest.raises(ValueError, match="outside"):
+        hints.preparation_hint(tmp_path, {})
 
 
 def git(root, *args):

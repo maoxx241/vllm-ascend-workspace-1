@@ -5,7 +5,7 @@ Same command in PowerShell, bash or zsh:
   uv run --no-project python .agents/scripts/vaws_client.py codex
   uv run --no-project python .agents/scripts/vaws_client.py kimi --workspace PATH
 
-New directories check upstream once before selecting code and dependencies.
+New directories reuse prepared or local fixed inputs; --latest checks upstream.
 Existing --workspace directories keep their code, environment and configuration.
 Pass native arguments after --; resume with the original --workspace directory.
 """
@@ -47,7 +47,7 @@ def resolve_client(client: str) -> list[str]:
 
 
 def prepare_workspace(client: str, workspace: Path | None, *, source: Path = ROOT,
-                      source_channel: str = "development") -> dict:
+                      source_channel: str = "development", sources=None, latest=False, preferred=None) -> dict:
     from vaws_local_state import shared_workspace_root
     from vaws_workspace_entry import read_preparation
     from vaws_worktree_setup import prepare_worktree
@@ -61,7 +61,14 @@ def prepare_workspace(client: str, workspace: Path | None, *, source: Path = ROO
             raise WorkspaceCopyError("--workspace must name a completed editing workspace; use a new path to prepare one")
         if Path(record["project_root"]).resolve() != project:
             raise WorkspaceCopyError("--workspace belongs to another project")
-    return prepare_worktree(client, source, target, source_channel=source_channel)
+    options = {"source_channel": source_channel}
+    if sources is not None:
+        options["sources"] = sources
+    if latest:
+        options["latest"] = True
+    if preferred is not None:
+        options["preferred"] = preferred
+    return prepare_worktree(client, source, target, **options)
 
 
 def client_environment(environment=None) -> dict[str, str]:
@@ -101,6 +108,9 @@ def main(argv=None) -> int:
     parser.add_argument("client", choices=sorted(CLIENT_COMMANDS))
     parser.add_argument("--workspace", type=Path, help="reuse a prepared workspace or create one at a new path")
     parser.add_argument("--source-channel", choices=("development", "release"), default="development")
+    parser.add_argument("--latest", action="store_true", help="explicitly check upstream for a new workspace")
+    parser.add_argument("--sources", nargs="*", choices=("vllm", "vllm-ascend"))
+    parser.add_argument("--repo", choices=("workspace", "vllm", "vllm-ascend"), help="explicit editing repository for a new workspace")
     values = list(sys.argv[1:] if argv is None else argv)
     split = values.index("--") if "--" in values else len(values)
     args = parser.parse_args(values[:split])
@@ -130,8 +140,14 @@ def main(argv=None) -> int:
             elif windows_mounted_workspace(bootstrap):
                 os.environ[MANAGED_PIN_ENV] = saved_ready(bootstrap, target_platform="win32")["receipt"]
         ensure_workspace_interpreter(repo_root=bootstrap, use_saved=existing)
-        result = prepare_workspace(args.client, args.workspace, source=ROOT,
-                                   source_channel=args.source_channel)
+        options = {"source_channel": args.source_channel}
+        if args.sources is not None:
+            options["sources"] = tuple(args.sources)
+        if args.latest:
+            options["latest"] = True
+        if args.repo is not None:
+            options["preferred"] = args.repo
+        result = prepare_workspace(args.client, args.workspace, source=ROOT, **options)
         target = Path(result["workspace"])
         native = saved_ready(target)
         import vaws_client_setup

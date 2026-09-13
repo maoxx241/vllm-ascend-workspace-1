@@ -40,7 +40,7 @@ class SpecLockTests(unittest.TestCase):
 
     def test_pyproject_requires_the_three_packages(self) -> None:
         versions = deps.required_versions()
-        self.assertEqual(set(versions), {"vaws-remote-dev", "vaws-coordinator", "vaws-knowledge", "pillow", "mcp"})
+        self.assertEqual(set(versions), {"vaws-remote-dev", "vaws-coordinator", "vaws-knowledge", "pillow", "mcp", "pyyaml", "requests"})
         self.assertNotIn(deps.VAWS_TOP_NAME, versions)
 
     def test_status_tracks_only_the_three_packages(self) -> None:

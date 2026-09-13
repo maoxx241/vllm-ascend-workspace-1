@@ -627,6 +627,28 @@ def build_parser() -> argparse.ArgumentParser:
 # Main
 # ---------------------------------------------------------------------------
 
+def collection_receipt(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Bounded stdout; the complete per-request/rank record is already saved."""
+    service = manifest.get("service_result") or {}
+    stop = manifest.get("stop_result") or {}
+    return {
+        "schema_version": "vaws.profile-collection.receipt.v1",
+        **{key: manifest.get(key) for key in ("status", "tag", "analysis_status", "workload_status",
+            "remote_profile_root", "rank_count", "expected_ranks", "expected_output_kind", "analyse_wall_s",
+            "archive_error", "stop_error", "stop_profile_error", "error") if key in manifest},
+        "execution_id": service.get("execution_id"),
+        "stop_status": stop.get("status"),
+        "resources_released": stop.get("resources_released"),
+        "request_count": len(manifest.get("benchmark_results") or []),
+        "manifest_ref": str((Path(manifest["run_dir"]) / "manifest.json").resolve()),
+    }
+
+
+def print_collection_result(manifest: dict[str, Any]) -> None:
+    import os
+    print_json(manifest if os.environ.get("VAWS_FULL_ENVELOPE") == "1" else collection_receipt(manifest))
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -883,7 +905,7 @@ def main(argv: list[str] | None = None) -> int:
                 json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
-            print_json(manifest)
+            print_collection_result(manifest)
             return 0
 
         reasons: list[str] = []
@@ -901,7 +923,7 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
-        print_json(manifest)
+        print_collection_result(manifest)
         return 1
 
     except Exception as exc:  # noqa: BLE001
@@ -929,7 +951,7 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
-        print_json(manifest)
+        print_collection_result(manifest)
         return 1
 
 

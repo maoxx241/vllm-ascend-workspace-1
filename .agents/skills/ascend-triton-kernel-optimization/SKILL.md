@@ -1,6 +1,6 @@
 ---
 name: ascend-triton-kernel-optimization
-description: Profile and iteratively optimize a correctness-passed Ascend Triton kernel with explicit NPU baselines, per-shape measurements, UB live-set and physical-core reasoning, MTE/Vector/Scalar bottleneck attribution, one-hypothesis rounds, noise-aware KEEP/DISCARD decisions, and Run Manifest evidence. Use for single-kernel latency or throughput improvement after all planned correctness cases pass. Do not use to create or migrate the first correct kernel, bypass failed validation, assess whole-model serving regressions, attribute model HBM, or diagnose a non-Triton operator.
+description: Optimize a correctness-passed Ascend Triton kernel using paired callable measurements, profiler evidence and hardware reasoning. Use for single-kernel latency or throughput improvement after the required correctness cases pass. Do not use to create the first correct kernel, bypass failed validation, assess whole-model serving regressions, attribute model HBM, or diagnose a non-Triton operator.
 ---
 
 # ascend-triton-kernel-optimization
@@ -14,10 +14,20 @@ Choose one bottleneck hypothesis per round. Consider UB live set, physical cores
 Run from the repository root. The entry reuses the installed platform environment.
 
 ```text
-uv run --no-project python .agents/skills/ascend-triton-kernel-optimization/scripts/triton_optimization.py --config optimization.json --results round-results.json
+uv run --no-project python .agents/skills/ascend-triton-kernel-optimization/scripts/triton_optimization.py run --kernel kernel.py:run --reference reference.py:run --cases cases.py:cases --warmups 3 --repeats 20
 ```
 
-The config contains op_name, kernel and its validation evidence, target, cases, baseline measurements and objective. Round results carry candidate measurements and validation. The report computes KEEP/DISCARD and verifies kernel lineage and case coverage.
+This performs one paired measurement of the supplied wrappers in one owned
+execution, checking outputs before timing and on every measured pair. It warms
+each wrapper, alternates pair order, and retains individual synchronized wall
+times separately from first-call compilation. Copying inputs is outside the
+timed region. Results describe callable latency, not isolated device kernel time.
+Noise assessment, the next edit and KEEP/DISCARD remain with the Agent.
+See [callable inputs and scope](../ascend-operator-debug/references/callable-runner.md).
+
+Reuse existing measurements when sufficient. Optional
+`--config optimization.json --results round-results.json` aggregates earlier
+observations without launching a new candidate or proving its execution.
 
 Use ascend-triton-kernel-validation when correctness is incomplete. Use profiling-analysis for whole-model performance attribution.
 

@@ -1,6 +1,6 @@
 ---
 name: "ascend-triton-kernel-optimization"
-description: "Profile and iteratively optimize a correctness-passed Ascend Triton kernel with explicit NPU baselines, per-shape measurements, UB live-set and physical-core reasoning, MTE/Vector/Scalar bottleneck attribution, one-hypothesis rounds, noise-aware KEEP/DISCARD decisions, and Run Manifest evidence. Use for single-kernel latency or throughput improvement after all planned correctness cases pass. Do not use to create or migrate the first correct kernel, bypass failed validation, assess whole-model serving regressions, attribute model HBM, or diagnose a non-Triton operator."
+description: "Optimize a correctness-passed Ascend Triton kernel using paired callable measurements, profiler evidence and hardware reasoning. Use for single-kernel latency or throughput improvement after the required correctness cases pass. Do not use to create the first correct kernel, bypass failed validation, assess whole-model serving regressions, attribute model HBM, or diagnose a non-Triton operator."
 ---
 
 <!-- Generated from .agents/skills/ascend-triton-kernel-optimization/SKILL.md. Do not edit. -->

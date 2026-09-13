@@ -100,7 +100,8 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_persistent_provider_uses_each_tasks_fixed_runtime(self):
         provider = runtime.Provider("knowledge", self.root)
-        contexts = {"first": {"id": "old"}, "second": {"id": "new"}}
+        contexts = {"first": {"id": "old", "context_file": "first"},
+                    "second": {"id": "new", "context_file": "second"}}
         def choose(root, context=None, *, catalog=False, require_prepared=True):
             return self.selections[context["id"] if context else "new"]
         try:
@@ -246,6 +247,76 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await provider.close()
         self.assertEqual([process.returncode for process in self.processes], [7])
+
+    async def test_dead_backend_recovers_only_for_a_new_call_without_replaying_exit(self):
+        provider = runtime.Provider("remote", self.root)
+        selected = self.selections["old"]
+        backend = provider.backend(selected)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "evidence:"):
+                await asyncio.wait_for(backend.request("call_tool", name="exit", arguments={}), 3)
+            await asyncio.wait_for(backend.closed.wait(), 3)
+            recovered = provider.backend(selected)
+            self.assertIsNot(recovered, backend)
+            self.assertEqual(recovered.selected, selected)
+            self.assertEqual((await recovered.request("list_tools")).tools[0].name, "knowledge_query")
+            messages = [json.loads(line) for line in (self.root / "old.jsonl").read_text().splitlines()]
+            self.assertEqual(sum(row.get("params", {}).get("name") == "exit" for row in messages), 1)
+            self.assertEqual(sum(row.get("method") == "initialize" for row in messages), 2)
+        finally:
+            await provider.close()
+        self.assertTrue(all(process.returncode is not None for process in self.processes))
+
+    async def test_failed_start_can_recover_on_the_same_fixed_selection(self):
+        provider = runtime.Provider("remote", self.root)
+        selected = self.selections["old"]
+        try:
+            with patch.object(runtime, "provider_command", return_value=([sys.executable, str(self.root / "missing.py")], {})):
+                failed = provider.backend(selected)
+                with self.assertRaises(RuntimeError):
+                    await asyncio.wait_for(failed.request("list_tools"), 3)
+                await asyncio.wait_for(asyncio.shield(failed.worker), 3)
+            recovered = provider.backend(selected)
+            self.assertIsNot(recovered, failed)
+            self.assertEqual((await recovered.request("list_tools")).tools[0].name, "knowledge_query")
+        finally:
+            await provider.close()
+
+    async def test_new_catalog_arguments_never_reach_incompatible_old_backend(self):
+        provider = runtime.Provider("knowledge", self.root)
+        try:
+            with patch.object(runtime, "selection", return_value=self.selections["new"]):
+                await provider.list_tools()
+            with patch.object(runtime, "caller_context", return_value={"context_file": "old"}), \
+                 patch.object(runtime, "selection", return_value=self.selections["old"]):
+                result = await provider.call_tool("knowledge_query", {"text": "query", "future_option": True})
+                missing = await provider.call_tool("new_mutation", {})
+                accepted = await provider.call_tool("knowledge_query", {"text": "compatible"})
+            self.assertTrue(result.isError)
+            self.assertFalse(result.structuredContent["submitted"])
+            self.assertEqual(result.structuredContent["environment"], "old")
+            self.assertIn("input_schema", result.structuredContent)
+            self.assertTrue(missing.isError)
+            self.assertEqual(accepted.structuredContent["runtime"], "old")
+            messages = [json.loads(line) for line in (self.root / "old.jsonl").read_text().splitlines()]
+            self.assertEqual(sum(row.get("method") == "tools/call" for row in messages), 1)
+            self.assertEqual(sum(row.get("method") == "tools/list" for row in messages), 1)
+        finally:
+            await provider.close()
+
+    async def test_scoped_catalog_uses_native_tasks_fixed_environment(self):
+        provider = runtime.Provider("task", self.root)
+        context = {"context_file": "old"}
+        metadata = {"x-codex-turn-metadata": {"thread_id": "old-thread"}}
+        try:
+            with patch.object(runtime, "caller_context", return_value=context), \
+                 patch.object(runtime, "selection", return_value=self.selections["old"]) as choose:
+                await provider.list_tools(metadata)
+            choose.assert_called_once_with(self.root, context, catalog=False, require_prepared=False)
+            self.assertEqual(provider.scoped_catalogs, {"old": "old"})
+            self.assertIsNone(provider.catalog_selection)
+        finally:
+            await provider.close()
 
     async def test_evidence_directory_failure_finishes_startup_with_a_locatable_error(self):
         provider = runtime.Provider("remote", self.root)

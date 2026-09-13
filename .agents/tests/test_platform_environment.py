@@ -46,7 +46,7 @@ def test_bootstrap_does_not_need_installed_packages(monkeypatch):
     import vaws_environment_link
     monkeypatch.setattr(vaws_environment_link, "link_environment", lambda *args, **kwargs: ROOT)
     assert module.main(["sync", "--locked", "--group", "dev"]) == 0
-    assert calls == [(ROOT, {"install_options": ["--locked", "--group", "dev"]})]
+    assert calls == [(ROOT, {"install_options": ["--locked", "--group", "dev"], "timings": {}})]
 
 
 def test_shared_checkout_text_identity_does_not_depend_on_git_autocrlf(tmp_path):

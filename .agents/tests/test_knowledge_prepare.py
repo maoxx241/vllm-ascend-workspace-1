@@ -125,7 +125,7 @@ def test_sync_only_installs_packages_and_does_not_touch_knowledge(tmp_path, monk
     monkeypatch.setattr(links, "link_environment", lambda root, **kwargs: linked.append((root, kwargs)))
     monkeypatch.setattr(knowledge, "prepare_knowledge", lambda *a, **k: pytest.fail("package sync must not prepare knowledge"))
     assert deps.main(["sync", *options]) == 0
-    assert calls == [(tmp_path, {"install_options": options})]
+    assert calls == [(tmp_path, {"install_options": options, "timings": {}})]
     assert linked == ([(tmp_path, {"key": receipt["key"], "environment_root": Path(receipt["root"])})] if deps.os.name == "nt" else [])
     assert deps.os.environ.get(envs.PIN_ENV) == previous_pin
     payload = json.loads(capsys.readouterr().out)

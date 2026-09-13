@@ -48,16 +48,18 @@ uv run --no-project python .agents/scripts/workspace_forks.py --github-user USER
 先完成源码、环境及配置，再发布 ready。失败保留阶段与证据，不将半成品作为
 下一次复用结果；不自动 stash、reset、rebase 或强推用户分支。
 
-新任务检查 canonical 默认分支一次，采用精确 VAWS 提交。组件由该提交的
+普通新任务以本地确定 VAWS 提交为准，先采用与它匹配的已接受准备缓存；
+上游发现、GitHub 身份复核和 fork 更新不在普通新任务前台执行。明确请求最新时，
+使用新任务入口的 `--latest`，或者执行下述维护更新入口。组件由选定提交的
 `pyproject.toml`、`uv.lock` 和 monitor pin 固定，业务源码由 `sources.lock.json` 固定。
 `development` 默认使用同一 Ascend SHA 声明的 verified vLLM commit；`release`
 使用它声明的 vLLM 发布 tag 所对应的完整 SHA。后者不是完整稳定 Ascend 发布栈。
 用户指定正式 release、PR 或 commit 时保留该选择及其兼容依据。
 
 已有实际源码按任务需要复用；lock 是候选组合，不是强制物化两个仓库的任务 gate。
-fork 复制实际 HEAD、index、工作内容和普通 untracked，不跟随新的默认 lock。
+fork 复制实际 HEAD、本地 refs、分支配置、stash 历史、index、工作内容和普通 untracked，不跟随新的默认 lock。
 只改业务源码不重装相同工具环境，只改工具不重写业务代码。网络不可用时使用
-可用的已接受本地组合并报告实际 SHA；没有可用准备结果时明确返回失败。
+可用的已接受本地组合并报告实际 SHA；本地对象或必要依赖缺失且无法准备时明确返回失败。
 
 主仓维护工作流统一解析和检查上游配套关系，生成源码锁更新 PR。Ascend main
 只解析一次，其声明读取固定在同一 SHA；发布 tag 解析为 commit。缺失声明和

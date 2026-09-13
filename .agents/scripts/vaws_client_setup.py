@@ -216,7 +216,9 @@ def desired_mcp_servers(*, task_only=False):
     }
     if not task_only:
         servers[KNOWLEDGE_SERVER_NAME] = {
-            "command": knowledge_owner_python(ROOT),
+            # The gateway routes native task context in the small runtime;
+            # only its knowledge worker uses the optional owner interpreter.
+            "command": managed_python(),
             "args": [knowledge_owner_path(ROOT, ROOT / ".agents/scripts/vaws_native_mcp.py"), "knowledge"],
             "type": "stdio",
             "timeout": 600000,

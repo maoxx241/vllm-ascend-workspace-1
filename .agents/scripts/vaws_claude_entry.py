@@ -17,7 +17,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
 
-from vaws_environment import PIN_ENV, MANAGED_PIN_ENV, saved_ready
+from vaws_environment import PIN_ENV, MANAGED_PIN_ENV, saved_ready, capability_receipt
 from vaws_workspace_update import common_dir
 
 PROVIDERS = {
@@ -60,7 +60,8 @@ def launch_plan(kind: str, target: Path, options: list[str], environment: dict) 
             path = ROOT / ".agents/hooks" / name
         arguments = [str(path), "--client", "claude", "--project", str(target),
                      "--environment-receipt", receipt["receipt"], *options]
-    return [receipt["python"], *arguments], environment
+    owner = capability_receipt(receipt, "knowledge" if kind in ("knowledge", "summary") else "runtime")
+    return [owner["python"], *arguments], environment
 
 
 def main(argv=None) -> int:

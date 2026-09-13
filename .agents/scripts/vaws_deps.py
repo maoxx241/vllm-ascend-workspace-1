@@ -93,16 +93,18 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def cmd_sync(args: argparse.Namespace) -> int:
     extra = list(args.passthrough or [])
+    timings = {}
     progress("selecting or preparing the immutable locked dependency environment")
     try:
-        receipt = prepare_environment(ROOT, install_options=extra)
+        receipt = prepare_environment(ROOT, install_options=extra, timings=timings)
     except (EnvironmentError, OSError) as exc:
-        _print({"ok": False, "error": str(exc), "remedy": REMEDY})
+        _print({"ok": False, "error": str(exc), "remedy": REMEDY, "timings": timings})
         return 1
     if os.name == "nt":
         from vaws_environment_link import link_environment
         link_environment(ROOT, key=receipt["key"], environment_root=Path(receipt["root"]))
-    payload = {"ok": True, "returncode": 0, "environment": receipt["root"], "receipt": receipt, "remedy": None}
+    payload = {"ok": True, "returncode": 0, "environment": receipt["root"], "receipt": receipt, "remedy": None,
+               "timings": timings}
     progress("dependencies ready")
     _print(payload)
     return 0

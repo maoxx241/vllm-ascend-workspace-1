@@ -348,45 +348,163 @@ class SetupTests(unittest.TestCase):
             self.setup_forks(apply=True)
         self.assertFalse((self.root / ".vaws-local").exists())
 
-    def test_uninitialized_submodule_directory_cannot_be_treated_as_workspace(self):
+    def test_empty_source_directory_cannot_be_treated_as_workspace(self):
         (self.root / "vllm").mkdir()
         with self.assertRaises(forks.ForkPolicyError):
             forks.setup(self.root / "vllm", "alice", roles=["workspace"], apply=True, client=self.client)
         self.assertFalse(forks.git(self.root, "remote").stdout.strip())
 
-    def test_initializes_only_missing_submodule_at_gitlink(self):
-        source = Path(self.tmp.name) / "source"
-        self.init(source)
-        pin = forks.git(source, "rev-parse", "HEAD").stdout.strip()
-        (self.root / ".gitmodules").write_text(
-            '[submodule "vllm"]\n\tpath = vllm\n\turl = https://github.com/vllm-project/vllm.git\n', encoding="utf-8")
-        forks.git(self.root, "add", ".gitmodules")
-        forks.git(self.root, "update-index", "--add", "--cacheinfo", f"160000,{pin},vllm")
-        before = (self.root / ".gitmodules").read_bytes()
-        original = forks.git
-        commands = []
-        def local_git(repo, *args, **kwargs):
-            commands.append(args)
-            if "submodule" in args and "update" in args:
-                args = ("-c", "protocol.file.allow=always", "-c", f"submodule.vllm.url={source}", *args[2:])
-                completed = original(repo, *args, **kwargs)
-                original(self.root / "vllm", "remote", "set-url", "origin", "https://github.com/vllm-project/vllm.git")
-                return completed
-            return original(repo, *args, **kwargs)
-        with mock.patch.object(forks, "git", side_effect=local_git):
-            result = forks.setup(self.root, "alice", roles=["vllm"], apply=True, client=self.client)
+    def source_inputs(self):
+        from vaws_source_lock import write_source_lock
+        donors, revisions = {}, {}
+        for role in ("vllm", "vllm-ascend"):
+            source = Path(self.tmp.name) / (role + "-upstream")
+            self.init(source)
+            (source / "README").write_text(role + " original code\n", encoding="utf-8")
+            forks.git(source, "add", "README")
+            forks.git(source, "-c", f"core.hooksPath={os.devnull}", "commit", "-m", "source")
+            donors[role] = source
+            revisions[role] = forks.git(source, "rev-parse", "HEAD").stdout.strip()
+        value = {"schema_version": 1,
+                 "vllm-ascend": {"repository": "vllm-project/vllm-ascend", "revision": revisions["vllm-ascend"]},
+                 "vllm": {"repository": "vllm-project/vllm", "development": {"revision": revisions["vllm"]},
+                          "release": {"tag": "v0.28.0", "revision": revisions["vllm"]}}}
+        write_source_lock(self.root, value)
+        return donors, revisions, value
+
+    def local_source_preparer(self, donors):
+        def prepare(destination, *, repository, revision):
+            role = repository.removeprefix("vllm-project/")
+            self.assertEqual(repository, forks.REPOSITORIES[role]["upstream"])
+            forks.git(self.root, "clone", "--no-local", "--no-checkout", "--", str(donors[role]), str(destination))
+            forks.git(destination, "checkout", "--detach", revision)
+            forks.git(destination, "remote", "set-url", "origin", f"https://github.com/{repository}.git")
+        return prepare
+
+    def test_first_setup_initializes_independent_sources_at_exact_locked_revisions(self):
+        import vaws_native_workspace as native
+        donors, revisions, _ = self.source_inputs()
+        with mock.patch.object(native, "prepare_source", side_effect=self.local_source_preparer(donors), create=True) as prepare:
+            result = forks.setup(self.root, "alice", roles=["vllm", "vllm-ascend"], apply=True, client=self.client)
         self.assertEqual(result["status"], "configured")
-        self.assertEqual(original(self.root / "vllm", "rev-parse", "HEAD").stdout.strip(), pin)
-        self.assertEqual((self.root / ".gitmodules").read_bytes(), before)
-        self.assertFalse(original(self.root, "remote").stdout.strip())
-        self.assertEqual(sum("submodule" in args and "update" in args for args in commands), 1)
-        # Subsequent setup retains an intentional initialized checkout change.
-        original(self.root / "vllm", "config", "user.name", "Fixture")
-        original(self.root / "vllm", "config", "user.email", "fixture@example.invalid")
-        original(self.root / "vllm", "-c", f"core.hooksPath={os.devnull}", "commit", "--allow-empty", "-m", "work")
-        business_head = original(self.root / "vllm", "rev-parse", "HEAD").stdout
-        forks.setup(self.root, "alice", roles=["vllm"], apply=True, client=self.client)
-        self.assertEqual(original(self.root / "vllm", "rev-parse", "HEAD").stdout, business_head)
+        self.assertEqual(prepare.call_count, 2)
+        for role in ("vllm", "vllm-ascend"):
+            path = self.root / role
+            self.assertTrue((path / ".git").is_dir())
+            self.assertFalse((path / ".git/objects/info/alternates").exists())
+            self.assertEqual(forks.git(path, "rev-parse", "HEAD").stdout.strip(), revisions[role])
+            self.assertEqual((path / "README").read_text(encoding="utf-8"), role + " original code\n")
+            self.assertEqual(forks.parse_github_url(forks.git(path, "remote", "get-url", "origin").stdout.strip()),
+                             "alice/" + role)
+            self.assertFalse(forks.git(self.root, "ls-files", "--", role).stdout.strip())
+        self.assertFalse((self.root / ".gitmodules").exists())
+        self.assertFalse(forks.git(self.root, "remote").stdout.strip())
+
+    def test_first_setup_can_publish_into_an_existing_empty_source_directory(self):
+        import vaws_native_workspace as native
+        donors, revisions, _ = self.source_inputs()
+        (self.root / "vllm").mkdir()
+        with mock.patch.object(native, "prepare_source", side_effect=self.local_source_preparer(donors), create=True):
+            forks.setup(self.root, "alice", roles=["vllm"], apply=True, client=self.client)
+        self.assertEqual(forks.git(self.root / "vllm", "rev-parse", "HEAD").stdout.strip(), revisions["vllm"])
+        self.assertFalse((self.root / "vllm-ascend").exists())
+
+    def test_existing_source_preserves_unpushed_commit_staged_dirty_and_untracked_work(self):
+        import vaws_native_workspace as native
+        from vaws_source_lock import write_source_lock
+        donors, _, value = self.source_inputs()
+        with mock.patch.object(native, "prepare_source", side_effect=self.local_source_preparer(donors), create=True):
+            forks.setup(self.root, "alice", roles=["vllm"], apply=True, client=self.client)
+        source = self.root / "vllm"
+        forks.git(source, "config", "user.name", "Fixture")
+        forks.git(source, "config", "user.email", "fixture@example.invalid")
+        forks.git(source, "-c", f"core.hooksPath={os.devnull}", "commit", "--allow-empty", "-m", "unpushed work")
+        (source / "README").write_text("staged work\n", encoding="utf-8")
+        forks.git(source, "add", "README")
+        (source / "README").write_text("unfinished work\n", encoding="utf-8")
+        (source / "untracked.txt").write_text("keep me\n", encoding="utf-8")
+        commands = [("rev-parse", "HEAD"), ("diff", "--cached"), ("diff",), ("status", "--porcelain")]
+        before = [forks.git(source, *args).stdout for args in commands]
+        value["vllm"]["development"]["revision"] = "e" * 40
+        write_source_lock(self.root, value)
+        with mock.patch.object(native, "prepare_source", create=True) as prepare:
+            forks.setup(self.root, "alice", roles=["vllm"], apply=True, client=self.client)
+        prepare.assert_not_called()
+        self.assertEqual([forks.git(source, *args).stdout for args in commands], before)
+        self.assertEqual((source / "untracked.txt").read_text(encoding="utf-8"), "keep me\n")
+
+    def test_source_lock_change_during_preparation_does_not_publish_the_old_clone(self):
+        import vaws_native_workspace as native
+        from vaws_source_lock import write_source_lock
+        donors, revisions, value = self.source_inputs()
+        prepare = self.local_source_preparer(donors)
+        def change_lock(destination, **kwargs):
+            prepare(destination, **kwargs)
+            value["vllm"]["development"]["revision"] = "e" * 40
+            write_source_lock(self.root, value)
+        with mock.patch.object(native, "prepare_source", side_effect=change_lock, create=True):
+            with self.assertRaisesRegex(forks.ForkPolicyError, "selection changed"):
+                forks.setup(self.root, "alice", roles=["vllm"], apply=True, client=self.client)
+        self.assertFalse((self.root / "vllm").exists())
+        private = list((self.root / ".vaws-local/source-initialization").iterdir())
+        self.assertEqual(len(private), 1)
+        self.assertEqual(forks.git(private[0], "rev-parse", "HEAD").stdout.strip(), revisions["vllm"])
+        self.assertFalse(forks.git(self.root, "remote").stdout.strip())
+
+    def test_nonempty_source_destination_is_rejected_before_fork_or_clone_changes(self):
+        import vaws_native_workspace as native
+        self.source_inputs()
+        target = self.root / "vllm"
+        target.mkdir()
+        (target / "keep.txt").write_text("user content\n", encoding="utf-8")
+        with mock.patch.object(native, "prepare_source", create=True) as prepare:
+            with self.assertRaisesRegex(forks.ForkPolicyError, "not empty"):
+                forks.setup(self.root, "alice", roles=["vllm"], apply=True, client=self.client)
+        prepare.assert_not_called()
+        self.assertFalse((self.root / ".vaws-local").exists())
+        self.assertEqual((target / "keep.txt").read_text(encoding="utf-8"), "user content\n")
+        self.assertFalse(any(method == "POST" for _, method, _ in self.client.calls))
+
+    def test_source_destination_changed_during_clone_is_not_replaced(self):
+        import vaws_native_workspace as native
+        donors, _, _ = self.source_inputs()
+        prepare = self.local_source_preparer(donors)
+        target = self.root / "vllm"
+        def concurrent_content(destination, **kwargs):
+            prepare(destination, **kwargs)
+            target.mkdir()
+            (target / "keep.txt").write_text("concurrent user content\n", encoding="utf-8")
+        with mock.patch.object(native, "prepare_source", side_effect=concurrent_content, create=True):
+            with self.assertRaisesRegex(forks.ForkPolicyError, "not empty"):
+                forks.setup(self.root, "alice", roles=["vllm"], apply=True, client=self.client)
+        self.assertFalse((target / ".git").exists())
+        self.assertEqual((target / "keep.txt").read_text(encoding="utf-8"), "concurrent user content\n")
+
+    def test_old_gitmodules_source_entry_is_not_accepted_without_a_gitlink(self):
+        import vaws_native_workspace as native
+        donors, _, _ = self.source_inputs()
+        modules = self.root / ".gitmodules"
+        modules.write_text('[submodule "vllm"]\n\tpath = vllm\n\turl = https://github.com/vllm-project/vllm.git\n',
+                           encoding="utf-8")
+        with mock.patch.object(native, "prepare_source", side_effect=self.local_source_preparer(donors), create=True) as prepare:
+            with self.assertRaises(forks.ForkPolicyError):
+                forks.setup(self.root, "alice", roles=["vllm"], apply=True, client=self.client)
+        prepare.assert_not_called()
+        self.assertFalse((self.root / ".vaws-local").exists())
+
+    def test_workspace_gitlink_residue_is_rejected_for_an_initialized_source(self):
+        import vaws_native_workspace as native
+        donors, revisions, _ = self.source_inputs()
+        prepare = self.local_source_preparer(donors)
+        prepare(self.root / "vllm", repository="vllm-project/vllm", revision=revisions["vllm"])
+        forks.git(self.root, "update-index", "--add", "--cacheinfo", f"160000,{revisions['vllm']},vllm")
+        before = forks.git(self.root / "vllm", "config", "--local", "--list").stdout
+        with mock.patch.object(native, "prepare_source", create=True) as prepare_mock:
+            with self.assertRaises(forks.ForkPolicyError):
+                forks.setup(self.root, "alice", roles=["vllm"], apply=True, client=self.client)
+        prepare_mock.assert_not_called()
+        self.assertEqual(forks.git(self.root / "vllm", "config", "--local", "--list").stdout, before)
+        self.assertFalse((self.root / ".vaws-local").exists())
 
 
 if __name__ == "__main__":

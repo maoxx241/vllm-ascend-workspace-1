@@ -65,6 +65,7 @@ TASK_SERVER_NAME = "vaws-task"
 REMOTE_DEV_SERVER_NAME = "remote-dev"
 KNOWLEDGE_SERVER_NAME = "vaws-knowledge"
 HOOK_TIMEOUT_SECONDS = 12
+_CONFIGURATION_OWNER = None
 LEGACY_CONTEXT_MATCHERS = frozenset({
     r"(?:^|:|__)vaws_(session|run|execution|finish|message)$",
     r"(?:^|:|__)vaws_(?:session|run|execution|finish|message)$",
@@ -80,6 +81,8 @@ def configuration_root(project):
     Other projects can still receive scoped wiring from the installed VAWS
     source. Git worktrees share their primary checkout's backend entry points.
     """
+    if _CONFIGURATION_OWNER is not None:
+        return _CONFIGURATION_OWNER
     owner = shared_workspace_root(project)
     if (owner / ".agents/scripts/vaws_native_mcp.py").is_file():
         return owner
@@ -87,16 +90,21 @@ def configuration_root(project):
 
 
 @contextmanager
-def configuration_owner(project):
+def configuration_owner(project, owner_project=None):
     """Bind one owner while the existing synchronous configuration helpers run."""
-    global ROOT, OWNED_HOOK_SCRIPT
-    previous = ROOT, OWNED_HOOK_SCRIPT
+    global ROOT, OWNED_HOOK_SCRIPT, _CONFIGURATION_OWNER
+    previous = ROOT, OWNED_HOOK_SCRIPT, _CONFIGURATION_OWNER
+    if owner_project is not None:
+        owner = Path(owner_project).expanduser().resolve(strict=True)
+        if not (owner / ".agents/scripts/vaws_native_mcp.py").is_file():
+            raise ValueError("configuration owner must contain the VAWS native entry")
+        _CONFIGURATION_OWNER = owner
     ROOT = configuration_root(project)
     OWNED_HOOK_SCRIPT = ROOT / ".agents/hooks/vaws_session.py"
     try:
         yield ROOT
     finally:
-        ROOT, OWNED_HOOK_SCRIPT = previous
+        ROOT, OWNED_HOOK_SCRIPT, _CONFIGURATION_OWNER = previous
 
 
 def remote_dev_server_args():
@@ -813,9 +821,9 @@ def configuration(client, project, *, kimi_config=None, task_only=False):
 
 
 def build_plan(client, project, *, kimi_config=None, task_only=False, kimi_session_setup=False,
-               cursor_global_mcp=False, codex_global_hooks=False):
+               cursor_global_mcp=False, codex_global_hooks=False, owner_project=None):
     project = project.expanduser().resolve(strict=True)
-    with configuration_owner(project):
+    with configuration_owner(project, owner_project):
         return _build_plan(client, project, kimi_config=kimi_config, task_only=task_only,
                            kimi_session_setup=kimi_session_setup, cursor_global_mcp=cursor_global_mcp,
                            codex_global_hooks=codex_global_hooks)
@@ -1020,7 +1028,8 @@ def setup_installed_clients(args):
         try:
             plan = build_plan(client, args.project, kimi_config=args.kimi_config, task_only=args.task_only,
                               kimi_session_setup=bool(client == "kimi" and args.kimi_session_setup),
-                              codex_global_hooks=client == "codex", cursor_global_mcp=client == "cursor")
+                              codex_global_hooks=client == "codex", cursor_global_mcp=client == "cursor",
+                              owner_project=getattr(args, "owner_project", None))
             row["notes"] = plan["notes"]
             add_native_mode(plan["files"], plan["notes"], client, args.project)
             if client == "grok":
@@ -1072,6 +1081,12 @@ def setup_installed_clients(args):
             result["record"] = str(path)
         except OSError as exc:
             result.update(state="partial", record_error={"path": str(path), "message": str(exc)})
+        if result["state"] == "wiring_configured" and (args.project / ".git").is_dir():
+            # An editor view does not prepare the primary checkout as a task.
+            # New tasks still obtain their own independent editing directory.
+            from vaws_source_view import write_source_view
+            from vaws_workspace_update import available_sources
+            result["editor_workspace"] = str(write_source_view(args.project, available_sources(args.project)))
     return result
 
 
@@ -1080,6 +1095,7 @@ def main(argv=None):
     parser.add_argument("--client", choices=sorted(CLIENTS | {"all"}), required=True,
                         help="One client for scoped wiring, or all for one-time initialization of installed clients")
     parser.add_argument("--project", type=Path, default=Path.cwd())
+    parser.add_argument("--owner-project", type=Path, help="Explicit shared owner while preparing a new independent directory")
     parser.add_argument("--kimi-config", type=Path, help="Explicit Kimi Code configuration file to edit for scoped session hooks")
     parser.add_argument("--kimi-session-setup", action="store_true", help="Enable the Kimi native SessionSetup extension after installing the patched client")
     parser.add_argument("--cursor-global-mcp", action="store_true", help="Install generated Cursor providers once in its native user MCP configuration")
@@ -1093,14 +1109,14 @@ def main(argv=None):
     args = parser.parse_args(argv)
     # Parse the actual configuration target before selecting an interpreter.
     # Importing the planner must not re-exec a caller in this script's checkout.
-    ensure_workspace_interpreter(repo_root=configuration_root(args.project), use_saved=False)
+    ensure_workspace_interpreter(repo_root=args.owner_project or configuration_root(args.project), use_saved=False)
     if args.client == "all":
         result = setup_installed_clients(args)
         print(json.dumps(result, ensure_ascii=False))
         return 1 if result["state"] == "partial" else 0
     plan = build_plan(args.client, args.project, kimi_config=args.kimi_config, task_only=args.task_only,
                       kimi_session_setup=args.kimi_session_setup, cursor_global_mcp=args.cursor_global_mcp,
-                      codex_global_hooks=args.codex_global_hooks)
+                      codex_global_hooks=args.codex_global_hooks, owner_project=args.owner_project)
     changed = apply_plan(plan) if args.apply else [
         {"path": str(path), "sha256": hashlib.sha256(content.encode()).hexdigest()}
         for path, content in plan["files"].items()

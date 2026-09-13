@@ -9,9 +9,14 @@ import sys
 
 import vaws_knowledge_service
 import vaws_kimi_config
+import vaws_environment_link
 
 
 def selected_runtime(monkeypatch, setup, tmp_path):
+    # Planning fixtures must not create aliases in the real shared project.
+    # Alias creation itself is covered by the environment-link tests.
+    monkeypatch.setattr(vaws_environment_link, "link_environment",
+                        lambda root, *, key, environment_root: Path(environment_root))
     receipt = {"key": "d" * 64, "platform": sys.platform,
                "python": sys.executable, "root": sys.prefix,
                "receipt": str(tmp_path / "selected-ready.json")}

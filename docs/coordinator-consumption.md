@@ -49,8 +49,8 @@ receive unknown hook events. The legacy Python `kimi-cli` is a different client.
 | Tool | Meaning |
 |---|---|
 | `vaws_session` | Optional inspection or explicit source-default override; startup already binds the selected editing roots |
-| `vaws_run` | Submit `command` plus optional `sources` / `env` / `environment` / `resources` / `topology` / `timeout_seconds` / `service` / `restart`. Skills do not pass `request_id` / `profile_key` / `runtime_id` / a Python path |
-| `vaws_execution` | Status, tail, stop, or read the ordinary endpoint of one owned execution |
+| `vaws_run` | Submit `command` or local `script_file`; optionally wait for running or released. Accepts `sources` / `env` / `environment` / `resources` / `topology` / `timeout_seconds` / `service` / `restart`. Skills do not pass internal request or runtime IDs |
+| `vaws_execution` | Status, bounded wait, tail, stop, recorded evidence, or the ordinary endpoint of one owned execution |
 | `vaws_finish` | Close admission; stop owned executions; keep container, roots, evidence |
 | `vaws_message` | Send text to a returned coordination reference or reply_reference; sender and delivery bookkeeping are automatic |
 
@@ -209,7 +209,34 @@ service returns `not_found`, and multiple live matches require an explicit ID.
 Neither lookup allocates devices or starts a service. `client.wait(execution_id,
 until="running")` ends at running or a terminal failure; `until="released"`
 requires terminal state and confirmed resource release. Timeouts retain the last
-observed facts.
+observed facts and `wait_timed_out=True`, with the same execution reference;
+they neither resubmit nor stop the operation. The owner waits for state changes
+without a client status loop, and control requests remain available during a
+wait. Terminal waits include a bounded log tail; a tail-read error does not
+change the execution's completion or release facts.
+
+One command can submit a local script and wait for completion:
+
+```text
+python -m vaws_coordinator.vaws run --script-file case.sh --wait released --wait-timeout-seconds 180
+```
+
+Python uses `client.run(script_file="case.sh", wait_until="released",
+wait_timeout_seconds=180)`. The script's fixed UTF-8 contents and digest belong
+to the accepted execution. `command` and `script_file` are mutually exclusive.
+An existing execution uses `client.wait(id, until="released",
+timeout_seconds=180)` or `client.observe(id, action="wait", until="released",
+timeout_seconds=180)`. Wait budgets are bounded to 600 seconds per call;
+serving readiness remains a business check after `running`.
+
+When a question needs build provenance, use
+`client.observe(id, action="evidence", section="build", path="operator_name")`.
+Sections `sources`, `preparation`, `build` and `all` read the owned execution's
+existing records. The package decodes retained receipts and returns source
+identities, stage history, build facts and log references; optional `path`
+filters artifact paths. This is recorded evidence, not a fresh verification
+of mutable remote files. Missing retained evidence is reported as unavailable.
+No separate Agent-written decoder, SSH scan or manual timing ledger is needed.
 
 Changing selected business worktrees updates the session defaults while live
 executions retain their accepted inputs and private source views. Each execution

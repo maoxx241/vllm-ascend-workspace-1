@@ -5,7 +5,7 @@ Subcommands:
 
     status [name...]    JSON inspect payload; exit 1 unless every name is ready
     doctor              Result Envelope v1 capability report
-    sync                prepare/reuse dependencies and local knowledge
+    sync                prepare/reuse package dependencies
 
 Progress goes to stderr. Each command prints one JSON object on stdout.
 """
@@ -23,8 +23,7 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 from vaws_venv import REMEDY, configure_windows_stdio, ensure_workspace_interpreter
-from vaws_environment import EnvironmentError, PIN_ENV, prepare_environment
-from vaws_knowledge_service import prepare_knowledge
+from vaws_environment import EnvironmentError, prepare_environment
 
 
 def progress(message: str) -> None:
@@ -104,23 +103,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         from vaws_environment_link import link_environment
         link_environment(ROOT, key=receipt["key"], environment_root=Path(receipt["root"]))
     payload = {"ok": True, "returncode": 0, "environment": receipt["root"], "receipt": receipt, "remedy": None}
-    if args.packages_only:
-        payload["knowledge"] = {"status": "skipped", "reason": "packages_only"}
-        progress("dependencies ready; knowledge preparation was not requested")
-        _print(payload)
-        return 0
-    progress("dependencies ready; preparing local knowledge model and index")
-    previous_pin = os.environ.get(PIN_ENV)
-    os.environ[PIN_ENV] = receipt["receipt"]
-    try:
-        payload["knowledge"] = prepare_knowledge(ROOT)
-    finally:
-        if previous_pin is None:
-            os.environ.pop(PIN_ENV, None)
-        else:
-            os.environ[PIN_ENV] = previous_pin
-    if not payload["knowledge"].get("ready"):
-        progress("dependencies are ready; knowledge preparation is pending and does not block ordinary tools")
+    progress("dependencies ready")
     _print(payload)
     return 0
 
@@ -139,7 +122,6 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.set_defaults(func=cmd_doctor)
 
     sync = sub.add_parser("sync", help="prepare a locked environment; progress on stderr, JSON on stdout")
-    sync.add_argument("--packages-only", action="store_true", help="prepare dependencies without preparing or inspecting knowledge")
     sync.set_defaults(func=cmd_sync)
     return parser
 

@@ -38,7 +38,7 @@ def workspace(tmp_path, monkeypatch):
     (project / ".gitignore").write_text(".vaws-local/\n", encoding="utf-8")
     (project / "README").write_text("old\n", encoding="utf-8")
     old = commit(project, "old")
-    git(project, "worktree", "add", "--detach", str(stage), old)
+    git(project, "clone", "--local", "--no-hardlinks", str(project), str(stage))
     (stage / "README").write_text("canonical latest\n", encoding="utf-8")
     (stage / "uv.lock").write_text("new locked components\n", encoding="utf-8")
     latest = commit(stage, "latest")
@@ -50,9 +50,11 @@ def workspace(tmp_path, monkeypatch):
     calls, selected = [], {}
 
     class Updater:
-        def __init__(self, root):
+        def __init__(self, root, *, source_channel="development"):
+            assert source_channel in {"development", "release"}
             assert root == project
-            self.state = {"prepared": {"stage": str(stage), "receipt": receipt, "knowledge": {"ready": True}}}
+            self.state = {"prepared": {"stage": str(stage), "receipt": receipt, "sources": {},
+                                       "revisions": {"workspace": latest}}}
 
         def step(self, **kwargs):
             calls.append(("update", kwargs))
@@ -77,9 +79,8 @@ def workspace(tmp_path, monkeypatch):
         return receipt
     monkeypatch.setattr(start, "read_receipt", read_fixed)
     monkeypatch.setattr(start, "resolve_context_file", lambda explicit: explicit)
-    monkeypatch.setattr(start, "configure_target", lambda client, target, chosen, env:
+    monkeypatch.setattr(start, "configure_target", lambda client, target, chosen, env, **kwargs:
                         calls.append(("configure", client, target, chosen, env)))
-    monkeypatch.setattr(start, "prepare_selected_knowledge", lambda target, chosen: {"ready": True})
     monkeypatch.setenv("VAWS_ENV_RECEIPT", "old-parent-environment")
     store = AgentSessions(tmp_path / "native-registry")
     return project, stage, latest, receipt, calls, selected, select, store
@@ -95,16 +96,16 @@ def test_new_task_uses_canonical_worktree_and_preserves_native_cwd(workspace, cl
     assert target.parent == project.parent and target != project
     assert result["head"] == latest
     assert result["environment"] == receipt
-    assert result["knowledge"] == {"ready": True}
+    assert "knowledge" not in result
     assert (target / "README").read_text(encoding="utf-8") == "canonical latest\n"
     assert not (target / "untracked.txt").exists()
     assert (project / "README").read_text(encoding="utf-8") == "keep local work\n"
     assert (project / "untracked.txt").read_text(encoding="utf-8") == "keep untracked work\n"
     assert git(project, "branch", "--show-current") == "feature-work"
     current = store.context(context["attachment"]["id"])
-    assert current["attachment"] == context["attachment"]
-    assert current["source_defaults"]["origin"] == "explicit"
-    assert current["source_defaults"]["sources"][project.name]["path"] == str(target)
+    assert {key: current["attachment"][key] for key in context["attachment"]} == context["attachment"]
+    assert current["source_defaults"]["origin"] == "native-prepared"
+    assert current["source_defaults"]["sources"]["workspace"]["path"] == str(target)
     configured = next(call for call in calls if call[0] == "configure")
     assert configured[3] == receipt and "VAWS_ENV_RECEIPT" not in configured[4]
     before = list(calls)
@@ -123,6 +124,8 @@ def test_prepared_native_old_ref_reuses_its_directory_and_receipt(workspace):
     old_receipt = {"key": "native-old", "python": sys.executable, "receipt": "/old/selected.json"}
     git(stage, "checkout", "--detach", git(project, "rev-parse", "HEAD"))
     select(stage, old_receipt)
+    start.write_preparation(stage, project_root=project, native_workspace=stage, workspace=stage,
+                            sources={"workspace": str(stage)})
     config = project / ".vaws-local/knowledge/service.json"
     config.parent.mkdir(parents=True)
     config.write_text("{}", encoding="utf-8")
@@ -134,7 +137,8 @@ def test_prepared_native_old_ref_reuses_its_directory_and_receipt(workspace):
     assert result["knowledge_config"] == str(config)
     assert calls == []
     assert not (project / ".vaws-local/latest-runtime.json").exists()
-    assert store.context(context["attachment"]["id"])["attachment"] == context["attachment"]
+    current = store.context(context["attachment"]["id"])["attachment"]
+    assert {key: current[key] for key in context["attachment"]} == context["attachment"]
 
 
 def test_a_second_task_gets_a_separate_directory(workspace):
@@ -145,6 +149,30 @@ def test_a_second_task_gets_a_separate_directory(workspace):
     b = start.start("grok", project, second["context_file"])
     assert a["status"] == b["status"] == "ready"
     assert a["workspace"] != b["workspace"]
+
+
+def test_resume_never_takes_preparation_locks_or_runs_git(workspace, monkeypatch):
+    project, _, _, _, _, _, _, store = workspace
+    context = store.attach("codex", "resume-no-work", str(project))
+    first = start.start("codex", project, context["context_file"])
+    assert first["status"] == "ready"
+    def forbidden(*args, **kwargs):
+        pytest.fail("resume entered preparation")
+    for name in ("git", "path_lock", "update_lock", "prepare_latest", "configure_target", "create_prepared_workspace"):
+        monkeypatch.setattr(start, name, forbidden)
+    repeated = start.start("codex", Path(first["workspace"]), context["context_file"], source_channel="release")
+    assert repeated["status"] == "reused"
+    assert repeated["source_channel"] == "development"
+
+
+def test_preparation_keeps_explicit_empty_sources(workspace):
+    project, _, _, _, _, _, _, store = workspace
+    context = store.attach("codex", "explicit-empty", str(project))
+    context = store.bind_sources(context, {})
+    result = start.start("codex", project, context["context_file"])
+    assert result["status"] == "ready"
+    defaults = store.context(context["attachment"]["id"])["source_defaults"]
+    assert defaults == {"origin": "explicit", "sources": {}}
 
 
 def test_repeat_keeps_task_receipt_after_explicit_workspace_maintenance(workspace):
@@ -184,6 +212,19 @@ def test_failed_update_returns_evidence_without_binding_or_creating(workspace, m
     assert json.loads(Path(result["evidence"]).read_text(encoding="utf-8"))["details"]["log"] == "/raw/updater-log.json"
     assert store.context(context["attachment"]["id"])["source_defaults"]["origin"] != "explicit"
     assert not (project.parent / (project.name + "-" + context["session"]["id"])).exists()
+
+
+def test_unavailable_upstream_reuses_a_valid_prepared_revision(workspace, monkeypatch):
+    project, _, latest, _, _, _, _, store = workspace
+    context = store.attach("codex", "offline-with-cache", str(project))
+    def unavailable(self, **kwargs):
+        self.state.update(phase="ready", target=latest)
+        return {"status": "deferred", "reason": "network_unavailable"}
+    monkeypatch.setattr(start.WorkspaceUpdater, "step", unavailable)
+    result = start.start("codex", project, context["context_file"])
+    assert result["status"] == "ready" and result["head"] == latest
+    assert result["update"]["status"] == "cached"
+    assert result["update"]["upstream_check"]["reason"] == "network_unavailable"
 
 
 def test_first_use_returns_setup_before_dependency_or_native_context_checks(workspace, monkeypatch, capsys):
@@ -232,9 +273,9 @@ def test_configured_repository_starts_without_bootstrap_rerun(workspace, monkeyp
     monkeypatch.setattr(start, "ROOT", project)
     calls = []
     monkeypatch.setattr(start, "ensure_workspace_interpreter", lambda **kwargs: calls.append("environment"))
-    monkeypatch.setattr(start, "start", lambda *args: calls.append(args) or {"status": "ready"})
+    monkeypatch.setattr(start, "start", lambda *args, **kwargs: calls.append((args, kwargs)) or {"status": "ready"})
     assert start.main(["--client", "codex", "--context-file", "native.json"]) == 0
-    assert calls == ["environment", ("codex", project, "native.json")]
+    assert calls == ["environment", (("codex", project, "native.json"), {"source_channel": "development"})]
     assert json.loads(capsys.readouterr().out) == {"status": "ready"}
     assert identity.read_bytes() == before
     assert not (project / ".vaws-local/client-initialization.json").exists()

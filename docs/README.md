@@ -1,6 +1,6 @@
 # Documentation index
 
-Status: current
+Status: current, 2026-09-13
 
 Every file under `docs/` is listed here. `Status: current` is a
 contract. Dated validation evidence records the tested state; it is not a current
@@ -8,6 +8,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Current contracts
 
+- [source-workspace.md](source-workspace.md) — exact development/release source pairs, independent multi-repository directories, automatic native source defaults and client lifecycle boundaries.
 - [forks-and-updates.md](forks-and-updates.md) — requested setup and managed identity, personal forks and upstream preparation for independent local editing or managed work; ordinary review and explicit endpoints need no first-use setup.
 - [identity-and-agent-coordination.md](identity-and-agent-coordination.md) — shared-root user attribution, opportunistic message delivery and compiled-output reuse; first-version boundaries are explicit.
 
@@ -35,6 +36,8 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [validation/README.md](validation/README.md) — separate VAWS engineering archive: versioned evidence, all runtime/tool families and 18 business skills, measured limits and explicit gaps; not development-domain knowledge.
 - [validation/coverage.json](validation/coverage.json) — bounded capability-to-source/test/evidence index used only by archive maintenance.
 - [validation/check_archive.py](validation/check_archive.py) and [validation/test_check_archive.py](validation/test_check_archive.py) — read-only archive and retained-JUnit integrity checks; no runtime startup or test replay.
+- [source-workspace-validation-2026-09-13.md](source-workspace-validation-2026-09-13.md) — four-machine source capture/materialization, measured independent-copy costs, package-only sync, old-layout migration and explicit pending final acceptance.
+- [managed-performance-redesign-2026-09-13.md](managed-performance-redesign-2026-09-13.md) — implemented preparation, wait, evidence and serving changes; real native and warm measurements with explicit limitations.
 
 - [knowledge-adoption-2026-09-13.md](knowledge-adoption-2026-09-13.md) — source-level TeamAI/WeKnora comparison, selected knowledge mechanisms, nine-principle assessment and package/consumer validation boundaries.
 

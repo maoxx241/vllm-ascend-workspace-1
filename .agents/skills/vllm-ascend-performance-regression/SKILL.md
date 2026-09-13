@@ -19,6 +19,10 @@ uv run --no-project python .agents/skills/vllm-ascend-performance-regression/scr
 
 The business config names baseline.sources and candidate.sources (actual vllm and vllm-ascend worktrees), benchmark options, runs, warmups and thresholds. The collector passes each source selection to that run without changing task defaults, waits for its managed service, warms each launch, alternates A/B order, records runtime observations, and releases owned executions. --results accepts existing measurement files for report-only use. Missing runtime evidence yields an inconclusive report.
 
+Preparation and release use bounded coordinator waits on the same execution.
+The collector accepts compact serving receipts and performs business readiness
+through the shared serving probe; no client-side status polling is required.
+
 For a single-state throughput measurement use benchmark. For root-cause timing attribution use profiling collection and analysis.
 
 Read the relevant detail only when needed:

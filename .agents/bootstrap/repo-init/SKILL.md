@@ -26,12 +26,20 @@ uv run --no-project python .agents/scripts/vaws_deps.py sync
 uv run --no-project python .agents/scripts/vaws_client_setup.py --client all --apply
 ```
 
-The fork tool initializes missing submodules at their recorded gitlinks, creates
+The fork tool initializes missing source repositories at their locked revisions, creates
 or reuses verified personal forks, and preserves existing work. It reports any
-conflicting remote configuration for judgment. Dependency setup reuses prepared
-environments and also prepares knowledge; pending knowledge does not block
-ordinary tools. Client setup detects installed clients, preserves unrelated
+conflicting remote configuration for judgment. Dependency setup installs or
+reuses package environments; knowledge activates on actual use. Client setup
+detects installed clients, preserves unrelated
 configuration and records its result in the shared repository state.
+
+The committed `sources.lock.json` records both upstream-declared vLLM baselines
+for one Ascend commit. Initialization uses the development baseline; existing
+source repositories retain their current work and intentional revisions. These
+source declarations do not establish NPU runtime validation. Read the selected
+pair without network access using `.agents/scripts/workspace_sources.py show`.
+Refreshing the lock is explicit repository maintenance, never a first-use or
+per-task prerequisite.
 
 Complete the running client's native trust prompts. If it has not loaded the
 new providers/hooks, reopen the project or start a new native session once.

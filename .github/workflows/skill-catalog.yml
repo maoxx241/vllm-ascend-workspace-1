@@ -2,6 +2,12 @@ name: CI
 
 on:
   workflow_call:
+    inputs:
+      checkout_ref:
+        description: Exact commit selected by a maintenance caller
+        required: false
+        type: string
+        default: ''
   pull_request:
   push:
     branches: [main]
@@ -10,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ inputs.checkout_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -34,12 +40,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
           submodules: false
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python }}
       - name: Install locked workspace packages
-        run: uv run --no-project python .agents/scripts/vaws_deps.py sync --packages-only --locked --group dev
+        run: uv run --no-project python .agents/scripts/vaws_deps.py sync --locked --group dev
       - name: Verify system interpreter handoff
         run: uv run --no-project python .agents/scripts/vaws_deps.py doctor
       - name: Run all local workspace and skill tests

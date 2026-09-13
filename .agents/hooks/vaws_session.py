@@ -60,12 +60,32 @@ def main() -> int:
         os.environ.update(coordinator_environment(repo_root=ROOT))
         from vaws_coordinator.hooks import vaws_session as native_hook
         from vaws_start_context import hint_event, project_output
+        from vaws_local_state import prepared_workspace
+        from vaws_workspace_entry import prepared_sources, read_preparation
 
         raw = sys.stdin.read()
         try:
             payload = json.loads(raw)
         except ValueError:
             payload = None
+        sources = None
+        ordinary_tool = (isinstance(payload, dict) and native_hook.normalized_event(payload) == "pretooluse"
+                         and not native_hook.needs_task_context(args.client, payload))
+        if isinstance(payload, dict) and not ordinary_tool:
+            from vaws_local_owner import accessible_windows_path
+
+            value = payload.get("cwd") or payload.get("workspaceRoot") or (payload.get("workspace_roots") or [None])[0]
+            if isinstance(value, str) and value:
+                cwd = Path(accessible_windows_path(value)).expanduser()
+                if cwd.is_absolute():
+                    target = prepared_workspace(cwd, args.project or ROOT)
+                    if target is not None:
+                        sources = prepared_sources(target)
+                        # A native setup directory may reference its external
+                        # editing bundle. Both coordinates come from the same
+                        # completed preparation, not a guessed Git family.
+                        native = read_preparation(target)["native_workspace"]
+                        forwarded = ["--client", args.client, "--project", native]
         # Run the package entry itself so its scope, attachment and error
         # behavior stay authoritative. Only startup hints need projection;
         # PreToolUse keeps normal stdout and starts no additional interpreter.
@@ -75,7 +95,7 @@ def main() -> int:
             sys.argv = [native_hook.__name__, *forwarded]
             sys.stdin = io.StringIO(raw)
             with contextlib.redirect_stdout(output) if output is not None else contextlib.nullcontext():
-                result = native_hook.main()
+                result = native_hook.main(sources=sources)
         finally:
             sys.argv, sys.stdin = previous_argv, previous_stdin
         if output is not None:

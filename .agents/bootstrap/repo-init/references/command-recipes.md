@@ -27,6 +27,12 @@ When replacing conflicting primary remote URLs is intended,
 `--replace-primary-remotes` records their prior values before replacing them.
 See [personal forks](../../../../docs/forks-and-updates.md#个人-fork).
 
-Initialization does not change vLLM to a different CI ref. Explicit later pin
-alignment, dependency repair and client changes use the
+Initialization preserves existing source revisions. To inspect the locked
+development pair without network access, use
+`uv run --no-project python .agents/scripts/workspace_sources.py show`.
+The same command with `show --channel release` selects the declared vLLM release
+baseline for the same Ascend commit. An explicit
+`uv run --no-project python .agents/scripts/workspace_sources.py refresh`
+updates only the committed source lock from upstream declarations; it does not
+switch existing code. Later source selection, dependency repair and client changes use the
 [maintenance commands](../../../../docs/forks-and-updates.md#显式维护与证据).

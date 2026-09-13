@@ -21,7 +21,7 @@ def test_low_level_configure_cannot_bypass_verified_fork_setup():
         mutate.assert_not_called()
 
 
-@pytest.mark.parametrize("script", ["install_gh_user.py", "resolve_vllm_ci_pin.py", "repo_topology.py"])
+@pytest.mark.parametrize("script", ["install_gh_user.py", "repo_topology.py"])
 def test_bootstrap_helpers_load_without_prepared_runtime(script, tmp_path):
     result = subprocess.run(
         [sys.executable, "-I", "-S", "-c",

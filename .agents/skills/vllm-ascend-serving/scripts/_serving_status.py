@@ -26,29 +26,9 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-from _serving_common import SERVICE_NAME, emit_progress, endpoint_from_reply, print_json, service_port_of, ssh_exec  # noqa: E402
+from _serving_common import SERVICE_NAME, emit_progress, endpoint_from_reply, print_json, service_port_of, probe_service  # noqa: E402
 from vaws_coordinator.presentation import execution_summary
 from vaws_task_target import DONE, PENDING, RUNNING, task_client, task_id_of  # noqa: E402
-
-
-def check_health(ep, port: int) -> bool:
-    script = (
-        f"curl --noproxy '*' -s -o /dev/null -w '%{{http_code}}' --connect-timeout 3 --max-time 5"
-        f" http://127.0.0.1:{port}/health 2>/dev/null || echo 000"
-    )
-    return ssh_exec(ep, script, check=False).stdout.strip() == "200"
-
-
-def check_models(ep, port: int) -> dict[str, Any] | None:
-    script = f"curl --noproxy '*' -s --connect-timeout 3 --max-time 5 http://127.0.0.1:{port}/v1/models 2>/dev/null || true"
-    text = ssh_exec(ep, script, check=False).stdout.strip()
-    if not text:
-        return None
-    try:
-        data = json.loads(text)
-        return data if data.get("data") else None
-    except json.JSONDecodeError:
-        return None
 
 
 def classify(state: str) -> str:
@@ -126,8 +106,8 @@ def main(argv: list[str] | None = None) -> int:
             output["error"] = str(exc)
             print_json(output)
             return 0
-        health = check_health(endpoint, port)
-        models = check_models(endpoint, port) if health else None
+        probe = probe_service(endpoint, port)
+        health, models = probe["health"], probe["models"]
         if health and models is not None:
             output["status"] = "ready"
             output["ready"] = True

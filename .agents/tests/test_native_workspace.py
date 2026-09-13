@@ -29,6 +29,209 @@ def state(path):
             git(path, "diff", "--binary"), git(path, "status", "--porcelain=v1", "-z"))
 
 
+@pytest.mark.parametrize("owner", ["copy", "update"])
+def test_git_helpers_cannot_write_parent_of_unrecognized_checkout(tmp_path, owner):
+    import vaws_workspace_update as updates
+    source = repository(tmp_path / "parent")
+    before = (source / ".git/config").read_bytes()
+    nested = source / "unrecognized checkout"
+    nested.mkdir()
+    command, error = (git, WorkspaceCopyError) if owner == "copy" else (updates.git, updates.Deferred)
+    with pytest.raises(error):
+        command(nested, "config", "--local", "remote.origin.url", "https://example.invalid/wrong")
+    assert (source / ".git/config").read_bytes() == before
+
+
+def test_deep_clone_never_changes_parent_when_git_discovery_is_unavailable(tmp_path):
+    import vaws_workspace_update as updates
+    source = repository(tmp_path / "parent")
+    git(source, "remote", "add", "origin", "https://github.com/alice/vllm.git")
+    before = (git(source, "rev-parse", "HEAD"), git(source, "symbolic-ref", "HEAD"),
+              (source / ".git/index").read_bytes(), (source / ".git/config").read_bytes())
+    target = source / ".vaws-local"
+    while len(str(target).encode("utf-8")) < 275:
+        target /= "deep-repository-directory"
+    revision = before[0].decode().strip()
+    try:
+        workspace.prepare_source(target, repository="vllm-project/vllm", revision=revision, local_source=source)
+    except WorkspaceCopyError:
+        # Windows Git may be unable to discover this .git, even though clone
+        # can create it. The incomplete target remains for diagnosis.
+        assert os.name == "nt"
+        assert (target / ".git").is_dir()
+    else:
+        assert (target / "file.txt").read_bytes() == (source / "file.txt").read_bytes()
+    for command, error in ((git, WorkspaceCopyError), (updates.git, (updates.Deferred, OSError))):
+        try:
+            actual = command(target, "rev-parse", "--show-toplevel")
+        except error:
+            assert os.name == "nt"
+        else:
+            if isinstance(actual, bytes):
+                actual = actual.decode("utf-8")
+            assert Path(actual.strip()).resolve() == target.resolve()
+    after = (git(source, "rev-parse", "HEAD"), git(source, "symbolic-ref", "HEAD"),
+             (source / ".git/index").read_bytes(), (source / ".git/config").read_bytes())
+    assert after == before
+
+
+def test_explicit_business_roots_and_receipt_reuse_preserve_actual_edits(tmp_path):
+    from vaws_workspace_entry import write_preparation
+    source = repository(tmp_path / "project")
+    (source / ".gitignore").write_text(".vaws-local/\nvllm/\n")
+    git(source, "add", ".gitignore")
+    git(source, "commit", "-qm", "source directories")
+    child = repository(source / "vllm")
+    (child / "file.txt").write_text("staged child\n")
+    git(child, "add", "file.txt")
+    (child / "file.txt").write_text("working child\n")
+    (child / "untracked.txt").write_text("draft\n")
+    write_preparation(source, project_root=source, native_workspace=source, workspace=source,
+                      sources={"workspace": source, "vllm": child})
+    copy = tmp_path / "copy"
+    result = create_workspace(source, copy)
+    assert result["sources"] == {"workspace": str(copy), "vllm": str(copy / "vllm")}
+    assert state(copy / "vllm") == state(child)
+    assert not (copy / ".vaws-local/native-workspace.json").exists()
+    root_only = tmp_path / "root only"
+    assert create_workspace(source, root_only, sources={})["sources"] == {"workspace": str(root_only)}
+    assert not (root_only / "vllm").exists()
+
+
+def test_locked_source_fetches_missing_commit_only_into_new_destination(tmp_path, monkeypatch):
+    donor = repository(tmp_path / "canonical donor")
+    source = tmp_path / "existing code"
+    git(donor, "clone", "--local", str(donor), str(source))
+    git(source, "remote", "set-url", "origin", "https://github.com/alice/vllm.git")
+    before = state(source)
+    (donor / "file.txt").write_text("new pinned version\n")
+    git(donor, "commit", "-qam", "new version")
+    revision = git(donor, "rev-parse", "HEAD").decode().strip()
+    destination = tmp_path / "prepared"
+    calls = []
+    actual_git = workspace.git
+    def local_git(root, *args, **options):
+        if "fetch" in args:
+            calls.append((root, args))
+            assert root == destination
+            args = tuple(str(donor) if value == "https://github.com/vllm-project/vllm.git" else value for value in args)
+        return actual_git(root, *args, **options)
+    monkeypatch.setattr(workspace, "git", local_git)
+    workspace.prepare_source(destination, repository="vllm-project/vllm", revision=revision, local_source=source)
+    assert len(calls) == 1 and calls[0][1][-1] == revision
+    assert state(source) == before
+    assert git(destination, "rev-parse", "HEAD").decode().strip() == revision
+    assert git(destination, "remote", "get-url", "origin").strip() == b"https://github.com/alice/vllm.git"
+    assert (destination / ".git").is_dir() and not (destination / ".git/objects/info/alternates").exists()
+
+
+def test_locked_source_rejects_existing_destinations_and_object_alternates(tmp_path):
+    source = repository(tmp_path / "source")
+    revision = git(source, "rev-parse", "HEAD").decode().strip()
+    destination = tmp_path / "existing"
+    destination.mkdir()
+    (destination / "draft").write_text("keep")
+    with pytest.raises(WorkspaceCopyError, match="already exists"):
+        workspace.prepare_source(destination, repository="vllm-project/vllm", revision=revision, local_source=source)
+    assert (destination / "draft").read_text() == "keep"
+    alternate = tmp_path / "alternate"
+    git(source, "clone", "--shared", str(source), str(alternate))
+    with pytest.raises(WorkspaceCopyError, match="alternates"):
+        workspace.prepare_source(tmp_path / "new", repository="vllm-project/vllm", revision=revision, local_source=alternate)
+    assert not (tmp_path / "new").exists()
+
+
+def test_clone_checkout_keeps_tracked_paths_longer_than_windows_max_path(tmp_path):
+    source = repository(tmp_path / "source")
+    relative = Path(*("long-header-path-" + str(i) * 32 for i in range(5))) / "tracked.h"
+    header = source / relative
+    header.parent.mkdir(parents=True)
+    header.write_text("#define EXPECTED 1\n")
+    git(source, "add", "--", relative.as_posix())
+    git(source, "commit", "-qm", "long tracked header")
+    target = tmp_path / "prepared checkout"
+    revision = git(source, "rev-parse", "HEAD").decode().strip()
+    workspace.prepare_source(target, repository="vllm-project/vllm", revision=revision, local_source=source)
+    assert len(str(target / relative)) > 260
+    assert (target / relative).read_text(encoding="utf-8") == header.read_text(encoding="utf-8")
+    assert not git(target, "status", "--porcelain").strip()
+    if os.name == "nt":
+        assert git(target, "config", "--local", "core.longpaths").strip() == b"true"
+
+
+def prepared_fixture(tmp_path):
+    stage = repository(tmp_path / "stage")
+    (stage / ".gitignore").write_text("vllm/\n.vaws-local/\n")
+    git(stage, "add", ".gitignore")
+    git(stage, "commit", "-qm", "source directories")
+    child = repository(stage / "vllm")
+    return {"stage": str(stage), "sources": {"vllm": str(child)},
+            "revisions": {"workspace": git(stage, "rev-parse", "HEAD").decode().strip(),
+                          "vllm": git(child, "rev-parse", "HEAD").decode().strip()}}
+
+
+def test_prepared_copy_uses_fixed_commits_without_hashing_mutable_staging_files(tmp_path, monkeypatch):
+    prepared = prepared_fixture(tmp_path)
+    stage = Path(prepared["stage"])
+    (stage / "file.txt").write_text("edited after validation\n")
+    git(stage, "add", "file.txt")
+    (stage / "vllm/file.txt").write_text("edited operator after validation\n")
+    monkeypatch.setattr(workspace, "_capture", lambda _: pytest.fail("canonical clone scanned mutable editing state"))
+    target = tmp_path / "task"
+    result = workspace.create_prepared_workspace(prepared, target)
+    assert result["head"] == prepared["revisions"]["workspace"]
+    assert result["sources"] == {"workspace": str(target), "vllm": str(target / "vllm")}
+    assert (target / "file.txt").read_text() == "base\n"
+    assert (target / "vllm/file.txt").read_text() == "base\n"
+    assert git(stage, "diff", "--cached") and git(stage / "vllm", "diff")
+    assert (target / ".git").is_dir() and (target / "vllm/.git").is_dir()
+    assert not (target / ".vaws-local/native-workspace.json").exists()
+
+
+def test_prepared_clone_freezes_stage_checkout_policy_against_new_global_defaults(tmp_path, monkeypatch):
+    prepared = prepared_fixture(tmp_path)
+    stage = Path(prepared["stage"])
+    for source in (stage, stage / "vllm"):
+        git(source, "config", "--local", "core.autocrlf", "false")
+        git(source, "config", "--local", "core.eol", "lf")
+        git(source, "config", "--local", "core.safecrlf", "false")
+        (source / "file.txt").write_bytes(b"base\n")
+    global_config = tmp_path / "changed-global.gitconfig"
+    global_config.write_text("[core]\n autocrlf = true\n eol = crlf\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    target = tmp_path / "task"
+    workspace.create_prepared_workspace(prepared, target)
+    for source, copied in ((stage, target), (stage / "vllm", target / "vllm")):
+        assert (copied / "file.txt").read_bytes() == (source / "file.txt").read_bytes() == b"base\n"
+        policy = workspace._checkout_configuration(workspace._configuration_entries(source))
+        for key, value in policy.items():
+            assert git(copied, "config", "--local", "--get", key).decode().strip() == value
+        assert not git(copied, "status", "--porcelain").strip()
+
+
+@pytest.mark.parametrize("failure", ["existing", "overlap", "missing_revision", "outside_source", "missing_source"])
+def test_prepared_copy_rejects_incomplete_or_overlapping_inputs_before_clone(tmp_path, failure):
+    prepared = prepared_fixture(tmp_path)
+    target = tmp_path / "task"
+    if failure == "existing":
+        target.mkdir()
+        (target / "keep.txt").write_text("keep")
+    elif failure == "overlap":
+        target = Path(prepared["stage"]) / ".vaws-local/task"
+    elif failure == "missing_revision":
+        prepared["revisions"].pop("vllm")
+    elif failure == "outside_source":
+        prepared["sources"]["vllm"] = str(repository(tmp_path / "other"))
+    else:
+        prepared["sources"]["vllm"] = str(tmp_path / "missing")
+    with pytest.raises((WorkspaceCopyError, FileNotFoundError)):
+        workspace.create_prepared_workspace(prepared, target)
+    assert not (target / ".git").exists()
+    if failure == "existing":
+        assert (target / "keep.txt").read_text() == "keep"
+
+
 def test_parallel_first_tools_have_independent_index_and_resume_cwd(tmp_path):
     source = repository(tmp_path / "source 空格")
     (source / "file.txt").write_text("staged\n", encoding="utf-8")

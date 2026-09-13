@@ -39,10 +39,7 @@ from vaws_result_envelope import (  # noqa: E402
     make_next_step,
     make_operation,
     new_envelope,
-    original_remote_dev_outcome_from_child,
-    original_remote_dev_outcome_from_part,
     outcome_from_parts,
-    remote_dev_mapping_is_lossy,
     remote_dev_outcome_pointer,
     unknown_failure,
     validate_envelope,
@@ -65,7 +62,7 @@ def _remote_result(outcome: str) -> dict:
     )
 
 
-def _wrap(converted: dict, slot: str) -> dict:
+def _wrap(converted: dict, slot: str, *, original_outcome: str | None = None) -> dict:
     command = make_command(argv=["python3", "-c", "pass"], cwd=".")
     kwargs: dict = {
         "operation": make_operation(
@@ -91,14 +88,13 @@ def _wrap(converted: dict, slot: str) -> dict:
             if item.get("name") == REMOTE_DEV_OUTCOME_REF_NAME
         ]
     else:
-        original = original_remote_dev_outcome_from_child(converted)
         pointers = (
             [
                 remote_dev_outcome_pointer(
-                    original, str(converted["outcome"]), slot="children"
+                    original_outcome, str(converted["outcome"]), slot="children"
                 )
             ]
-            if original
+            if original_outcome
             else []
         )
     kwargs["evidence"] = make_evidence(refs=pointers)
@@ -173,7 +169,7 @@ class ConvertCrossProductTests(unittest.TestCase):
                     entry_point=".agents/lib/vaws_result_envelope.py",
                     action="convert",
                 )
-                envelope = _wrap(converted, slot)
+                envelope = _wrap(converted, slot, original_outcome=outcome)
                 validate_envelope(envelope)
                 mapped = (
                     REMOTE_DEV_TO_PART_OUTCOME[outcome]
@@ -182,13 +178,18 @@ class ConvertCrossProductTests(unittest.TestCase):
                 )
                 self.assertEqual(converted["outcome"], mapped)
                 self.assertNotIn("evidence", converted)
-                lossy = remote_dev_mapping_is_lossy(outcome, slot)
-                self.assertEqual(lossy, outcome != mapped)
+                lossy = outcome != mapped
                 if slot == "parts":
-                    recovered = original_remote_dev_outcome_from_part(converted)
+                    self.assertEqual(
+                        [item["ref"] for item in converted["refs"]
+                         if item["name"] == REMOTE_DEV_OUTCOME_REF_NAME],
+                        [outcome],
+                    )
                 else:
-                    recovered = original_remote_dev_outcome_from_child(converted)
-                self.assertEqual(recovered, outcome)
+                    self.assertEqual(converted["reason_code"], f"remote_dev_{outcome}")
+                    self.assertEqual(
+                        converted["ref"], f"remote-dev:{outcome}:{result['invocation_id']}"
+                    )
                 root_refs = {
                     item["ref"]
                     for item in envelope["evidence"]["refs"]
@@ -301,7 +302,9 @@ class SkillPayloadConversionTests(unittest.TestCase):
         self.assertEqual(envelope["parts"][0]["outcome"], "failure")
         self.assertNotIn("evidence", envelope["parts"][0])
         self.assertEqual(
-            original_remote_dev_outcome_from_part(envelope["parts"][0]), "timeout"
+            [item["ref"] for item in envelope["parts"][0]["refs"]
+             if item["name"] == REMOTE_DEV_OUTCOME_REF_NAME],
+            ["timeout"],
         )
         self.assertIn(
             "timeout",
@@ -340,7 +343,7 @@ class TrackedSchemaTests(unittest.TestCase):
                         entry_point=".agents/lib/vaws_result_envelope.py",
                         action="convert",
                     )
-                    envelope = _wrap(converted, slot)
+                    envelope = _wrap(converted, slot, original_outcome=outcome)
                     validate_envelope(envelope)
                     jsonschema.validate(envelope, schema)
 
@@ -357,7 +360,7 @@ class TrackedSchemaTests(unittest.TestCase):
                     depth=1,
                     layer="unknown",
                 )
-                envelope = _wrap(converted, slot)
+                envelope = _wrap(converted, slot, original_outcome="timeout")
                 envelope[slot][0]["evidence"] = {"remote_dev_outcome": "timeout"}
                 with self.assertRaisesRegex(EnvelopeError, "unknown fields"):
                     validate_envelope(envelope)

@@ -46,7 +46,7 @@ def test_every_provider_uses_stable_gateway_and_stock_startup(client, configured
         assert all(hook["event"] != "SessionSetup" for hook in hooks)
 
 
-@pytest.mark.parametrize("client", ["codex", "grok", "cursor"])
+@pytest.mark.parametrize("client", ["grok", "cursor"])
 def test_owned_old_provider_moves_to_gateway_but_keeps_custom_fields(client, configured_project):
     project, _, receipt = configured_project
     old = {"command": sys.executable, "args": setup.task_server_args(),

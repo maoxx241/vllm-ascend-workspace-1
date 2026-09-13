@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Install scoped native session hooks and the stdio MCP entries.
 
-This configures files only. It does not grant client trust, change approval
-policies, authenticate clients, run hooks, or contact a remote machine. It
+This configures files only. It does not grant client trust, change top-level
+approval policies, authenticate clients, run hooks, or contact a remote machine. It
 never writes a bearer token and must not be applied to the operator's live
 client configuration from tests.
 
@@ -20,7 +20,12 @@ the component environment selected by the native task:
 `--task-only` writes only the vaws-task entry; it skips remote-dev and
 vaws-knowledge.
 
-Preservation: existing user-managed servers and unknown fields are kept.
+Codex setup replaces the selected VAWS server entries with the current launch
+configuration, including their environment and server-specific options. Other
+server names and top-level user settings are kept. Existing files are backed up
+when applying the plan. There is no old-server fallback on the Codex path.
+
+Other clients preserve existing user-managed servers and unknown fields.
 Generated task servers in this checkout move to the shared native owner when
 needed; user-managed launchers remain unchanged. A missing executable or script
 does not establish VAWS ownership. JSON and TOML keep unrelated aliases and
@@ -748,6 +753,43 @@ def toml_server_body(key, entry):
     return body
 
 
+def replace_toml_server(text, name, entry):
+    """Rebuild one reserved VAWS entry; verify all unrelated TOML is unchanged."""
+    original = tomllib.loads(text)
+    aliases = set(mcp_server_aliases(name))
+    key = name.replace("-", "_")
+    body = toml_server_body(key, entry)
+    replacement = tomllib.loads(body)["mcp_servers"]
+    if {key: value for key, value in original.get("mcp_servers", {}).items() if key in aliases} == replacement:
+        return text
+    kept = []
+    inside = False
+    markers = {f"# BEGIN VAWS {name}", f"# END VAWS {name}"}
+    for line in text.splitlines(keepends=True):
+        if line.strip() in markers:
+            if line.strip() == f"# END VAWS {name}":
+                inside = False
+            continue
+        if line.lstrip().startswith("["):
+            try:
+                header = tomllib.loads(line)
+            except tomllib.TOMLDecodeError:
+                pass
+            else:
+                tables = header.get("mcp_servers", {})
+                inside = bool(aliases.intersection(tables)) if isinstance(tables, dict) else False
+        if not inside:
+            kept.append(line)
+    result = managed_toml_text("".join(kept), name, body)
+    expected = {**original, "mcp_servers": {
+        **{key: value for key, value in original.get("mcp_servers", {}).items() if key not in aliases},
+        **replacement,
+    }}
+    if tomllib.loads(result) != expected:
+        raise ValueError(f"cannot replace {name!r} without changing unrelated TOML; use ordinary server tables")
+    return result
+
+
 def fill_toml_server_env(text, key, existing, desired, *, checkout=None, legacy=False):
     """Add missing defaults to an ordinary env table; preserve user values/text."""
     desired_env = dict(desired.get("env") or {})
@@ -831,7 +873,7 @@ def build_plan(client, project, *, kimi_config=None, task_only=False, kimi_sessi
 
 def _build_plan(client, project, *, kimi_config=None, task_only=False, kimi_session_setup=False,
                 cursor_global_mcp=False, codex_global_hooks=False):
-    env = launch_env(client, project, kimi_config=kimi_config)
+    env = task_server_env() if client == "codex" else launch_env(client, project, kimi_config=kimi_config)
     groups = hook_groups(client, project, env)
     # Kimi's adapter reads only the known session's final completed wire step.
     if not task_only:
@@ -877,6 +919,14 @@ def _build_plan(client, project, *, kimi_config=None, task_only=False, kimi_sess
         text = path.read_text(encoding="utf-8") if path.exists() else ""
         changed = False
         for name, entry in servers.items():
+            if client == "codex":
+                candidate = replace_toml_server(text, name, entry)
+                if candidate != text:
+                    notes.append({"path": str(path), "server": name, "action": "replaced",
+                                  "reason": "current-codex-vaws-configuration"})
+                    changed = True
+                text = candidate
+                continue
             key = name.replace("-", "_")
             aliases = mcp_server_aliases(name)
             matching = [alias for alias in aliases if alias in existing]
@@ -1137,8 +1187,7 @@ def main(argv=None):
         "connected": False,
         "next": (
             "Review native client trust/approval prompts for each listed server, "
-            "restart or resume the client, then verify actual calls. "
-            "Do not treat this helper as a rewrite of hand-managed providers."
+            "restart or resume the client, then verify actual calls."
         ),
     }))
     return 0

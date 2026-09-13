@@ -2,9 +2,15 @@
 
 Status: current, 2026-09-14
 
-Every file under `docs/` is listed here. `Status: current` is a
+Every document under `docs/` is listed here or in a linked directory index. `Status: current` is a
 contract. Dated validation evidence records the tested state; it is not a current
 command recipe. Superseded designs and duplicate inventories are retained in Git.
+
+## Architecture and features
+
+- [Architecture atlas](architecture/README.md) — eight diagrams covering the platform, key features and six components, with implementation sources fixed to the 2026-09-14 snapshot. This is an introduction; current runtime contracts remain below. The atlas indexes all SVG and PNG assets.
+- [Offline atlas page](architecture/index.html) — open it from a local checkout to browse the diagrams and download individual images.
+- [Atlas generator](architecture/build_atlas.py), [renderer](architecture/render_atlas.cjs) and [metadata](architecture/atlas.json) — editable content, image export and local layout checks; usage is in the atlas index. Local render evidence is ignored by [the atlas ignore file](architecture/.gitignore).
 
 ## Current contracts
 

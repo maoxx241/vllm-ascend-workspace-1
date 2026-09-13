@@ -266,9 +266,11 @@ class SetupTests(unittest.TestCase):
                 return redirect
             return original(endpoint, method, fields)
         self.client.api = api
-        with mock.patch.object(forks.time, "sleep") as sleep:
+        # Keep subprocess retry sleeps real and outside the fork-poll assertion.
+        with mock.patch.object(forks, "time", wraps=forks.time) as local_time:
+            local_time.sleep = mock.Mock()
             self.assertEqual(self.setup_forks(apply=True)["status"], "configured")
-        sleep.assert_called_once_with(2)
+        local_time.sleep.assert_called_once_with(2)
 
     def test_github_assigned_fork_name_is_saved_and_reused(self):
         self.client.repos["alice/vllm-ascend-workspace"] = {"full_name": self.upstream, "fork": False}
@@ -297,7 +299,8 @@ class SetupTests(unittest.TestCase):
                 return {"full_name": self.upstream}
             return original(endpoint, method, fields)
         self.client.api = api
-        with mock.patch.object(forks.time, "sleep"), self.assertRaises(forks.ForkPolicyError):
+        with mock.patch.object(forks, "time", wraps=forks.time) as local_time, self.assertRaises(forks.ForkPolicyError):
+            local_time.sleep = mock.Mock()
             self.setup_forks(apply=True)
         self.assertFalse(forks.git(self.root, "remote").stdout.strip())
 

@@ -25,6 +25,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [coordinator-consumption.md](coordinator-consumption.md) — how this scaffold consumes the installed vaws-coordinator package.
 - [dependency-plane.md](dependency-plane.md) — `uv.lock` is the only pin; `vaws_deps.py status|doctor|sync`. Covers immutable preparation and capability reporting.
 - [npu-fleet-monitor.md](npu-fleet-monitor.md) — local deploy and lifecycle of the standalone vaws-top fleet monitor.
+- [knowledge-maintenance.md](knowledge-maintenance.md) — VA/NPU/AI/infra reference capabilities, independent Grok curation and decoupled feed transport; ordinary tasks keep three optional knowledge tools.
 - [property-testing.md](property-testing.md) — property-based tests for the deterministic cores.
 - [remote-dev-consumption.md](remote-dev-consumption.md) — direct existing-container/code/script work, full-ID endpoint reuse, unsupported boundaries and installed remote-dev wiring.
 - [target-state.md](target-state.md) — current component ownership and runtime contracts, including the single minimal knowledge contract: optional reference, plain Markdown and no per-task bookkeeping.

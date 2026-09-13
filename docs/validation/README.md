@@ -16,9 +16,12 @@ copied into this public archive.
 
 The [nine principles](../design-principles.md) and
 [runtime ownership](../target-state.md) remain the governing contracts. The
-audited consumer checkout was `7f2ebb8d2be4c0774f9663b1cfcef43dc3a714dd`.
-The source-workspace and knowledge tasks were still integrating newer changes,
-so its dependency pins are not presented as the final deployed platform.
+initially audited consumer checkout was `7f2ebb8d2be4c0774f9663b1cfcef43dc3a714dd`.
+The reference/coverage audit was refreshed after integration at
+`d14f5af40bcf1b9fd02906be08fb29ea211db60d`, which includes upstream
+`9bf2265791bb11acf8e8bb1e22637b926d5bd350`. Source-workspace PR 166 is merged;
+the knowledge task is still integrating its final package and consumer pins.
+These facts do not relabel earlier device or performance runs.
 
 ## Versioned evidence
 
@@ -27,7 +30,7 @@ so its dependency pins are not presented as the final deployed platform.
 | [Existing-container follow-up](../existing-container-validation-2026-09-13.md) | Final installed four-machine 32/32 checks; 12 owned jobs quiet; original container/code/environment preserved; real SDK gateway exposed 18 remote tools without task context | remote-dev `a65362882a85b4d460be3e1d15e90de9fb507e70`, coordinator `921ce2af`, knowledge `3a65926d`; CPU transport and script semantics, no NPU-model result |
 | [Managed final implementation](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/blob/a483724f89625e2eec1479bcaf48f8604bbf99c2/docs/managed-performance-redesign-2026-09-13.md) | Real MCP SDK/SCM input isolation, bounded wait with responsive control, actual final consumer integration: 88 passed, 1 skipped, 20 subtests | coordinator `9f94f27964437f962e6037529ccf2f0b1c709ede`, consumer `a483724f89625e2eec1479bcaf48f8604bbf99c2`; local/CI behavior, not final-version performance |
 | [Managed measured pairs](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/blob/a483724f89625e2eec1479bcaf48f8604bbf99c2/docs/managed-performance-redesign-2026-09-13.md) | Native submit-to-release 98.61 → 96.78 s; warm 26.87 → 28.31 s; actual FP32 kernel/reference check | baseline `384b89b`, native candidate `a91f19a`, warm candidate `d2095dc`; one serial pair, unequal immutable/editable installation, B reused A bundle, concurrent Windows tests; no warm speedup or universal 1-second result |
-| [Source-workspace candidate](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/blob/340769d826ab64b78ab840317c74bc6709716f08/docs/source-workspace-validation-2026-09-13.md) | Four-machine fixed three-repository capture/materialization and original-state preservation; 24 local layout migrations plus 3 boundary cases | source binding coordinator `66e2d2b3aa30512eef433e0594ebf815e574b6ce`; not a full newer managed lifecycle, current NPU dependency validation or native GUI result |
+| [Source-workspace implementation](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/blob/4b11ae543ac4b9862fe6be9a4a82d14e55ecd9d8/docs/source-workspace-validation-2026-09-13.md) | Four-machine fixed three-repository capture/materialization and original-state preservation; 24 local layout migrations plus 3 boundary cases; final exact-head workspace/skill CI passed on Linux, Windows and macOS | source binding experiment uses coordinator `66e2d2b3aa30512eef433e0594ebf815e574b6ce`; final CI head `4b11ae543ac4b9862fe6be9a4a82d14e55ecd9d8`; neither proves new NPU compatibility or every native GUI |
 | Real Kimi source-workspace ACP | Actual installed Kimi 0.42.0 initialize/session, real SessionStart hook, persisted cwd, 3 prepared sources and clean EOF: 10 checks passed | coordinator `a91f19a`, remote-dev `a6536288`, knowledge `485ddc0`; local lifecycle used a noncredential sentinel and loopback discard URL, with no prompt/LLM/authenticated inference; not Grok Bot or all-client UI acceptance |
 | [Shared-host execution and messaging](../shared-root-host-validation-2026-09-12.md) | Four managed CPU runs, busy-NPU queuing, isolated-identity real SSH message/reply delivery, 1,103 native artifacts restored/loaded across four machines | coordinator `0d0e814dc673677be62d2fa60e204552d57e22ce`; busy devices prevented new kernel runs; old periodic updater details are superseded by the current contract |
 | [Windows/WSL platform pass](../windows-validation-2026-09-11.md) | Three owner suites, all then-current skill suites, 120 ordinary live SSH calls, real dense knowledge release/import/switch and fleet process lifecycle | owner commits are listed in that report; no NPU work, live ModelScope authentication/download, macOS or ARM64 acceptance |
@@ -40,8 +43,13 @@ were merged. Their exact tested heads were successful in
 and [consumer CI 34741553507](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/actions/runs/34741553507).
 The consumer merge was `989dd74e04fac437661723a8938e6c89a5b26bb5`.
 [Consumer PR 166](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/pull/166)
-was still open at head `340769d826ab64b78ab840317c74bc6709716f08`.
-These are observations at the archive cutoff; later merge or deployment state
+was rechecked after integration: merged at
+`a80923e6325fb53629332b4f5688fe37b28e0f3e`, with final head
+`4b11ae543ac4b9862fe6be9a4a82d14e55ecd9d8` passing
+[CI 34743399890](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/actions/runs/34743399890)
+on Ubuntu/Python 3.11 and Windows/macOS/Python 3.13. Job durations were about
+94, 546 and 256 seconds respectively; these are CI wall times, not task-latency
+benchmarks. These are observations at the archive cutoff; later deployment state
 must come from its actual result. A passed CI run proves only its selected jobs.
 
 ### Verified local suite snapshot
@@ -87,8 +95,8 @@ remain covered below. Counts describe this audit, not an API quota.
 | coordinator | `vaws_session`, `vaws_run`, `vaws_execution`, `vaws_finish`, `vaws_message` | Fixed input, resource ownership, wait/control, quiet/release, real isolated messaging; final correctness and measured candidates remain separate |
 | knowledge | query/explain/capture; explicit owner maintenance/publication | Earlier optional/inert-provider and dense distribution evidence; current knowledge task owns final catalog/context/curation/media/shared-release validation |
 | vaws-top | package fleet queries; local deploy/start/status/restart/stop | Historical released monitor lifecycle and current launcher tests; observation never proves allocation. This checkout selects release `v0.1.2`, not necessarily the running instance |
-| local dependencies | status/doctor/sync, immutable environment selection | Existing platform and source-workspace checks; new sync no-knowledge behavior belongs to the integrating source-workspace revision |
-| source preparation | requested initialization/forks/update, independent bundles and resume | Actual fixed capture, materialization and controlled layout migration; new source-lock workflow/final head remains its owner's acceptance |
+| local dependencies | status/doctor/sync, immutable environment selection | Existing platform and source-workspace checks; package-only sync and no knowledge preparation are covered by merged PR166 and its three-platform control-plane CI |
+| source preparation | requested initialization/forks/update, exact source-lock pairs, independent clones and resume | Current `sources.lock.json` supplies official development/release-vLLM pairs with the same Ascend revision; actual capture/migration and exact-head CI are retained. A declared pair is not an NPU compatibility result |
 | native clients and routing | Codex, Cursor, Claude, Grok Build, Kimi Code hooks/attachments/gateways | Real selected client/ACP cases plus configuration fixtures; Grok Build evidence does not establish Grok Bot behavior; no blanket GUI certification |
 | engineering support | manifests, output envelope, comparability, local runner, projections, path/leak guards | Existing local test cases and actual retained results; no additional Agent-authored record or completion gate |
 
@@ -114,6 +122,14 @@ remain covered below. Counts describe this audit, not an API quota.
 | vllm-ascend-serving | 45, including 1 skip | Historical actual Qwen3-0.6B health/models/first-token and ACL replay; no current-pin model validation |
 
 The tests column refers only to the verified historical local snapshot above.
+Current `vllm/` and `vllm-ascend/` are independent repositories prepared on
+demand from `sources.lock.json`, not parent Git submodules. Source declarations
+and their updater belong to `workspace_sources.py` / `vaws_source_lock.py`;
+the retired pin-resolver script is not an active check. The refreshed coverage
+index includes these owners and the current source-lock/view tests. Read the
+[current source contract](../source-workspace.md) for behavior; dated reports
+retain the layouts and versions they actually exercised.
+
 A script being present, help succeeding, a mock returning ready, or an existing
 model process is never substituted for an actual claimed device operation.
 

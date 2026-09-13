@@ -1,6 +1,7 @@
 {
   "status": "dated engineering evidence index, 2026-09-13; not domain knowledge or a task gate",
-  "workspace_audit_revision": "7f2ebb8d2be4c0774f9663b1cfcef43dc3a714dd",
+  "workspace_audit_revision": "d14f5af40bcf1b9fd02906be08fb29ea211db60d",
+  "previous_audit_revision": "7f2ebb8d2be4c0774f9663b1cfcef43dc3a714dd",
   "evidence": [
     {
       "id": "windows-20260911",
@@ -49,16 +50,19 @@
     },
     {
       "id": "source-workspace-20260913",
-      "record": "https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/blob/340769d826ab64b78ab840317c74bc6709716f08/docs/source-workspace-validation-2026-09-13.md",
+      "record": "https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/blob/4b11ae543ac4b9862fe6be9a4a82d14e55ecd9d8/docs/source-workspace-validation-2026-09-13.md",
       "version": {
         "source_binding_coordinator": "66e2d2b3aa30512eef433e0594ebf815e574b6ce",
         "native_acp_coordinator": "a91f19a9d7c63d8fe1228ad91aa02eecc6cd82ab",
         "remote_dev": "a65362882a85b4d460be3e1d15e90de9fb507e70",
         "native_acp_knowledge": "485ddc0d71e86915487a1204032426a3d874ba0e",
-        "native_client": "Kimi Code 0.42.0"
+        "native_client": "Kimi Code 0.42.0",
+        "consumer_ci_head": "4b11ae543ac4b9862fe6be9a4a82d14e55ecd9d8",
+        "consumer_merge": "a80923e6325fb53629332b4f5688fe37b28e0f3e",
+        "ci_run": "34743399890"
       },
-      "scope": "Four-machine immutable three-repository materialization; actual Kimi ACP/hook cwd and 3 native-prepared sources; 24 Git layout migrations plus 3 boundaries.",
-      "limits": "PR166 was open at audit; no all-client GUI, authenticated model inference, final lifecycle or NPU compatibility claim. ACP uses a noncredential sentinel and loopback discard endpoint."
+      "scope": "Four-machine immutable three-repository materialization; actual Kimi ACP/hook cwd and 3 native-prepared sources; 24 Git layout migrations plus 3 boundaries. Final PR166 exact-head Linux/Windows/macOS workspace and skill CI succeeded.",
+      "limits": "PR166 merged; its CI establishes selected control-plane tests, not all-client GUI, authenticated model inference, final NPU lifecycle or source-pair compatibility. The native ACP sample uses a noncredential sentinel and loopback discard endpoint."
     },
     {
       "id": "local-suites-20260913",
@@ -117,7 +121,7 @@
     {
       "id": "G1",
       "scope": "final integrated revisions",
-      "required": "After the source-workspace/knowledge owners finalize pins, run only their affected consumer/owner checks and retain exact-head CI. Do not relabel historical raw runs as final-pin execution."
+      "required": "PR166 source-workspace exact-head CI is retained. After final knowledge integration, run only affected consumer/owner checks and retain its exact-head CI. Do not relabel historical raw runs as final-pin execution or source declarations as NPU compatibility."
     },
     {
       "id": "G2",
@@ -309,18 +313,25 @@
       "entries": [
         "initialization/personal forks",
         "canonical update",
+        "exact official development/release source pairs in sources.lock.json",
         "independent source preparation and native resume"
       ],
       "sources": [
         ".agents/scripts/workspace_forks.py",
         ".agents/scripts/vaws_start.py",
-        "docs/forks-and-updates.md"
+        ".agents/scripts/workspace_sources.py",
+        ".agents/lib/vaws_source_lock.py",
+        "sources.lock.json",
+        "docs/forks-and-updates.md",
+        "docs/source-workspace.md"
       ],
       "tests": [
         ".agents/tests/test_workspace_forks.py",
         ".agents/tests/test_workspace_update.py",
         ".agents/tests/test_vaws_start.py",
-        ".agents/tests/test_native_workspace.py"
+        ".agents/tests/test_native_workspace.py",
+        ".agents/tests/test_vaws_source_lock.py",
+        ".agents/tests/test_source_view.py"
       ],
       "evidence": [
         "source-workspace-20260913",

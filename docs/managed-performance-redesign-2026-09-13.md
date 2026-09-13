@@ -19,7 +19,7 @@ Agent round trips from those paths without introducing another task checklist.
 | Repeated logs during successful service startup | Cached owner state plus current HTTP readiness; diagnostics on failure | Current model/token readiness cannot be inferred from old logs |
 | Full envelope repeated in serving output | Business result and reference to the retained full record | Record-write failure is explicit and preserves the business outcome |
 | Service implementation loaded just to validate input | Shared lightweight request validation | Local-only invalid requests do not initialize the service runtime |
-| Git queries inherit the concurrently read MCP input pipe | Explicit empty input for non-interactive local Git operations | Payload-bearing Git operations retain their input; source binding and capture complete on Windows |
+| Git queries inherit the concurrently read MCP input pipe | Dedicated protocol reader and empty default child input; explicit input for local Git helpers | Third-party SCM calls cannot inherit RPC input; payload-bearing subprocesses retain their data |
 
 `TaskClient.run` accepts a bounded UTF-8 `script_file` and optional
 `wait_until`/`wait_timeout_seconds`. `wait` no longer accepts `poll_interval`.
@@ -107,9 +107,12 @@ failure and an actual loopback HTTP response that times out after sending 200
 headers. The official MCP SDK exercises local session, invalid run, ownership,
 finish and clean subprocess exit. Platform CI is required for both linked PRs.
 The real stdio regression keeps MCP input open while a worker binds a repository
-and captures a dirty native source. It failed before explicit Git input isolation
-and passed afterward; the original official-SDK consumer lifecycle also passed
-without replacing its Git subprocess calls.
+and captures a dirty native source with actual setuptools-scm version extraction.
+It failed before input isolation and passed afterward on Windows and POSIX;
+explicit subprocess payloads and normal protocol EOF are also covered. The
+official-SDK consumer lifecycle and SCM capture passed without replacing Git or
+SDK calls. The final consumed coordinator commit is
+`9f94f27964437f962e6037529ccf2f0b1c709ede`.
 
 Implementation and exact platform results:
 [coordinator PR 33](https://github.com/vllm-ascend-workspace/vaws-coordinator/pull/33)

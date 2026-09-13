@@ -32,6 +32,8 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Dated design and validation evidence
 
+- [mechanism-performance-review-2026-09-13.md](mechanism-performance-review-2026-09-13.md) — critical-path and reuse review, local source-packet and lock probes, and ranked mechanism proposals with explicit measurement limits.
+
 - [fresh-xhigh-six-comparison-2026-09-13.md](fresh-xhigh-six-comparison-2026-09-13.md) — independent fresh xhigh scenario-6 Agent comparison, common business input, explicit timing boundaries and retained failures.
 
 - [native-kernel-recipe-performance-2026-09-13.md](native-kernel-recipe-performance-2026-09-13.md) — controlled incremental recipe compilation timings, retained fallback and failed attempts, and actual operator validation.

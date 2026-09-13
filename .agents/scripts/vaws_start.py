@@ -2,6 +2,19 @@
 """Prepare one new native task's workspace; repeat calls reuse its selection."""
 from __future__ import annotations
 
+
+# Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
+if __name__ == "__main__":
+    import sys as _vaws_sys
+    from pathlib import Path as _VawsPath
+    _vaws_parents = _VawsPath(__file__).absolute().parents
+    _vaws_lib = _vaws_parents[1] / "lib" if len(_vaws_parents) > 1 else None
+    _vaws_entry = None
+    if _vaws_lib is not None and (_vaws_lib / "vaws_diagnostics_adapter.py").is_file():
+        _vaws_sys.path.insert(0, str(_vaws_lib))
+        from vaws_diagnostics_adapter import bootstrap as _vaws_bootstrap
+        _vaws_entry = _vaws_bootstrap(__file__)
+
 import argparse
 import json
 from pathlib import Path
@@ -28,6 +41,8 @@ from vaws_worktree_setup import configure_target, unpinned_environment
 CLIENTS = ("codex", "cursor", "claude", "grok", "kimi")
 
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 def native_source_preference(cwd: str, sources: dict) -> str | None:
     actual = Path(cwd).resolve()
     for name, path in sources.items():
@@ -46,6 +61,7 @@ def native_prepared(context: dict, project: Path) -> tuple[Path, dict] | None:
     return selected, saved_ready(selected)
 
 
+@_diagnostic_measured('startup.prepare')
 def prepare_latest(project: Path, source_channel: str = "development", *, sources=None, latest=False) -> tuple[Path, dict, dict]:
     """Select locally by default; contact upstream only for an explicit latest request."""
     waiting = time.monotonic()
@@ -100,6 +116,7 @@ def selected_result(workspace: Path, receipt: dict, context: dict, *, status: st
             "evidence": str(evidence), **facts}
 
 
+@_diagnostic_measured('startup.resume')
 def reuse(record: Path) -> dict:
     """Resume a completed selection without shared locks, Git or preparation."""
     from vaws_source_view import recorded_focus
@@ -117,6 +134,7 @@ def reuse(record: Path) -> dict:
     return {**previous, "status": "reused"}
 
 
+@_diagnostic_measured('startup.task')
 def start(client: str, project: Path = ROOT, context_file: str | None = None,
           *, source_channel: str = "development", sources=None, latest=False, preferred=None) -> dict:
     from vaws_coordinator.agent_session import AgentSessions, load_context
@@ -263,4 +281,4 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit((_vaws_entry.run(main) if _vaws_entry else main()))

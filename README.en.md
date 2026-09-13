@@ -41,6 +41,27 @@ The Agent selects the relevant tool or skill. Tools generate execution reference
 
 The workspace owns project materials, client wiring and business skills. `remote-dev` owns explicit endpoint I/O; `vaws-coordinator` owns managed sources, environments, NPUs and execution; `vaws-knowledge` owns Markdown lookup and capture; `vaws-top` owns fleet observation. Observation does not allocate devices. Native attachments establish task identity. Existing containers and unrelated worktrees are preserved.
 
+## Logs and issue diagnostics
+
+Tools automatically record operations and phase timings at `INFO` level. Set
+`VAWS_LOG_LEVEL=DEBUG` for additional diagnostic detail. Logs use the platform
+user state directory (`LOCALAPPDATA/vaws/diagnostics` on Windows or
+`XDG_STATE_HOME/vaws/diagnostics` on POSIX); `VAWS_DIAGNOSTICS_ROOT` overrides it.
+MCP stdout remains protocol data; diagnostics use bounded, rotated JSONL files
+and stderr. Missing diagnostics or log write failures do not block business work.
+
+To attach a sanitized local support file to an issue, run the following using
+the selected runtime interpreter and the absolute workspace script path:
+
+```text
+python /path/to/W/.agents/scripts/vaws_diagnose.py bundle --root /path/to/diagnostics --output /path/to/support.json
+```
+
+The command reads existing local evidence. It does not upload, replay a task or
+contact a remote host. Automatic reporting is configured separately at
+installation; normal tools only write logs. Missing cleanup or timing evidence
+stays unknown. See the [diagnostics contract](docs/diagnostics-system.md).
+
 ## Business skills
 
 First-use setup follows the one-time [repo-init reference](.agents/bootstrap/repo-init/SKILL.md); local monitor lifecycle uses [monitor commands](docs/npu-fleet-monitor.md). Neither participates in automatic business Skill discovery.

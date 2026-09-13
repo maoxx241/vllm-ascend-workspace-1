@@ -3,6 +3,18 @@
 
 from __future__ import annotations
 
+# Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
+if __name__ == "__main__":
+    import sys as _vaws_sys
+    from pathlib import Path as _VawsPath
+    _vaws_parents = _VawsPath(__file__).absolute().parents
+    _vaws_lib = _vaws_parents[3] / "lib" if len(_vaws_parents) > 3 else None
+    _vaws_entry = None
+    if _vaws_lib is not None and (_vaws_lib / "vaws_diagnostics_adapter.py").is_file():
+        _vaws_sys.path.insert(0, str(_vaws_lib))
+        from vaws_diagnostics_adapter import bootstrap as _vaws_bootstrap
+        _vaws_entry = _vaws_bootstrap(__file__)
+
 import argparse
 import importlib.util
 import os
@@ -102,7 +114,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--log-in-local-dir",
         action="store_true",
-        help="Append output to LOCAL_DIR/download.log.",
+        help="Capture output in rotated user diagnostics (legacy option name).",
     )
     parser.add_argument(
         "--auto-install",
@@ -145,15 +157,6 @@ def ensure_modelscope(auto_install: bool) -> None:
     command = [uv, "run", "--no-project", "--with", "modelscope", "python",
                str(Path(__file__).resolve()), *[value for value in sys.argv[1:] if value != "--auto-install"]]
     raise SystemExit(subprocess.call(command))
-
-
-def redirect_logs(local_dir: Path) -> None:
-    local_dir.mkdir(parents=True, exist_ok=True)
-    log_path = local_dir / "download.log"
-    log = log_path.open("a", encoding="utf-8", buffering=1)
-    os.dup2(log.fileno(), sys.stdout.fileno())
-    os.dup2(log.fileno(), sys.stderr.fileno())
-    print(f"\n===== download restart {time.strftime('%Y-%m-%dT%H:%M:%S%z')} =====")
 
 
 def download_with_retry(args: argparse.Namespace) -> Path:
@@ -210,11 +213,12 @@ def main() -> int:
     args = parse_args()
     configure_environment(args)
     ensure_modelscope(auto_install=args.auto_install)
-    if args.log_in_local_dir:
-        redirect_logs(args.local_dir)
-    download_with_retry(args)
+    from contextlib import nullcontext
+    from vaws_diagnostics_adapter import captured_process_output
+    with captured_process_output("model.download_output") if args.log_in_local_dir else nullcontext():
+        download_with_retry(args)
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit((_vaws_entry.run(main) if _vaws_entry else main()))

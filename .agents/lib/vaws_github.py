@@ -6,6 +6,20 @@ are created as independent clones at the versions in sources.lock.json.
 """
 from __future__ import annotations
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
+# Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
+if __name__ == "__main__":
+    import sys as _vaws_sys
+    from pathlib import Path as _VawsPath
+    _vaws_parents = _VawsPath(__file__).absolute().parents
+    _vaws_lib = _vaws_parents[1] / "lib" if len(_vaws_parents) > 1 else None
+    _vaws_entry = None
+    if _vaws_lib is not None and (_vaws_lib / "vaws_diagnostics_adapter.py").is_file():
+        _vaws_sys.path.insert(0, str(_vaws_lib))
+        from vaws_diagnostics_adapter import bootstrap as _vaws_bootstrap
+        _vaws_entry = _vaws_bootstrap(__file__)
+
 import argparse
 import json
 import os
@@ -37,6 +51,7 @@ class GitHubAPIError(ForkPolicyError):
 
 
 class GitHubClient:
+    @_diagnostic_measured('source.github_request')
     def api(self, endpoint: str, method: str = "GET", fields: dict | None = None) -> dict:
         from vaws_workspace_update import redact
 
@@ -288,6 +303,7 @@ def canonical_redirect(payload: dict, requested: str, upstream: str) -> bool:
             and resolved.casefold() != requested.casefold())
 
 
+@_diagnostic_measured('source.fork_setup')
 def setup(repo_root: Path, github_user: str | None = None, *, apply: bool = False,
           roles: list[str] | None = None, replace_primary_remotes: bool = False,
           client: GitHubClient | None = None) -> dict:
@@ -435,4 +451,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit((_vaws_entry.run(main) if _vaws_entry else main()))

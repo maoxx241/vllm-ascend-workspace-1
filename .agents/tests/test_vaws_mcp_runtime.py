@@ -154,16 +154,27 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await provider.close()
 
     async def test_missing_backend_returns_failure_without_hidden_fallback(self):
-        provider = runtime.Provider("task", self.root)
-        try:
-            with patch.object(runtime, "provider_command", return_value=([sys.executable, str(self.root / "missing.py")], {})):
-                backend = provider.backend(self.selections["new"])
-                with self.assertRaises(Exception):
-                    await asyncio.wait_for(backend.request("list_tools"), timeout=10)
-                self.assertTrue(backend.stderr.is_file())
-                self.assertIn("missing.py", backend.stderr.read_text())
-        finally:
-            await provider.close()
+        from vaws_diagnostics import configure
+        diagnostics_root = (self.root / "diagnostics").resolve()
+        with patch.dict("os.environ", {"VAWS_DIAGNOSTICS_ROOT": str(diagnostics_root), "VAWS_LOG_LEVEL": "INFO"}):
+            recorder = configure("vaws-workspace", root=str(diagnostics_root))
+            provider = runtime.Provider("task", self.root)
+            try:
+                with patch.object(runtime, "provider_command", return_value=([sys.executable, str(self.root / "missing.py")], {})):
+                    backend = provider.backend(self.selections["new"])
+                    with self.assertRaises(Exception):
+                        await asyncio.wait_for(backend.request("list_tools"), timeout=10)
+                    self.assertTrue(backend.stderr.is_file())
+                    records = [json.loads(line) for line in backend.stderr.read_text(encoding="utf-8").splitlines()]
+                    previews = [row.get("attributes", {}).get("preview", "") for row in records
+                                if row.get("event") == "process.stderr"]
+                    # A private/high-entropy temporary path may be redacted in
+                    # full. The OS failure must remain diagnostically useful.
+                    self.assertTrue(any("can't open file" in text and "[Errno 2]" in text for text in previews))
+            finally:
+                await provider.close()
+                recorder.close()
+            self.assertEqual([process.returncode for process in self.processes], [2])
 
     async def test_task_without_context_does_not_start_a_runtime(self):
         for kind in ("task",):
@@ -324,17 +335,19 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await provider.close()
 
-    async def test_evidence_directory_failure_finishes_startup_with_a_locatable_error(self):
+    async def test_diagnostic_directory_failure_does_not_block_owner_startup(self):
         provider = runtime.Provider("remote", self.root)
-        backend = provider.backend(self.selections["new"])
-        backend.stderr.parent.parent.mkdir(parents=True, exist_ok=True)
-        backend.stderr.parent.write_text("not a directory")
+        blocked = self.root / "unwritable-diagnostics"
+        blocked.write_text("not a directory")
         try:
-            with self.assertRaisesRegex(RuntimeError, "evidence:"):
-                await asyncio.wait_for(backend.request("list_tools"), timeout=3)
+            with patch.dict("os.environ", {"VAWS_DIAGNOSTICS_ROOT": str(blocked)}):
+                backend = provider.backend(self.selections["new"])
+                result = await asyncio.wait_for(backend.request("list_tools"), timeout=3)
+                self.assertEqual(result.tools[0].name, "knowledge_query")
         finally:
             await provider.close()
-        self.assertEqual(self.processes, [])
+        self.assertEqual(len(self.processes), 1)
+
 
 
 class SelectionTests(unittest.TestCase):

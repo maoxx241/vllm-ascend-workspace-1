@@ -34,6 +34,8 @@ ENV_PREAMBLE = (
 )
 
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 def ssh_write_text(endpoint: SshEndpoint, content: str, remote_path: str) -> None:
     """Write text content to a remote file via stdin (avoids shell quoting issues)."""
     result = ssh_run_bytes(endpoint, f"cat > {shlex.quote(remote_path)}", stdin=content.encode())
@@ -144,6 +146,7 @@ exec msprof --output="$MSPROF_OUT" \\
 '''
 
 
+@_diagnostic_measured('business.msprof_export')
 def run_msprof_export(
     ep: SshEndpoint,
     msprof_output_dir: str,

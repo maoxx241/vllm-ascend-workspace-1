@@ -46,7 +46,7 @@ uv run --no-project python "$SKILL_DIR/scripts/modelscope_auto.py" ensure \
 - If verification reports a real mismatch, use the existing authorization to decide whether to repair; ask only if replacing those files was not authorized.
 - It preserves partial files and never deletes weights.
 
-The manager writes `download.pid`, `download.launch.log`, `download.log`, `verify.log`, `modelscope_sha256.report.json`, `modelscope_sha256.tsv`, and `SHA256SUMS` in `LOCAL_DIR`.
+The manager writes `download.pid`, `modelscope_sha256.report.json`, `modelscope_sha256.tsv`, and `SHA256SUMS` in `LOCAL_DIR`. Download and verification progress use the shared, redacted, rotated diagnostic log root. The background worker owns its output collector, so logs continue after the launcher exits. Historical local log files are preserved but no longer appended.
 
 Pass `--auto-install` when the requested download needs a missing ModelScope SDK.
 It resolves that dependency in an isolated uv environment and records the actual

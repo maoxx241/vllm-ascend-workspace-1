@@ -91,6 +91,8 @@ _STAGE_MARKERS: list[tuple[str, str]] = [
 ]
 
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 def _require_token(value: str, label: str) -> str:
     if "\n" in value or "\r" in value:
         raise ValueError(f"{label} must not contain newline characters")
@@ -197,6 +199,7 @@ def classify_stage(text: str) -> str | None:
     return None
 
 
+@_diagnostic_measured('business.service_ready')
 def wait_for_ready(ep: SshEndpoint, port: int, timeout: int, served_model: str, *, still_running, log_text) -> dict[str, Any]:
     start = time.monotonic()
     deadline = start + timeout
@@ -255,6 +258,7 @@ def diagnose_env_failure(stderr_tail: str) -> dict[str, Any] | None:
     return {"error_tags": sorted(set(matched)), "cause": "remote Python import or runtime initialization failed"}
 
 
+@_diagnostic_measured('business.failure_evidence')
 def startup_failure_details(client, execution_id: str | None, receipt: dict[str, Any] | None = None) -> dict[str, Any]:
     if not execution_id:
         return {}
@@ -320,6 +324,7 @@ def classify_run_state(state: str) -> str:
     return "pending"
 
 
+@_diagnostic_measured('business.await_launch')
 def wait_for_launch(client, reply: dict[str, Any], deadline: float) -> dict[str, Any]:
     """Follow the submitted execution through preparation using its owner."""
     execution_id = reply.get("execution_id")
@@ -394,6 +399,7 @@ def _parse_extra_env(items: list[str]) -> dict[str, str]:
     return extra
 
 
+@_diagnostic_measured('business.save_result')
 def write_business_report(task_id: str, payload: dict[str, Any]) -> None:
     report = {key: payload.get(key) for key in (
         "model", "served_model_name", "tp", "dp", "devices", "host", "allow_external_busy", "env", "extra_args",

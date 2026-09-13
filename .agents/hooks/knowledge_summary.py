@@ -2,13 +2,24 @@
 """Thin native final-response adapter over the installed knowledge package."""
 from __future__ import annotations
 
+# Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
+if __name__ == "__main__":
+    import sys as _vaws_sys
+    from pathlib import Path as _VawsPath
+    _vaws_parents = _VawsPath(__file__).absolute().parents
+    _vaws_lib = _vaws_parents[1] / "lib" if len(_vaws_parents) > 1 else None
+    _vaws_entry = None
+    if _vaws_lib is not None and (_vaws_lib / "vaws_diagnostics_adapter.py").is_file():
+        _vaws_sys.path.insert(0, str(_vaws_lib))
+        from vaws_diagnostics_adapter import bootstrap as _vaws_bootstrap
+        _vaws_entry = _vaws_bootstrap(__file__)
+
 import argparse
 import contextlib
 import json
 import os
 import re
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -90,11 +101,14 @@ def main() -> int:
                     try:
                         # Only a usable final response activates this optional
                         # owner. A hop must receive the original bounded event.
-                        with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors, contextlib.redirect_stderr(errors):
+                        from vaws_diagnostics_adapter import operation, captured_stderr
+                        with operation("hook.knowledge_prepare") as observation, captured_stderr(observation) as errors, contextlib.redirect_stderr(errors):
                             ensure_workspace_interpreter(repo_root=ROOT, packages=("vaws_knowledge",),
                                                          stdin=raw.encode("utf-8"))
                     except SystemExit as exc:
                         if exc.code:
+                            from vaws_diagnostics_adapter import report_failure
+                            report_failure("hook.optional_preparation_unavailable", exc)
                             print("{}")
                         return 0
                     from vaws_knowledge.summary_hook import capture_summary
@@ -108,6 +122,8 @@ def main() -> int:
                 from vaws_workspace_update import redact
                 print(redact(json.dumps(facts, ensure_ascii=False)), file=sys.stderr)
     except Exception as exc:
+        from vaws_diagnostics_adapter import report_failure
+        report_failure("hook.summary_failed", exc, scoped=scoped)
         if scoped:
             from vaws_workspace_update import redact
             print(json.dumps({"event": "knowledge_summary", "client": args.client, "status": "failed",
@@ -118,4 +134,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit((_vaws_entry.run(main) if _vaws_entry else main()))

@@ -43,6 +43,12 @@ Agent 按任务选择工具或技能；执行引用、状态推进和报告由�
 
 知识库面向 vLLM-Ascend、vLLM、NPU、AI 和推理基础设施。外部资料导入、PR 经验整理、专题研究和跨次摘要由独立工具或 Grok Bot 维护；普通任务仍然按需查询、阅读原文或留存 Markdown。图片和扫描件优先使用 Agent 自身能力，任务启动不加载新的多模态模型。能力与资源边界见[知识维护说明](docs/knowledge-maintenance.md)，VAWS 工具自身的验证证据见[独立归档](docs/validation/README.md)。
 
+## 日志与问题定位
+
+工具自动记录调用、分段耗时、运行时选择和失败因果；正常任务无需额外登记。默认日志等级为 `INFO`，需要细节时可为启动进程设置 `VAWS_LOG_LEVEL=DEBUG`。日志写入平台用户目录：Windows 为 `%LOCALAPPDATA%/vaws/diagnostics`，Linux 为 `$XDG_STATE_HOME/vaws/diagnostics`（未设置时使用 `~/.local/state/vaws/diagnostics`）；`VAWS_DIAGNOSTICS_ROOT` 可覆盖该位置。MCP stdout 保持协议专用，诊断输出不会混入工具结果。
+
+提交 issue 时，可以用已选择的 Python 执行工作区绝对路径下的 `.agents/scripts/vaws_diagnose.py bundle --root <diagnostics-root> --output <support.json>`，生成有界、脱敏的本地诊断材料；可加返回的 `--operation-id` 缩小范围。该命令不重跑业务、不连接远端、不自动上传。独立的上报 worker 按安装配置运行，不给每个任务增加步骤。日志存储失败不会改写业务结果；未观察到的退出或清理保留为未知。等级、容量和上报边界见[诊断系统](docs/diagnostics-system.md)。
+
 ## 业务技能
 
 首次仓库设置见一次性 [repo-init](.agents/bootstrap/repo-init/SKILL.md)；本地监控生命周期使用[监控命令](docs/npu-fleet-monitor.md)。两者均不进入业务 Skill 自动发现。

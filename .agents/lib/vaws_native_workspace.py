@@ -5,6 +5,8 @@ it does not allocate tasks, infer session identity, or manage workspace leases.
 """
 from __future__ import annotations
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured, wrap_context, phase, context_environment
+
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -29,15 +31,18 @@ def git(root: Path, *args: str, data: bytes | None = None, env=None, timeout: in
     # Calls target an explicit repository root (or a parent for clone/init).
     # Windows Git can miss a deeply nested .git even with core.longpaths;
     # never let discovery silently redirect an operation to an ancestor.
-    environment = dict(os.environ if env is None else env)
+    environment = context_environment(os.environ if env is None else env)
     environment["GIT_CEILING_DIRECTORIES"] = str(Path(root).resolve().parent)
-    result = subprocess.run(
-        ["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []),
-         "--no-optional-locks", "-C", str(root), *args], input=data, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, env=environment, timeout=timeout, check=False,
-    )
-    if result.returncode:
-        raise WorkspaceCopyError(result.stderr.decode("utf-8", "replace").strip())
+    action = args[0] if args else "unknown"
+    measured = action in {"fetch", "clone", "checkout", "reset", "push", "ls-remote"}
+    with phase("source.git", action=action, level="INFO" if measured else "DEBUG"):
+        result = subprocess.run(
+            ["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []),
+             "--no-optional-locks", "-C", str(root), *args], input=data, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, env=environment, timeout=timeout, check=False,
+        )
+        if result.returncode:
+            raise WorkspaceCopyError(result.stderr.decode("utf-8", "replace").strip())
     return result.stdout
 
 
@@ -92,6 +97,7 @@ def _branch_configuration(source: Path) -> list[tuple[str, str]]:
             if scope in {"local", "worktree"} and entry.startswith("branch.") and "\n" in entry]
 
 
+@_diagnostic_measured('source.capture')
 def _capture(source: Path) -> dict:
     head = git(source, "rev-parse", "HEAD").decode().strip()
     flags = git(source, "ls-files", "-v", "-z").split(b"\0")
@@ -161,6 +167,7 @@ def _copy_remotes(source: Path, destination: Path, entries: list[tuple[str, str]
             git(destination, "config", "--local", "--add", key, value)
 
 
+@_diagnostic_measured('source.clone_checkout')
 def prepare_source(destination: Path, *, repository: str, revision: str,
                    local_source: Path | None = None) -> None:
     """Create a self-contained checkout at one locked canonical commit.
@@ -209,6 +216,7 @@ def prepare_source(destination: Path, *, repository: str, revision: str,
         git(destination, "remote", "add", "origin", url)
 
 
+@_diagnostic_measured('source.copy')
 def create_prepared_workspace(prepared: dict, destination: Path) -> dict:
     """Clone the updater's fixed revisions without scanning mutable workfiles.
 
@@ -253,13 +261,14 @@ def create_prepared_workspace(prepared: dict, destination: Path) -> dict:
     result_sources[name], copy_seconds[name] = target, seconds
     if roots:
         with ThreadPoolExecutor(max_workers=min(2, len(roots))) as pool:
-            for name, target, seconds in pool.map(copy, roots.items()):
+            for name, target, seconds in pool.map(wrap_context(copy), roots.items()):
                 result_sources[name], copy_seconds[name] = target, seconds
     return {"schema": "vaws.workspace-copy.v1", "state": "ready", "source": str(stage),
             "workspace": str(destination), "sources": result_sources, "copy_seconds": copy_seconds,
             "head": revisions["workspace"], "revisions": dict(revisions)}
 
 
+@_diagnostic_measured('source.copy_repository')
 def _copy_repository(source: Path, destination: Path, snapshot: dict) -> None:
     # Local clone copies/hardlinks objects, with independent refs and .git dirs.
     # Unlike linked-worktree absolute gitdir pointers, these are readable by
@@ -360,6 +369,7 @@ with owned_process(command, stdin=sys.stdin.buffer, stdout=sys.stdout.buffer, st
 """
 
 
+@_diagnostic_measured('source.windows_owner')
 def _copy_with_windows(source: Path, destination: Path, *, python: str, sources: dict | None = None) -> dict:
     """One bounded Windows-owned copy, callable directly by real bridge tests.
 
@@ -398,6 +408,7 @@ def _copy_with_windows(source: Path, destination: Path, *, python: str, sources:
         raise WorkspaceCopyError(f"invalid Windows copy response: {exc}") from exc
 
 
+@_diagnostic_measured('source.copy')
 def create_workspace(source: Path, destination: Path, *, sources: dict[str, Path] | None = None) -> dict:
     """Copy one independent root and explicitly selected source repositories.
 

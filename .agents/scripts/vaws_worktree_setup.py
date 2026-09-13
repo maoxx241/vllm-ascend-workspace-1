@@ -7,6 +7,19 @@ not a command an Agent needs to call, and never runs from SessionStart/resume.
 """
 from __future__ import annotations
 
+
+# Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
+if __name__ == "__main__":
+    import sys as _vaws_sys
+    from pathlib import Path as _VawsPath
+    _vaws_parents = _VawsPath(__file__).absolute().parents
+    _vaws_lib = _vaws_parents[1] / "lib" if len(_vaws_parents) > 1 else None
+    _vaws_entry = None
+    if _vaws_lib is not None and (_vaws_lib / "vaws_diagnostics_adapter.py").is_file():
+        _vaws_sys.path.insert(0, str(_vaws_lib))
+        from vaws_diagnostics_adapter import bootstrap as _vaws_bootstrap
+        _vaws_entry = _vaws_bootstrap(__file__)
+
 import argparse
 import json
 import os
@@ -27,6 +40,8 @@ from vaws_workspace_update import (Deferred, WorkspaceUpdater, available_sources
 from vaws_native_workspace import create_workspace, create_prepared_workspace
 from vaws_local_state import shared_workspace_root
 
+
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
 
 def native_paths(client: str, environment: dict, cwd: Path) -> tuple[Path, Path]:
     source_key = "CODEX_SOURCE_TREE_PATH" if client == "codex" else "ROOT_WORKTREE_PATH"
@@ -72,6 +87,7 @@ def ready_for_target(source: Path, target: Path, environment: dict) -> dict:
         return json.loads(result.stdout)["receipt"]
 
 
+@_diagnostic_measured('startup.client_configuration')
 def configure_target(client: str, target: Path, receipt: dict, environment: dict, *, owner_project: Path | None = None) -> None:
     # The selected revision owns its wiring. No shared editing directory or
     # already-running client's hook/MCP commands are rewritten.
@@ -108,6 +124,7 @@ def default_branch_snapshot(source: Path, original: str) -> dict | None:
             "native_ref_selection": "unavailable"}
 
 
+@_diagnostic_measured('startup.canonical')
 def prepare_canonical(source: Path, baseline: dict | None = None, *, source_channel: str = "development",
                       sources=None, latest=False) -> tuple[dict, dict | None]:
     """Use existing preparation without requiring the editing source on main."""
@@ -147,6 +164,7 @@ def source_task_focus(source: Path, context_file: str) -> dict:
     return {"repository": selected.repository or "workspace", "cwd": str(selected.cwd or source)}
 
 
+@_diagnostic_measured('startup.worktree')
 def prepare_worktree(client: str, source: Path, target: Path, *, preserve_source: bool = False,
                      source_channel: str = "development", sources=None, latest=False, preferred=None,
                      source_context_file: str | None = None) -> dict:
@@ -331,4 +349,4 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit((_vaws_entry.run(main) if _vaws_entry else main()))

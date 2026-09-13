@@ -175,16 +175,34 @@ def test_public_hook_skips_without_site_packages_or_a_ready_receipt(tmp_path, ki
     environment = dict(os.environ)
     for key in ("VAWS_SKIP_VENV_REEXEC", "VAWS_VENV_REEXEC", "VAWS_ENV_RECEIPT"):
         environment.pop(key, None)
-    result = subprocess.run([sys.executable, "-I", "-S", str(ROOT / ".agents/hooks/knowledge_summary.py"),
+    bootstrap = """import runpy,sys
+def no_owner_io(event, args):
+    if event in {'socket.connect', 'subprocess.Popen', 'os.system', 'sqlite3.connect'}:
+        raise AssertionError('skipped hook attempted owner I/O: ' + event)
+sys.addaudithook(no_owner_io)
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name='__main__')
+"""
+    result = subprocess.run([sys.executable, "-I", "-S", "-c", bootstrap,
+                             str(ROOT / ".agents/hooks/knowledge_summary.py"),
                              "--client", "codex", "--project", str(project),
                              "--environment-receipt", str(tmp_path / "missing-receipt.json")],
                             input=raw, capture_output=True, encoding="utf-8", env=environment, timeout=10)
     assert result.returncode == 0, result.stderr
     assert result.stdout == "{}\n"
+    lines = result.stderr.splitlines()
+    # -S intentionally removes the diagnostics distribution too. Its bounded,
+    # static fallback does not prepare the knowledge owner or inspect the
+    # nonexistent receipt. Free diagnostic text remains unavailable without
+    # the redactor, including the otherwise static no-summary status.
+    assert json.loads(lines.pop(0)) == {
+        "level": "WARNING", "event": "diagnostics.unavailable",
+        "component": "workspace", "category": "package_unavailable",
+    }
     if kind == "no-final":
-        assert json.loads(result.stderr)["status"] == "no_summary"
+        assert lines == ["[diagnostic text unavailable]"]
     else:
-        assert not result.stderr
+        assert lines == []
     assert list(project.iterdir()) == []
 
 

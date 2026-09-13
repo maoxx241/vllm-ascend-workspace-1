@@ -289,20 +289,33 @@ def test_unrelated_pretool_is_silent_without_environment_or_scope(monkeypatch, c
 def test_real_unrelated_adapter_does_not_import_workspace_runtime(tmp_path):
     # A local review works with no selected environment, identity, or task store.
     # Check the actual bootstrap in a fresh process, where imports are uncached.
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    diagnostics = (tmp_path / "diagnostics").resolve()
     code = """import io,json,runpy,sys
 class DenyRuntime:
     def find_spec(self, fullname, path=None, target=None):
+        if fullname in {'vaws_diagnostics_adapter', 'vaws_diagnostics'} or fullname.startswith('vaws_diagnostics.'):
+            return None
         if fullname.startswith(('vaws_', 'remote_dev', 'knowledge')):
             raise AssertionError('unrelated tool imported runtime: ' + fullname)
 sys.meta_path.insert(0, DenyRuntime())
+def audit(event, args):
+    if event in {'socket.connect', 'subprocess.Popen', 'os.system', 'sqlite3.connect'}:
+        raise AssertionError('unrelated tool attempted execution side effect: ' + event)
+sys.addaudithook(audit)
 sys.stdin=io.StringIO(json.dumps({'hook_event_name':'PreToolUse','tool_name':'exec_command','cwd':sys.argv[2],'tool_input':{'cmd':'git diff'}}))
 runpy.run_path(sys.argv[1], run_name='__main__')
 """
-    result = subprocess.run([sys.executable, "-c", code, str(ROOT / ".agents/scripts/vaws_codex_session.py"), str(tmp_path)],
+    result = subprocess.run([sys.executable, "-c", code, str(ROOT / ".agents/scripts/vaws_codex_session.py"), str(workspace)],
+                            env={**os.environ, "VAWS_DIAGNOSTICS_ROOT": str(diagnostics), "VAWS_LOG_LEVEL": "INFO"},
                             capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
     assert result.stdout == result.stderr == ""
-    assert list(tmp_path.iterdir()) == []
+    assert list(workspace.iterdir()) == []
+    records = [json.loads(line) for path in diagnostics.glob("events/**/*.jsonl")
+               for line in path.read_text(encoding="utf-8").splitlines()]
+    assert any(row.get("event") == "operation.end" and row.get("status") == "success" for row in records)
 
 
 def test_selected_workspace_missing_hook_never_runs_source_hook(family, monkeypatch):

@@ -7,6 +7,8 @@ process tree and emits UTF-8 JSON independently of the terminal code page.
 """
 from __future__ import annotations
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 import os
 import sys
 import tempfile
@@ -28,6 +30,7 @@ def configure_windows_stdio() -> None:
                 stream.reconfigure(encoding="utf-8")
 
 
+@_diagnostic_measured('entry.interpreter')
 def ensure_workspace_interpreter(
     *, repo_root: Path, packages: tuple[str, ...] = SENTINEL_PACKAGES, use_saved: bool = True,
     stdin: bytes | None = None,
@@ -58,7 +61,8 @@ def ensure_workspace_interpreter(
         sys.stderr.write("the selected interpreter did not enter its ready environment\n")
         raise SystemExit(2)
     if venv_python.is_file():
-        env = os.environ.copy()
+        from vaws_diagnostics_adapter import context_environment, event
+        env = context_environment(os.environ)
         env[REEXEC_ENV] = receipt["key"]
         env[PIN_ENV] = selected["receipt"]
         env.pop("PYTHONHOME", None)
@@ -72,6 +76,7 @@ def ensure_workspace_interpreter(
         else:
             arguments = original[1:]
         argv = [executable, *(["-X", "utf8"] if needs_utf8 else []), *arguments]
+        event("INFO", "interpreter.handoff", runtime=receipt["key"], platform=sys.platform)
         if stdin is not None:
             # A caller may inspect a bounded event before choosing its owner.
             # Replay that input through a real descriptor, not argv or env.

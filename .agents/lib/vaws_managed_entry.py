@@ -6,6 +6,8 @@ business function. Native local analysis and explicit remote-dev I/O stay native
 """
 from __future__ import annotations
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
@@ -110,12 +112,18 @@ def managed_invocation(entry_file: str, receipt: dict, *, local_options: Sequenc
     else:
         raise ManagedEntryError("Python has no script or module entry")
     arguments = local_arguments(values[index:], local_options)
-    env = dict(os.environ if environment is None else environment)
+    from vaws_diagnostics_adapter import context_environment
+    env = context_environment(os.environ if environment is None else environment)
     # WSL can restore variables from its Windows parent when they are absent
     # here. Explicit empty /w entries preserve the caller's missing identity.
     forwarded = {key: managed_path(env[key], windows=True) if env.get(key) else ""
                  for key in PATH_ENV}
     forwarded.update({key: env.get(key, "") for key in IDENTITY_ENV})
+    for key in ("VAWS_DIAGNOSTICS_CONTEXT", "VAWS_LOG_LEVEL"):
+        if key in env:
+            forwarded[key] = env[key]
+    if env.get("VAWS_DIAGNOSTICS_ROOT"):
+        forwarded["VAWS_DIAGNOSTICS_ROOT"] = managed_path(env["VAWS_DIAGNOSTICS_ROOT"], windows=True)
     forwarded.update({key: value for key, value in env.items()
                       if key.startswith("REMOTE_DEV_") and key not in PATH_ENV})
     forwarded[PIN_ENV] = receipt["receipt"]
@@ -130,6 +138,7 @@ def managed_invocation(entry_file: str, receipt: dict, *, local_options: Sequenc
     return [owner_python or _windows_executable(receipt["python"]), "-X", "utf8", *prefix, *arguments], env
 
 
+@_diagnostic_measured('entry.managed_owner')
 def ensure_managed_entry(*, repo_root: Path, entry_file: str,
                          local_options: Sequence[str] = ()) -> None:
     """A CLI calls this before reading input or doing business I/O.

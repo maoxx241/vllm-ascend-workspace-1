@@ -8,6 +8,8 @@ not a process lease, and an explicit receipt pins an already running client.
 """
 from __future__ import annotations
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured, phase, event, context_environment
+
 from contextlib import contextmanager
 import hashlib
 import json
@@ -51,6 +53,7 @@ def _identity() -> dict:
             "sysconfig_platform": sysconfig.get_platform(), "build": sys.version}
 
 
+@_diagnostic_measured('environment.interpreter_identity')
 def _python_identity(python: str | None) -> tuple[str, dict]:
     candidate = python or getattr(sys, "_base_executable", sys.executable)
     executable = shutil.which(candidate) or (str(Path(candidate).absolute()) if Path(candidate).is_file() else None)
@@ -279,6 +282,7 @@ def _lookup(repo_root: Path, target_platform: str, *, require_configuration=Fals
     return read_receipt(store / _key(identity, input_id, selection) / READY_NAME, expected_platform=target_platform)
 
 
+@_diagnostic_measured('environment.select')
 def native_ready(repo_root: Path, *, pin: str | Path | None = None, use_saved: bool = False) -> dict:
     """Read readiness; business entries reuse the saved session selection.
 
@@ -345,6 +349,7 @@ def _read_capability(receipt: dict, name: str) -> dict:
     return child
 
 
+@_diagnostic_measured('environment.capability')
 def capability_receipt(receipt: dict, capability: str = "runtime", *, prepare_missing=False, timings=None) -> dict:
     """Read one fixed owner; actual knowledge use may prepare only that child."""
     if receipt.get("schema_version") != 2:
@@ -370,6 +375,7 @@ def capability_receipt(receipt: dict, capability: str = "runtime", *, prepare_mi
     return _read_capability(receipt, name)
 
 
+@_diagnostic_measured('environment.windows_capability')
 def _prepare_windows_capability(receipt: dict) -> None:
     """WSL hands off only installation to this bundle's native runtime owner."""
     from vaws_local_owner import accessible_windows_path, managed_path, windows_interop_env
@@ -398,21 +404,22 @@ def _key_lock(store: Path, key: str):
     locks = store / ".locks"
     locks.mkdir(parents=True, exist_ok=True)
     with (locks / (key + ".lock")).open("a+b") as handle:
-        if os.name == "nt":
-            import msvcrt
-            if handle.tell() == 0:
-                handle.write(b"0")
-                handle.flush()
-            while True:
-                try:
-                    handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-                    break
-                except OSError:
-                    time.sleep(0.1)
-        else:
-            import fcntl
-            fcntl.flock(handle, fcntl.LOCK_EX)
+        with phase("environment.lock_wait"):
+            if os.name == "nt":
+                import msvcrt
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
+                while True:
+                    try:
+                        handle.seek(0)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        time.sleep(0.1)
+            else:
+                import fcntl
+                fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             yield handle.fileno()
         finally:
@@ -423,6 +430,7 @@ def _key_lock(store: Path, key: str):
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+@_diagnostic_measured('environment.install')
 def _install(command: list[str], environment: dict, lock_fd: int) -> None:
     if os.name == "nt":
         from vaws_windows import owned_process
@@ -446,6 +454,7 @@ def _install(command: list[str], environment: dict, lock_fd: int) -> None:
         raise EnvironmentError(f"locked dependency installation failed with exit code {code}")
 
 
+@_diagnostic_measured('environment.prepare')
 def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None, install_options=(),
                         timings: dict | None = None, _component: str | None = None, _frozen=None,
                         _store_path=None, _expected_key=None) -> dict:
@@ -481,6 +490,7 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
         receipt = read_receipt(receipt_path, expected_platform=sys.platform)
         if not _component:
             select_environment(repo_root, receipt)
+        event("INFO", "environment.cache_hit", runtime=key)
         timings.update(reused=True, total_seconds=time.monotonic() - started)
         return receipt
     waiting = time.monotonic()
@@ -534,17 +544,18 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
                                if not name.startswith("UV_") and name not in ("VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", PIN_ENV)}
                 environment["UV_PROJECT_ENVIRONMENT"] = str(root)
                 installing = time.monotonic()
-                _install(command, environment, lock_fd)
+                _install(command, context_environment(environment), lock_fd)
                 timings["install_seconds"] = time.monotonic() - installing
             environment_python = root / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
             verifying = time.monotonic()
-            verification = subprocess.run([str(environment_python), "-I", "-X", "utf8", "-c",
-                                          "import importlib.metadata,sys,json;list(importlib.metadata.distributions());print(json.dumps({'prefix':sys.prefix,'base':sys._base_executable}))"],
-                                         capture_output=True, encoding="utf-8", check=False)
-            facts = json.loads(verification.stdout) if verification.returncode == 0 else {}
-            if (verification.returncode or Path(facts["prefix"]).resolve() != root.resolve()
-                    or Path(facts["base"]).resolve() != Path(executable)):
-                raise EnvironmentError("installed interpreter failed its permanent-path verification")
+            with phase("environment.verify_interpreter"):
+                verification = subprocess.run([str(environment_python), "-I", "-X", "utf8", "-c",
+                                              "import importlib.metadata,sys,json;list(importlib.metadata.distributions());print(json.dumps({'prefix':sys.prefix,'base':sys._base_executable}))"],
+                                             capture_output=True, encoding="utf-8", check=False)
+                facts = json.loads(verification.stdout) if verification.returncode == 0 else {}
+                if (verification.returncode or Path(facts["prefix"]).resolve() != root.resolve()
+                        or Path(facts["base"]).resolve() != Path(executable)):
+                    raise EnvironmentError("installed interpreter failed its permanent-path verification")
             timings["verification_seconds"] = time.monotonic() - verifying
             receipt = {"schema_version": 1, "recipe_version": RECIPE_VERSION, "key": key, "root": str(root), "python": str(environment_python),
                        "platform": identity["platform"], "arch": identity["arch"], "abi": identity["abi"],

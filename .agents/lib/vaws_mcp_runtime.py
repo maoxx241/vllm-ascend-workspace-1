@@ -11,7 +11,6 @@ import copy
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,6 +19,7 @@ import sys
 from vaws_environment import read_receipt, saved_ready, PIN_ENV, capability_receipt
 from vaws_local_state import prepared_workspace, shared_workspace_root
 from vaws_session_state import task_dir
+from vaws_diagnostics_adapter import operation, phase, measured, captured_stderr, context_environment, context_metadata, request_context
 
 
 @dataclass(frozen=True)
@@ -149,8 +149,7 @@ class Backend:
     def __init__(self, kind: str, selected: Selection, root: Path, environment: dict):
         self.kind, self.selected = kind, selected
         self.command, self.environment = provider_command(kind, selected, environment)
-        digest = hashlib.sha256(str(selected.workspace).encode()).hexdigest()[:12]
-        self.stderr = shared_workspace_root(root) / ".vaws-local/mcp/providers" / f"{kind}-{selected.key[:12]}-{digest}.log"
+        self.stderr = None
         self.closed = asyncio.Event()
         self.requests = set()
         self.catalog = None
@@ -188,19 +187,17 @@ class Backend:
                     raise
 
         try:
-            self.stderr.parent.mkdir(parents=True, exist_ok=True)
-            with self.stderr.open("a", encoding="utf-8") as log:
-                facts = {"provider": self.kind, "workspace": str(self.selected.workspace),
-                         "environment": self.selected.key, "python": self.command[0],
-                         "receipt": self.selected.receipt, "stderr": str(self.stderr)}
-                log.write(json.dumps({"vaws_provider_start": facts}) + "\n")
-                log.flush()
-                print(json.dumps({"vaws_provider_start": facts}), file=sys.stderr, flush=True)
+            with operation("mcp.backend", provider=self.kind, runtime=self.selected.key) as observation, captured_stderr(observation) as log:
+                reference = observation.summary().get("record_ref")
+                if reference:
+                    self.stderr = Path(reference)
+                observation.event("INFO", "provider.start", provider=self.kind, runtime=self.selected.key)
                 parameters = StdioServerParameters(command=self.command[0], args=self.command[1:],
-                                                   cwd=self.selected.workspace, env=self.environment)
+                                                   cwd=self.selected.workspace, env=context_environment(self.environment))
                 async with stdio_client(parameters, errlog=log) as (reader, writer):
                     async with CancellableSession(reader, writer, read_timeout_seconds=timedelta(seconds=1800)) as session:
-                        await session.initialize()
+                        with phase("mcp.initialize"):
+                            await session.initialize()
                         self.ready.set_result(session)
                         await self.closed.wait()
         except BaseException as exc:
@@ -210,20 +207,18 @@ class Backend:
                 else:
                     self.ready.set_exception(exc)
             if not isinstance(exc, asyncio.CancelledError):
-                failure = json.dumps({"vaws_provider_failed": type(exc).__name__, "error": str(exc),
-                                      "evidence": str(self.stderr)})
-                with suppress(OSError):
-                    with self.stderr.open("a", encoding="utf-8") as log:
-                        log.write(failure + "\n")
-                print(failure, file=sys.stderr, flush=True)
+                from vaws_diagnostics_adapter import report_failure
+                report_failure("mcp.backend_failed", exc, provider=self.kind)
             for request in self.requests:
                 request.cancel()
             if isinstance(exc, asyncio.CancelledError):
                 raise
 
+    @measured("mcp.request")
     async def request(self, method: str, **arguments):
         try:
-            session = await asyncio.shield(self.ready)
+            with phase("mcp.await_backend"):
+                session = await asyncio.shield(self.ready)
         except Exception as exc:
             raise RuntimeError(f"{self.kind} provider could not start in {self.selected.key}; evidence: {self.stderr}: {exc}") from exc
         if self.worker.done():
@@ -231,7 +226,8 @@ class Backend:
         request = asyncio.create_task(getattr(session, method)(**arguments))
         self.requests.add(request)
         try:
-            return await request
+            with phase("mcp.owner_call", method=method):
+                return await request
         except Exception as exc:
             raise RuntimeError(f"{self.kind} provider {method} failed in {self.selected.key}; evidence: {self.stderr}: {exc}") from exc
         finally:
@@ -293,6 +289,7 @@ class Provider:
                 capability_receipt(receipt, "knowledge")
         return await self.backend(selected).tools()
 
+    @measured("mcp.catalog")
     async def list_tools(self, metadata: dict | None = None):
         context = (caller_context({}, metadata, state_dir=self.environment.get("VAWS_AGENT_SESSIONS_DIR", ""))
                    if metadata else None)
@@ -321,8 +318,30 @@ class Provider:
         return tools
 
     async def call_tool(self, name: str, arguments: dict, metadata: dict | None = None):
+        with request_context(metadata), operation("mcp.call", provider=self.kind, tool=name) as observation:
+            result = await self._call_tool(name, arguments, metadata)
+            if result.isError:
+                facts = result.structuredContent or {}
+                data = facts.get("data") if isinstance(facts.get("data"), dict) else {}
+                error = facts.get("error_details", data.get("error_details"))
+                error = error if isinstance(error, dict) else {}
+                category = error.get("category", facts.get("category", "owner_result"))
+                category = category if isinstance(category, str) and len(category) <= 80 else "owner_result"
+                submitted = error.get("submission_state", facts.get("submission_state"))
+                if submitted not in {"not_submitted", "submitted", "not_sent", "not_executed", "uncertain", "acknowledged", "unknown"}:
+                    submitted = "not_submitted" if facts.get("submitted") is False else "unknown"
+                observation.fail(category,
+                                 owner_category=category, submission_state=submitted,
+                                 retryable=error.get("retryable") is True,
+                                 error_type=error.get("type"))
+        result.meta = {**(result.meta or {}), "vaws_diagnostics": observation.summary()}
+        return result
+
+    async def _call_tool(self, name: str, arguments: dict, metadata: dict | None = None):
         context = caller_context(arguments, metadata, state_dir=self.environment.get("VAWS_AGENT_SESSIONS_DIR", ""))
         if context is None and self.kind == "task":
+            from vaws_diagnostics_adapter import failure
+            failure("caller", submission_state="not_submitted")
             raise ValueError("No native task context was supplied. Pass the context_file from session startup; no workspace or runtime was guessed.")
         selected = selection(self.root, context, require_prepared=self.kind == "task")
         values = dict(arguments)
@@ -342,10 +361,10 @@ class Provider:
                 validator = validator_for(tool.inputSchema)(tool.inputSchema)
                 error = next(validator.iter_errors(values), None)
                 if error is not None:
-                    problem = error.message
+                    problem = "arguments do not match the selected tool schema (" + str(error.validator) + ")"
             if problem is not None:
                 from mcp.types import CallToolResult, TextContent
-                facts = {"status": "unsupported_task_capability", "tool": name,
+                facts = {"status": "unsupported_task_capability", "category": "caller", "tool": name,
                          "environment": selected.key, "submitted": False,
                          "reason": problem, "input_schema": tool.inputSchema if tool else None,
                          "available_tools": sorted(catalog) if tool is None else None}
@@ -354,13 +373,14 @@ class Provider:
         if self.kind == "knowledge":
             # Keyed local preparation can take time. Other providers and
             # cancellation remain responsive; no tool has been submitted yet.
-            await asyncio.to_thread(capability_receipt, read_receipt(selected.receipt),
-                                    "knowledge", prepare_missing=True)
+            with phase("mcp.prepare_capability", capability="knowledge"):
+                await asyncio.to_thread(capability_receipt, read_receipt(selected.receipt),
+                                        "knowledge", prepare_missing=True)
         backend = self.backend(selected)
-        result = await backend.request("call_tool", name=name, arguments=values, meta=metadata)
+        result = await backend.request("call_tool", name=name, arguments=values, meta=context_metadata(metadata))
         result.meta = {**(result.meta or {}), "vaws_provider": {
             "environment": selected.key, "workspace": str(selected.workspace),
-            "python": backend.command[0], "stderr": str(backend.stderr)}}
+            "python": backend.command[0], "stderr": str(backend.stderr) if backend.stderr is not None else None}}
         return result
 
     async def close(self):

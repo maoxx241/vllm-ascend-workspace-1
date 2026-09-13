@@ -7,6 +7,8 @@ initialized user snapshot through ``VAWS_GITHUB_IDENTITY_FILE``.
 """
 from __future__ import annotations
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 import os
 import sys
 from importlib.util import find_spec
@@ -88,6 +90,7 @@ def require_package() -> None:
         )
 
 
+@_diagnostic_measured('entry.package_owner')
 def exec_module(module: str, args: list[str], *, repo_root: Path = ROOT, prepare_environment: bool = True) -> int:
     """Replace this process with ``python -m <module> ...`` under scaffold env.
 
@@ -98,6 +101,9 @@ def exec_module(module: str, args: list[str], *, repo_root: Path = ROOT, prepare
     """
     require_package()
     env = coordinator_environment(repo_root=repo_root) if prepare_environment else dict(os.environ)
+    from vaws_diagnostics_adapter import context_environment, event
+    env = context_environment(env)
+    event("INFO", "package.handoff", module=module)
     command = [sys.executable, "-m", module, *args]
     if os.name == "nt":
         # Windows execve spawns a replacement which outlives the MCP parent's

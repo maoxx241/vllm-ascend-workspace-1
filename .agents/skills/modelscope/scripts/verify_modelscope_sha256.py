@@ -3,6 +3,18 @@
 
 from __future__ import annotations
 
+# Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
+if __name__ == "__main__":
+    import sys as _vaws_sys
+    from pathlib import Path as _VawsPath
+    _vaws_parents = _VawsPath(__file__).absolute().parents
+    _vaws_lib = _vaws_parents[3] / "lib" if len(_vaws_parents) > 3 else None
+    _vaws_entry = None
+    if _vaws_lib is not None and (_vaws_lib / "vaws_diagnostics_adapter.py").is_file():
+        _vaws_sys.path.insert(0, str(_vaws_lib))
+        from vaws_diagnostics_adapter import bootstrap as _vaws_bootstrap
+        _vaws_entry = _vaws_bootstrap(__file__)
+
 import argparse
 import hashlib
 import json
@@ -17,6 +29,8 @@ from _modelscope_common import file_signature
 
 DEFAULT_IGNORE_OFFICIAL = (".gitattributes",)
 
+
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
 
 @dataclass(frozen=True)
 class ModelSpec:
@@ -112,6 +126,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+@_diagnostic_measured('model.metadata_request')
 def request_json(url: str, *, retries: int = 5, timeout: int = 60) -> dict[str, Any]:
     session = requests.Session()
     last_error: Exception | None = None
@@ -157,6 +172,7 @@ def sha256_file(path: Path, chunk_size: int) -> str:
     return digest.hexdigest()
 
 
+@_diagnostic_measured('model.verify')
 def verify_model(
     spec: ModelSpec,
     revision: str,
@@ -259,6 +275,7 @@ def verify_model(
     return checks, summary
 
 
+@_diagnostic_measured('model.save_result')
 def write_outputs(
     output_dir: Path,
     output_prefix: str,
@@ -356,4 +373,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit((_vaws_entry.run(main) if _vaws_entry else main()))

@@ -25,6 +25,8 @@ PRESETS_DIR = ROOT / ".agents" / "skills" / "vllm-ascend-serving" / "presets"
 SERVICE_NAME = "vllm"
 
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 def ssh_exec(endpoint: SshEndpoint, script: str, *, check: bool = True, timeout: float | None = SSH_EXEC_DEFAULT_TIMEOUT_SECONDS):
     return remote_ssh_exec(
         endpoint,
@@ -66,6 +68,7 @@ def print_json(data: dict[str, Any]) -> None:
     )
 
 
+@_diagnostic_measured('business.service_probe')
 def probe_service(ep: SshEndpoint, port: int, *, served_model: str | None = None,
                   timeout: float = 10) -> dict[str, Any]:
     """One remote round trip for health, models and optional completion.

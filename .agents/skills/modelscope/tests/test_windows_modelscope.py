@@ -45,7 +45,9 @@ def test_status_preserves_worker_and_resume_verification(tmp_path):
     local = tmp_path / "中文 🧪 model"
     local.mkdir()
     (local / "weights.bin").write_bytes(data[:7])
-    env = {**os.environ, "PYTHONPATH": str(fixture)}
+    diagnostic_root = tmp_path / "diagnostics"
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join((str(fixture), os.environ.get("PYTHONPATH", ""))),
+           "VAWS_DIAGNOSTICS_ROOT": str(diagnostic_root)}
     sys.path.insert(0, str(ROOT / ".agents/lib"))
     from vaws_windows import owned_process, pid_alive
     stack = ExitStack()
@@ -106,6 +108,11 @@ def test_status_preserves_worker_and_resume_verification(tmp_path):
         assert not pid_alive(pid)
         assert (local / "weights.bin").read_bytes() == data
         assert json.loads((local / "modelscope_sha256.report.json").read_text(encoding="utf-8"))["all_ok"]
+        assert not any((local / name).exists() for name in ("download.log", "verify.log", "download.launch.log"))
+        diagnostic_files = list(diagnostic_root.glob("events/vaws-workspace/*.jsonl"))
+        assert diagnostic_files
+        events = [json.loads(line) for path in diagnostic_files for line in path.read_text(encoding="utf-8").splitlines()]
+        assert any(event["event"] == "process.stderr" for event in events)
         assert (local / "SHA256SUMS").is_file()
         code, out, err = run("status")
         assert code == 0 and "verified" in out, (out, err)

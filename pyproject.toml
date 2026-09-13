@@ -7,9 +7,10 @@ dependencies = [
   "pyyaml>=6",
   "requests>=2",
   "mcp==1.30.0",
-  "vaws-remote-dev==0.8.0",
-  "vaws-coordinator==0.5.0.dev1",
-  "vaws-knowledge[code]==0.7.0",
+  "vaws-remote-dev==0.9.1",
+  "vaws-coordinator==0.5.0.dev3",
+  "vaws-knowledge[code]==0.7.3",
+  "vaws-diagnostics==0.1.3",
 ]
 
 [dependency-groups]
@@ -27,9 +28,10 @@ default-groups = []
 split-knowledge = true
 
 [tool.uv.sources]
-vaws-remote-dev = { git = "https://github.com/vllm-ascend-workspace/remote-dev", rev = "a65362882a85b4d460be3e1d15e90de9fb507e70" }
-vaws-coordinator = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator", rev = "5b83148ba9d10873dec3f5ecf09e71a8ce51d0d8" }
-vaws-knowledge = { git = "https://github.com/vllm-ascend-workspace/vaws-knowledge", rev = "c57e7fb3322c8d83669e5c5f827446462892f113" }
+vaws-diagnostics = { git = "https://github.com/vllm-ascend-workspace/vaws-diagnostics", rev = "a9135c13bcd3ec88dd3a7c2f454a57f9bee9be14" }
+vaws-remote-dev = { git = "https://github.com/vllm-ascend-workspace/remote-dev", rev = "a2c69432fa39d54cdfc0f7a9f8842258d7efd697" }
+vaws-coordinator = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator", rev = "6209646a439b59a26b7a4becdd8994fe75c66f7e" }
+vaws-knowledge = { git = "https://github.com/vllm-ascend-workspace/vaws-knowledge", rev = "927b3774d6ab3809af5bdaec734b427253e0d4dc" }
 
 [tool.pytest.ini_options]
 pythonpath = [".agents/lib"]

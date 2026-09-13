@@ -38,9 +38,9 @@ class SpecLockTests(unittest.TestCase):
                     )
                     self.assertEqual(deps.required_versions(root), {name: version})
 
-    def test_pyproject_requires_the_three_packages(self) -> None:
+    def test_pyproject_requires_owners_and_shared_diagnostics(self) -> None:
         versions = deps.required_versions()
-        self.assertEqual(set(versions), {"vaws-remote-dev", "vaws-coordinator", "vaws-knowledge", "pillow", "mcp", "pyyaml", "requests"})
+        self.assertEqual(set(versions), {"vaws-remote-dev", "vaws-coordinator", "vaws-knowledge", "vaws-diagnostics", "pillow", "mcp", "pyyaml", "requests"})
         self.assertNotIn(deps.VAWS_TOP_NAME, versions)
 
     def test_status_tracks_only_the_three_packages(self) -> None:
@@ -50,7 +50,7 @@ class SpecLockTests(unittest.TestCase):
     def test_lock_records_the_pinned_commits(self) -> None:
         locked = deps.locked_packages()
         sources = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["uv"]["sources"]
-        for name in deps.PACKAGE_NAMES:
+        for name in (*deps.PACKAGE_NAMES, "vaws-diagnostics"):
             self.assertEqual(locked[name]["commit"], sources[name]["rev"], name)
         expected_versions = deps.required_versions()
         repositories = {
@@ -60,8 +60,9 @@ class SpecLockTests(unittest.TestCase):
                 "https://github.com/maoxx241/vaws-coordinator",
             },
             "vaws-knowledge": {"https://github.com/vllm-ascend-workspace/vaws-knowledge"},
+            "vaws-diagnostics": {"https://github.com/vllm-ascend-workspace/vaws-diagnostics"},
         }
-        for name in deps.PACKAGE_NAMES:
+        for name in (*deps.PACKAGE_NAMES, "vaws-diagnostics"):
             self.assertEqual(locked[name]["version"], expected_versions[name], name)
             self.assertIn(sources[name]["git"], repositories[name], name)
             self.assertEqual((locked[name]["url"] or "").split("?")[0], sources[name]["git"], name)

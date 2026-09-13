@@ -87,8 +87,8 @@ def _checkout_configuration(entries: list[tuple[str, str]]) -> dict[str, str]:
 
 
 def _branch_configuration(source: Path) -> list[tuple[str, str]]:
-    entries = git(source, "config", "--show-scope", "--null", "--list").decode("utf-8").split("\0")
-    return [tuple(entry.split("\n", 1)) for scope, entry in zip(entries[::2], entries[1::2])
+    fields = iter(git(source, "config", "--show-scope", "--null", "--list").decode("utf-8").split("\0"))
+    return [tuple(entry.split("\n", 1)) for scope, entry in zip(fields, fields)
             if scope in {"local", "worktree"} and entry.startswith("branch.") and "\n" in entry]
 
 

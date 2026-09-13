@@ -263,10 +263,13 @@ def test_setup_updates_owned_task_entry_and_preserves_configuration(client, rela
     assert migrated["command"] == desired["command"]
     assert migrated["args"] == ([str(workspace / ".agents/scripts/vaws_claude_entry.py"), "task"]
                                 if client == "claude" else existing["args"])
-    assert migrated["enabled_tools"] == existing["enabled_tools"]
-    assert {key: migrated["env"][key] for key in existing["env"]} == existing["env"]
-    assert migrated["env"]["DEFAULT"] == "added"
-    assert "CUSTOM/w" in migrated["env"]["WSLENV"]
+    if client == "codex":
+        assert migrated == desired
+    else:
+        assert migrated["enabled_tools"] == existing["enabled_tools"]
+        assert {key: migrated["env"][key] for key in existing["env"]} == existing["env"]
+        assert migrated["env"]["DEFAULT"] == "added"
+        assert "CUSTOM/w" in migrated["env"]["WSLENV"]
     assert parsed["other"] == {"command": "untouched"}
     if client in {"codex", "grok"}:
         assert rendered.startswith("# user settings\napproval_policy = 'on-request'\n")
@@ -279,7 +282,7 @@ def test_setup_updates_owned_task_entry_and_preserves_configuration(client, rela
 
 @pytest.mark.parametrize("customization", ["inline-env", "another-known-provider", "quoted-header",
                                           "commented-header", "quoted-command", "quoted-pin", "multiline-command"])
-def test_toml_custom_entry_preserves_interpreter_and_pin_together(customization, tmp_path, monkeypatch):
+def test_codex_replaces_server_interpreter_and_pin_together(customization, tmp_path, monkeypatch):
     monkeypatch.setattr(setup, "ROOT", tmp_path)
     old_python = str(tmp_path / ".vaws-local/env-links" / ("a" * 64) / "Scripts/python.exe")
     new_python = str(tmp_path / ".vaws-local/env-links" / ("b" * 64) / "Scripts/python.exe")
@@ -310,8 +313,7 @@ def test_toml_custom_entry_preserves_interpreter_and_pin_together(customization,
     path.write_text(content, encoding="utf-8")
     plan = setup.build_plan("codex", tmp_path, task_only=True)
     rendered = plan["files"].get(path, content)
-    assert rendered == content
-    assert setup.tomllib.loads(rendered)["mcp_servers"]["vaws_task"] == existing
+    assert setup.tomllib.loads(rendered)["mcp_servers"]["vaws_task"] == desired
 
 
 @pytest.mark.parametrize("client", ["claude", "codex"])
@@ -360,6 +362,8 @@ def test_generated_provider_and_hooks_move_to_new_pin_preserving_user_fields(cli
     if client == "claude":
         kind = {"vaws-task": "task", "remote-dev": "remote", "vaws-knowledge": "knowledge"}[provider]
         expected.update(args=[str(workspace / ".agents/scripts/vaws_claude_entry.py"), kind], env={"CUSTOM": "keep"})
+    else:
+        expected = desired
     assert servers[key] == expected
     assert servers["foreign"] == {"command": "unchanged"}
     hooks = json.loads(plan["files"][hook_path])["hooks"]["SessionStart"]

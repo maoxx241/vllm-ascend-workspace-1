@@ -34,6 +34,11 @@ These facts do not relabel earlier device or performance runs.
 
 ## Versioned evidence
 
+The [Windows ModelScope follow-up](windows-modelscope-identity-2026-09-13.md)
+retains the original PR 169 failure and its passing rerun, then records
+deterministic identity-failure reproduction, the product correction and the
+test lifecycle improvements. Passing the rerun did not close that defect.
+
 | Evidence | Actually established | Version / limitation |
 |---|---|---|
 | [Existing-container follow-up](../existing-container-validation-2026-09-13.md) | Final installed four-machine 32/32 checks; 12 owned jobs quiet; original container/code/environment preserved; real SDK gateway exposed 18 remote tools without task context | remote-dev `a65362882a85b4d460be3e1d15e90de9fb507e70`, coordinator `921ce2af`, knowledge `3a65926d`; CPU transport and script semantics, no NPU-model result |

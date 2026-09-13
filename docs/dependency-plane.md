@@ -181,9 +181,13 @@ Windows runtime and original saved lock. It neither constructs a Linux child
 for the Windows selection nor changes the checkout's environment selection.
 Run `uv run --no-project python
 .agents/scripts/vaws_client_setup.py --client CLIENT --project PATH --apply` to
-generate configuration; managed entries retain custom fields and foreign
-launchers. The [platform contract](platform-contract.md) describes the common
-native client entry. The [Windows installation guide](windows-installation.md)
+generate configuration. Codex setup replaces each selected VAWS MCP entry with
+the current interpreter, gateway and environment. Its old launcher, environment
+overrides and server-specific options are discarded; other server names and
+top-level client settings are preserved. Applying the plan saves private backups.
+`--task-only` limits replacement to the task server. Other clients continue to
+preserve custom fields and foreign launchers. The [platform contract](platform-contract.md)
+describes the common native client entry. The [Windows installation guide](windows-installation.md)
 covers caching and offline transfer.
 
 ## Capabilities

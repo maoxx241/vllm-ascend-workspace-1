@@ -412,7 +412,7 @@ class ClientSetupTests(unittest.TestCase):
             self.assertEqual(actual[alias], expected)
         self.assertIn("vaws-task", actual)
 
-    def test_toml_preserves_missing_custom_command_and_both_aliases(self) -> None:
+    def test_toml_reserved_aliases_follow_client_replacement_policy(self) -> None:
         for client in ("codex", "grok"):
             with self.subTest(client=client):
                 project = self.project / client
@@ -430,8 +430,13 @@ class ClientSetupTests(unittest.TestCase):
                 self._apply_client(client, project)
                 text = config.read_text(encoding="utf-8")
                 actual = tomllib.loads(text)["mcp_servers"]
-                for alias, entry in expected.items():
-                    self.assertEqual(actual[alias], entry)
+                if client == "codex":
+                    self.assertNotIn("remote-dev", actual)
+                    self.assertEqual(actual["remote_dev"]["args"],
+                                     [str(self.setup.configuration_root(project) / ".agents/scripts/vaws_native_mcp.py"), "remote"])
+                else:
+                    for alias, entry in expected.items():
+                        self.assertEqual(actual[alias], entry)
                 self.assertIn("# Keep the custom provider", text)
                 self.assertIn("vaws_task", actual)
 
@@ -462,7 +467,7 @@ class ClientSetupTests(unittest.TestCase):
         self.assertEqual(second[path], first[path])
         self.assertEqual(second[settings], first[settings])
 
-    def test_toml_preserves_existing_remote_dev_and_adds_task_server(self) -> None:
+    def test_codex_replaces_remote_dev_and_adds_task_server(self) -> None:
         config = self.project / ".codex/config.toml"
         config.parent.mkdir()
         config.write_text(
@@ -472,8 +477,9 @@ class ClientSetupTests(unittest.TestCase):
         files = self.setup.configuration("codex", self.project)
         data = tomllib.loads(files[config])
         self.assertEqual(data["user_top"], "preserve")
-        self.assertEqual(data["mcp_servers"]["remote_dev"]["command"], "user-command")
-        self.assertEqual(data["mcp_servers"]["remote_dev"]["args"], ["user-argument"])
+        self.assertEqual(data["mcp_servers"]["remote_dev"]["args"],
+                         [str(self.setup.configuration_root(self.project) / ".agents/scripts/vaws_native_mcp.py"), "remote"])
+        self.assertNotIn("user_field", data["mcp_servers"]["remote_dev"])
         self.assertEqual(data["mcp_servers"]["other"], {"command": "other-command"})
         self.assertEqual(data["mcp_servers"]["vaws_task"]["args"],
                          [str(self.setup.configuration_root(self.project) / ".agents/scripts/vaws_native_mcp.py"), "task"])

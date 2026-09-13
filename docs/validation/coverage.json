@@ -185,6 +185,20 @@
       },
       "scope": "Knowledge PR34 merged with the same tree/parents as the actual three-platform CI checkout: Ubuntu 541 passed/4 skipped/12 subtests, Windows and macOS 543 passed/2 skipped/12 subtests each. Consumer selects knowledge c57e7fb3 with code extra; immutable sync and doctor succeeded. Eight affected consumer suites passed with 75 JUnit entries and zero failures/errors/skips. Actual installed preparation returned ready with 94 documents. Fresh installed MCP passed all 20 unchanged original targets in top8, four explanations and 20 source-span checks with exactly three tools, zero degraded/incomplete responses or capture calls, and unchanged source/configuration/backend identities. Installed supported C++ CLI mapped three pinned files and reused all three on repeat with zero source bytes read. Twelve requested capabilities and independent Grok/feed maintenance retain their package/deployment evidence.",
       "limits": "PR169 final commit checks and merge status remain on the linked PR; the earlier successful functional-head CI and 778a7b6b measurements are not reattributed to c57e7fb3. PR34 native XML contains 545 testcase elements including two skips; suite tests=557 includes twelve subtests per platform. Ubuntu count comes from its log. Local suite summaries do not embed runtime revisions; separate selection and isolated installed probes establish package identity. Preparation ran concurrently with local suites and is not an isolated performance benchmark. Earlier scaling and quality measurements retain their actual revisions, fixture and hardware limits. The strict 20-question native sample is not held-out relevance, native 100k, physical 16 GiB or NPU acceptance; static code maps do not establish runtime dispatch."
+    },
+    {
+      "id": "windows-modelscope-identity-20260913",
+      "record": "docs/validation/windows-modelscope-identity-2026-09-13.md",
+      "version": {
+        "baseline": "4d10301c69946f071cc8e2680736db0c7a129be2",
+        "production_sha256": {
+          ".agents/lib/vaws_process_identity.py": "7d9321111ec30a2c0a28c3812caa7c3044c671f97d3e30f6c8011245dff6e6a1",
+          ".agents/lib/vaws_windows.py": "b2d062536e21a5415526f1345b3d516d0827e1f34134bbe5644dbf1933abd50a",
+          ".agents/skills/modelscope/scripts/modelscope_auto.py": "d06fb029426f8af27ca5557e8590e019019fda0442488003fa6b50048f8d4f6a"
+        }
+      },
+      "scope": "Deterministic lost launch identity and temporary status-observation failures reproduced duplicate workers in the original controller. Corrected ModelScope directory passed22 tests/18 subtests; native bootstrap passed6 including live-detach success and failure descendant cleanup. Shared process callers and legacy identity compatibility were checked.",
+      "limits": "Original CI observation failure lacks its identity snapshot; elapsed time does not prove a CIM timeout. Offline SDK/HTTP fixtures and native Windows process evidence only; final cross-platform CI belongs to the containing pull request. Internal NT query may be unavailable and returns unknown."
     }
   ],
   "gaps": [
@@ -331,7 +345,8 @@
       ],
       "evidence": [
         "windows-20260911",
-        "local-suites-20260913"
+        "local-suites-20260913",
+        "windows-modelscope-identity-20260913"
       ],
       "gaps": [
         "G5",
@@ -358,7 +373,8 @@
         "source-workspace-20260913",
         "windows-20260911",
         "local-suites-20260913",
-        "source-workspace-final-20260913"
+        "source-workspace-final-20260913",
+        "windows-modelscope-identity-20260913"
       ],
       "gaps": [
         "G7"
@@ -664,7 +680,8 @@
         ".agents/skills/modelscope/tests"
       ],
       "evidence": [
-        "local-suites-20260913"
+        "local-suites-20260913",
+        "windows-modelscope-identity-20260913"
       ],
       "gaps": [
         "G5",

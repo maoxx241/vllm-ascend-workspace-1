@@ -341,6 +341,9 @@ class SelectionTests(unittest.TestCase):
     def prepared_focus(self, base, preferred="vllm-ascend"):
         from vaws_workspace_entry import write_preparation
 
+        # Match shared_workspace_root's physical owner path. macOS temporary
+        # directories may be spelled /var while their real root is /private/var.
+        base = base.resolve()
         project, workspace = base / "project", base / "bundle"
         project.mkdir()
         sources = {"workspace": workspace, "vllm": workspace / "vllm",

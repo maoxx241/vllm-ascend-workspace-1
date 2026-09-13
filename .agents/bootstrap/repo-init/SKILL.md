@@ -43,18 +43,25 @@ the following is an example, not authorization:
 uv run --no-project python .agents/scripts/vaws_init.py apply --github-user USER --fork yes --star no --community enabled
 ```
 
-Setup prepares only the workspace Fork, locked dependencies, installed-client
-wiring and selected contribution services. Business repositories are prepared on
-demand by the first real task. Knowledge models/indexes are not downloaded just
-for onboarding. Business Forks use `workspace_forks.py --repo vllm` or
+Setup prepares the workspace Fork, locked runtime and knowledge dependencies,
+installed-client wiring, local knowledge model/services/index and selected
+contribution services. Knowledge package installation overlaps reporting-service
+setup. Local reference preparation runs whether community collaboration is
+enabled or disabled; it never uploads an existing contribution queue. These
+one-time costs belong to this initialization, not the first task or its Stop hook.
+Business repositories are prepared on demand by the first real task.
+Business Forks use `workspace_forks.py --repo vllm` or
 `--repo vllm-ascend` when contributing to those repositories.
 
 Failure remains incomplete even if identity was saved. Resume with
 `vaws_init.py apply`; completed stages and answers are reused. `status` without
 `--detect-auth` is a local read. Change only community choice with
 `apply --community disabled` or `enabled`; revocation precedes further setup.
-Optional contribution-service failures are reported separately as pending and
+Optional knowledge and contribution-service failures are reported separately as pending and
 can be retried with `apply`; they do not block an otherwise ready local task.
+Report these pending stages accurately: local-task readiness does not prove
+that the model, index or every background service is ready. Task hooks and MCP
+calls consume installed dependencies and never install missing knowledge packages.
 Declining Star does not unstar an existing repository; declining Fork does not
 delete existing forks or rewrite their remotes.
 

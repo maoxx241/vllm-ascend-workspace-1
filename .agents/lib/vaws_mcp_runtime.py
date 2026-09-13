@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 import sys
 
-from vaws_environment import read_receipt, saved_ready, PIN_ENV, capability_receipt
+from vaws_environment import EnvironmentError, read_receipt, saved_ready, PIN_ENV, capability_receipt
 from vaws_local_state import prepared_workspace, shared_workspace_root
 from vaws_session_state import task_dir
 from vaws_diagnostics_adapter import operation, phase, measured, captured_stderr, context_environment, context_metadata, request_context, community_context
@@ -373,11 +373,20 @@ class Provider:
                 return CallToolResult(isError=True, structuredContent=facts,
                                       content=[TextContent(type="text", text=json.dumps(facts))])
         if self.kind == "knowledge":
-            # Keyed local preparation can take time. Other providers and
-            # cancellation remain responsive; no tool has been submitted yet.
-            with phase("mcp.prepare_capability", capability="knowledge"):
-                await asyncio.to_thread(capability_receipt, read_receipt(selected.receipt),
-                                        "knowledge", prepare_missing=True)
+            # Package preparation belongs to explicit setup, including repairs.
+            # A first task tool call only checks its fixed local receipt.
+            try:
+                with phase("mcp.read_capability", capability="knowledge"):
+                    await asyncio.to_thread(capability_receipt, read_receipt(selected.receipt),
+                                            "knowledge", prepare_missing=False)
+            except EnvironmentError as exc:
+                from mcp.types import CallToolResult, TextContent
+                facts = {"status": "pending", "category": "environment_not_prepared", "tool": name,
+                         "environment": selected.key, "environment_receipt": selected.receipt,
+                         "workspace": str(selected.workspace), "submitted": False, "reason": str(exc),
+                         "remedy": "Run .agents/scripts/knowledge_setup.py explicitly in the selected workspace."}
+                return CallToolResult(isError=True, structuredContent=facts,
+                                      content=[TextContent(type="text", text=json.dumps(facts))])
         backend = self.backend(selected)
         result = await backend.request("call_tool", name=name, arguments=values, meta=context_metadata(metadata))
         result.meta = {**(result.meta or {}), "vaws_provider": {

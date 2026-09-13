@@ -43,6 +43,8 @@ def setup(tmp_path, monkeypatch):
         assert community.read_choice(root)["decision"] == decision
         return {"configured": True}
     monkeypatch.setattr(onboarding, "configure_knowledge", knowledge)
+    monkeypatch.setattr(onboarding, "prepare_knowledge_runtime", lambda *args: {"state": "ready"})
+    monkeypatch.setattr(onboarding, "prepare_knowledge_reference", lambda *args: {"ready": True})
     monkeypatch.setattr(onboarding, "configure_reporting", lambda *args: calls.append(["worker"]) or {"state": "running"})
     return tmp_path, account, calls, runner
 
@@ -119,6 +121,66 @@ def test_optional_service_failure_does_not_block_task_setup_and_retries_only_tha
     second = initialize(setup)
     assert second["pending_optional"] == [] and second["collaboration_state"] == "configured"
     assert calls == old_calls and account.calls == []
+
+
+@pytest.mark.parametrize("decision", ["enabled", "disabled"])
+def test_init_prepares_local_knowledge_independently_of_contribution(setup, monkeypatch, decision):
+    prepared = []
+    monkeypatch.setattr(onboarding, "prepare_knowledge_runtime", lambda root, receipt:
+                        prepared.append((root, receipt["key"])) or {"state": "ready"})
+    first = initialize(setup, github_user="alice", fork=False, star=False, community=decision)
+    assert first["steps"]["knowledge_runtime"]["state"] == "ready"
+    assert prepared == [(setup[0], "fixed")]
+    assert initialize(setup)["reused"] is True
+    assert prepared == [(setup[0], "fixed")]
+
+
+def test_knowledge_install_and_reporter_overlap_with_separate_durations(setup, monkeypatch):
+    rendezvous = threading.Barrier(2, timeout=5)
+    def prepare(*args):
+        rendezvous.wait()
+        return {"state": "ready"}
+    def report(*args):
+        rendezvous.wait()
+        return {"state": "running"}
+    monkeypatch.setattr(onboarding, "prepare_knowledge_runtime", prepare)
+    monkeypatch.setattr(onboarding, "configure_reporting", report)
+    result = initialize(setup, github_user="alice", fork=False, star=False, community="enabled")
+    assert result["pending_optional"] == []
+    for name in ("knowledge_runtime", "reporting"):
+        assert result["steps"][name]["seconds"] >= 0
+
+
+def test_missing_optional_owner_does_not_install_again_or_block_local_task(setup, monkeypatch):
+    def fail(*args):
+        raise RuntimeError("offline package registry")
+    monkeypatch.setattr(onboarding, "prepare_knowledge_runtime", fail)
+    first = initialize(setup, github_user="alice", fork=False, star=False, community="enabled")
+    assert first["state"] == "ready"
+    assert first["pending_optional"] == ["knowledge_runtime", "knowledge_reference", "knowledge"]
+    assert entry.workspace_entry(setup[0])["state"] == "configured"
+    assert not any(command[0] == "knowledge" for command in setup[2])
+    before = list(setup[2])
+    monkeypatch.setattr(onboarding, "prepare_knowledge_runtime", lambda *args: {"state": "ready"})
+    resumed = initialize(setup)
+    assert resumed["pending_optional"] == []
+    assert setup[2] == before + [["knowledge", "enabled", "alice"]]
+
+
+def test_reference_preparation_failure_preserves_ready_runtime_and_local_task(setup, monkeypatch):
+    attempts = []
+    def unavailable(*args):
+        attempts.append("reference")
+        raise RuntimeError("model download unavailable")
+    monkeypatch.setattr(onboarding, "prepare_knowledge_reference", unavailable)
+    first = initialize(setup, github_user="alice", fork=False, star=False, community="disabled")
+    assert first["pending_optional"] == ["knowledge_reference"]
+    assert first["steps"]["knowledge_runtime"]["state"] == "ready"
+    assert entry.workspace_entry(setup[0])["state"] == "configured"
+    assert attempts == ["reference"]
+    monkeypatch.setattr(onboarding, "prepare_knowledge_runtime", lambda *args: pytest.fail("runtime prepared twice"))
+    monkeypatch.setattr(onboarding, "prepare_knowledge_reference", lambda *args: {"ready": True})
+    assert initialize(setup)["pending_optional"] == []
 
 
 def test_failure_after_identity_is_incomplete_and_resumes_only_failed_stages(setup, monkeypatch):

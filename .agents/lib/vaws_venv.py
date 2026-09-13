@@ -35,7 +35,7 @@ def ensure_workspace_interpreter(
     *, repo_root: Path, packages: tuple[str, ...] = SENTINEL_PACKAGES, use_saved: bool = True,
     stdin: bytes | None = None,
 ) -> None:
-    """Choose by dependency identity; importability alone never selects a runtime."""
+    """Enter a prepared runtime; consuming an owner never installs packages."""
     configure_windows_stdio()
     if os.environ.get(SKIP_ENV) == "1":
         return
@@ -44,9 +44,11 @@ def ensure_workspace_interpreter(
         # worktree selection remains valid while the Agent edits dependencies.
         selected = native_ready(repo_root, use_saved=use_saved)
         knowledge = packages == ("vaws_knowledge",)
-        receipt = capability_receipt(selected, "knowledge" if knowledge else "runtime", prepare_missing=knowledge)
+        receipt = capability_receipt(selected, "knowledge" if knowledge else "runtime", prepare_missing=False)
     except EnvironmentError as exc:
-        sys.stderr.write(f"{exc}; run `{REMEDY}` before starting a new client.\n")
+        remedy = ("uv run --no-project python .agents/scripts/knowledge_setup.py"
+                  if packages == ("vaws_knowledge",) else REMEDY)
+        sys.stderr.write(f"{exc}; run `{remedy}` explicitly in {repo_root}.\n")
         raise SystemExit(2) from exc
     venv_python = Path(receipt["python"])
     needs_utf8 = os.name == "nt" and not sys.flags.utf8_mode

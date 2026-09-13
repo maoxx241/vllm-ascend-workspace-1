@@ -7,7 +7,8 @@ does not walk checkout trees. Status is one of ``missing``, ``off_spec``, or
 ``off_spec`` warns but does not block execution. ``missing`` makes capabilities
 that depend on the package unavailable. Core package gaps use
 ``uv run --no-project python .agents/scripts/vaws_deps.py sync``; optional
-knowledge is prepared by actual use or ``sync --capability knowledge``.
+knowledge is prepared by repo-init, explicit knowledge setup or
+``sync --capability knowledge``. Consumption never installs missing packages.
 CI uses ``uv lock --check`` to keep the lockfile aligned with
 ``pyproject.toml``.
 """

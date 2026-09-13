@@ -65,20 +65,65 @@ def test_missing_environment_does_not_interrupt_client():
         raise SystemExit(2)
 
     with mock.patch.object(hook, "ensure_workspace_interpreter", side_effect=missing):
-        invoke({"hook_event_name": "Stop", "cwd": str(ROOT),
-                "last_assistant_message": "This valid final response cannot prepare its unavailable owner."}, facts_expected=False)
+        facts = invoke({"hook_event_name": "Stop", "cwd": str(ROOT),
+                        "last_assistant_message": "This valid final response cannot prepare its unavailable owner."})
+    assert facts[0]["status"] == "pending"
+    assert facts[0]["reason"] == "knowledge_environment_not_prepared"
+    assert "knowledge_setup.py" in facts[0]["remedy"]
 
 
-def test_optional_preparation_has_real_stderr_for_child_processes():
+def test_prepared_owner_handoff_has_real_stderr_for_child_processes():
     import subprocess
     def prepare(**kwargs):
-        result = subprocess.run([sys.executable, "-c", "import sys;print('quiet install',file=sys.stderr)"],
+        result = subprocess.run([sys.executable, "-c", "import sys;print('owner unavailable',file=sys.stderr)"],
                                 stderr=sys.stderr, stdout=subprocess.DEVNULL, check=False)
         assert result.returncode == 0
         raise SystemExit(2)
     with mock.patch.object(hook, "ensure_workspace_interpreter", side_effect=prepare):
-        invoke({"hook_event_name": "Stop", "cwd": str(ROOT),
-                "last_assistant_message": "This valid final response needs actual child process stderr."}, facts_expected=False)
+        facts = invoke({"hook_event_name": "Stop", "cwd": str(ROOT),
+                        "last_assistant_message": "This valid final response needs actual child process stderr."})
+    assert facts[0]["status"] == "pending"
+
+
+def test_valid_cold_summary_never_installs_or_opens_a_socket(workspace):
+    """Exercise the actual hook and fixed split receipt with owner I/O forbidden."""
+    import vaws_environment as environments
+    from test_capability_environment import configure
+
+    configure(workspace)
+    selected = environments.prepare_environment(workspace)
+    assert not Path(selected["components"]["knowledge"]).exists()
+    environment = dict(os.environ)
+    for key in ("VAWS_SKIP_VENV_REEXEC", "VAWS_VENV_REEXEC", "VAWS_ENV_RECEIPT", "PYTHONHOME"):
+        environment.pop(key, None)
+    environment["VAWS_DIAGNOSTICS_ROOT"] = str(workspace / "isolated-logs")
+    environment["VAWS_COMMUNITY_POLICY"] = str(workspace / "absent-community.json")
+    attempts = workspace / "unexpected-owner-io.txt"
+    bootstrap = f"import runpy,sys\nfrom pathlib import Path\nattempts=Path({str(attempts)!r})\n" + """
+def no_owner_io(event, args):
+    if event in {'socket.connect', 'subprocess.Popen', 'os.system', 'os.exec'}:
+        attempts.write_text(event, encoding='utf-8')
+        raise SystemExit(91)
+sys.addaudithook(no_owner_io)
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name='__main__')
+"""
+    result = subprocess.run([sys.executable, "-I", "-X", "utf8", "-c", bootstrap,
+                             str(ROOT / ".agents/hooks/knowledge_summary.py"),
+                             "--client", "codex", "--project", str(workspace),
+                             "--environment-receipt", selected["receipt"]],
+                            input=json.dumps({"cwd": str(workspace), "hook_event_name": "Stop",
+                                              "last_assistant_message": "A useful final response must not install an optional owner."}),
+                            capture_output=True, encoding="utf-8", env=environment, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == "{}\n"
+    assert not attempts.exists(), attempts.read_text(encoding="utf-8")
+    facts = [json.loads(line) for line in result.stderr.splitlines()]
+    assert len(facts) == 1 and facts[0]["status"] == "pending", facts
+    assert facts[0]["reason"] == "knowledge_environment_not_prepared"
+    assert "knowledge_setup.py" in facts[0]["remedy"]
+    assert not Path(selected["components"]["knowledge"]).exists()
+    assert not (workspace / ".vaws-local/knowledge/service.json").exists()
 
 
 def test_foreign_or_unknown_project_does_not_capture(tmp_path):

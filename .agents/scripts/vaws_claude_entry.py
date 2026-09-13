@@ -73,9 +73,9 @@ def launch_plan(kind: str, target: Path, options: list[str], environment: dict) 
         arguments = [str(path), "--client", "claude", "--project", str(target),
                      "--environment-receipt", receipt["receipt"], *options]
     # Summary first enters the lightweight hook, which checks native scope and
-    # final text before selecting or preparing the optional knowledge owner.
+    # final text before selecting the already prepared knowledge owner.
     knowledge = kind == "knowledge"
-    owner = capability_receipt(receipt, "knowledge" if knowledge else "runtime", prepare_missing=knowledge)
+    owner = capability_receipt(receipt, "knowledge" if knowledge else "runtime", prepare_missing=False)
     return [owner["python"], *arguments], environment
 
 

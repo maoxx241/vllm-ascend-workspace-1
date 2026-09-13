@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from contextlib import ExitStack
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -17,6 +18,7 @@ from vaws_github import atomic_json, load_github_identity
 
 SCHEMA = "vaws.onboarding.v1"
 REFERENCE = ".agents/bootstrap/repo-init/SKILL.md"
+OPTIONAL_STAGES = ("star", "knowledge_runtime", "knowledge_reference", "knowledge", "reporting")
 
 
 def setup_inputs(root: Path) -> str:
@@ -139,13 +141,54 @@ def configure_reporting(root: Path, receipt: dict, environment: dict) -> dict:
                     root, environment)
 
 
+def prepare_knowledge_runtime(root: Path, receipt: dict) -> dict:
+    """Install local reference support during setup, independently of uploads."""
+    from vaws_environment import capability_receipt
+    from vaws_knowledge_service import shared_project_config
+    from vaws_workspace_update import path_lock
+
+    timings = {}
+    owner = capability_receipt(receipt, "knowledge", prepare_missing=True, timings=timings)
+    started = time.monotonic()
+    # Do not overwrite a concurrent revocation with a stale config snapshot.
+    # Installation above never holds this short local policy/config lock.
+    with path_lock(policy_path(root).with_suffix(".lock"), wait_seconds=5):
+        config = shared_project_config(root)
+    timings["configuration_seconds"] = time.monotonic() - started
+    return {"state": "ready", "owner": owner["key"], "config": str(config),
+            "timings": timings, "local_reference": True}
+
+
+REFERENCE_PREPARE_CODE = """import json
+from dataclasses import replace
+from vaws_knowledge.server.layers import load_config
+from vaws_knowledge.maintenance import maintain
+config = load_config()
+# Setup prepares references, never drains an existing contribution queue.
+# No config_path prevents the owner from reloading publishing=True from disk.
+reference = replace(config, publishing={**config.publishing, 'enabled': False}, config_path=None)
+print(json.dumps(maintain(reference, force=True), ensure_ascii=False))
+"""
+
+
+def prepare_knowledge_reference(root: Path, receipt: dict) -> dict:
+    """Prepare the selected model, local services and reference index once."""
+    from vaws_knowledge_service import _run_knowledge
+    from vaws_diagnostics_adapter import redact
+
+    code, result = _run_knowledge(root, ["-c", REFERENCE_PREPARE_CODE], receipt=receipt)
+    if code or result.get("ready") is not True:
+        raise RuntimeError("Knowledge reference preparation is pending: " + redact(json.dumps(result))[:2000])
+    return result
+
+
 def initialize(root: Path, *, github_user: str | None = None, fork: bool | None = None,
                star: bool | None = None, community: str | None = None, client: str | None = None,
                github=None, runner=run_json) -> dict:
     from vaws_github import ForkPolicyError, GitHubClient, setup, validate_github_user
     from vaws_local_state import shared_workspace_root
     from vaws_workspace_update import Deferred, path_lock
-    from vaws_diagnostics_adapter import phase, redact
+    from vaws_diagnostics_adapter import phase, redact, wrap_context
 
     root = shared_workspace_root(root.resolve())
     begun = time.monotonic()
@@ -213,13 +256,14 @@ def initialize(root: Path, *, github_user: str | None = None, fork: bool | None 
                 and previous.get("inputs") == inputs
                 and current_choice and current_choice["decision"] == choices["community"]
                 and previous.get("community_revision") == current_choice["revision"]
+                and all(previous["steps"].get(name, {}).get("state") == "ready" for name in OPTIONAL_STAGES)
                 and all(item.get("state") == "ready" for item in previous["steps"].values())
                 and previous.get("client") == client):
             return {**previous, "record": str(record_path(root)), "seconds": time.monotonic()-begun,
                     "reused": True, "native_client_loaded": False}
         steps = dict((previous or {}).get("steps", {}))
         if previous and previous.get("inputs") != inputs:
-            for name in ("dependencies", "clients", "knowledge", "reporting"):
+            for name in ("dependencies", "clients", "knowledge_runtime", "knowledge_reference", "knowledge", "reporting"):
                 steps.pop(name, None)
         if previous and current_choice and previous.get("community_revision") != current_choice["revision"]:
             for name in ("knowledge", "reporting"):
@@ -301,21 +345,61 @@ def initialize(root: Path, *, github_user: str | None = None, fork: bool | None 
                 for name in ("knowledge", "reporting"):
                     steps[name] = {"state": "pending", "reason": "community_choice_changed"}
 
+        def configure_reference_contribution():
+            if choice and choice["decision"] == "enabled" and steps.get("knowledge_runtime", {}).get("state") != "ready":
+                raise RuntimeError("Local knowledge runtime is pending; retry repo-init to finish its preparation")
+            return configure_knowledge(root, (choice or {}).get("decision", "disabled"), choices["github_user"], receipt=receipt)
+
         optional = {
             "star": configure_star,
-            "knowledge": lambda: configure_knowledge(root, (choice or {}).get("decision", "disabled"), choices["github_user"], receipt=receipt),
+            "knowledge": configure_reference_contribution,
             "reporting": lambda: configure_reporting(root, receipt, environment)
                          if choice and choice["decision"] == "enabled" else {"state": "disabled", "local_logs": True},
         }
-        for name, action in optional.items():
+
+        def optional_step(name, action):
+            started = time.monotonic()
             try:
                 refresh_choice()
                 step(name, action)
             except Exception as exc:
-                steps[name] = {"state": "pending", "error": {"type": type(exc).__name__, "message": redact(str(exc))}}
+                steps[name] = {"state": "pending", "seconds": time.monotonic()-started,
+                               "error": {"type": type(exc).__name__, "message": redact(str(exc))}}
                 atomic_json(record_path(root), record)
+
+        # Knowledge packages and platform reporting setup have no dependency on
+        # each other. Keep record writes on this thread, and contribution config
+        # after its owner is ready. The pool is bounded by this explicit init.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = None
+            if steps.get("knowledge_runtime", {}).get("state") != "ready":
+                def install_reference_runtime():
+                    started = time.monotonic()
+                    try:
+                        with phase("initialization.knowledge_runtime"):
+                            result = prepare_knowledge_runtime(root, receipt)
+                    except Exception as exc:
+                        return {"state": "pending", "seconds": time.monotonic()-started,
+                                "error": {"type": type(exc).__name__, "message": redact(str(exc))}}
+                    return {"state": "ready", "result": result, "seconds": time.monotonic()-started}
+                steps["knowledge_runtime"] = {"state": "running"}
+                atomic_json(record_path(root), record)
+                print("VAWS initialization: knowledge_runtime", file=sys.stderr, flush=True)
+                future = pool.submit(wrap_context(install_reference_runtime))
+            for name in ("star", "reporting"):
+                optional_step(name, optional[name])
+            if future is not None:
+                record["phase"] = "knowledge_runtime"
+                atomic_json(record_path(root), record)
+                steps["knowledge_runtime"] = future.result()
+                atomic_json(record_path(root), record)
+            if steps.get("knowledge_runtime", {}).get("state") == "ready":
+                optional_step("knowledge_reference", lambda: prepare_knowledge_reference(root, receipt))
+            else:
+                steps["knowledge_reference"] = {"state": "pending", "reason": "knowledge_runtime_pending"}
+            optional_step("knowledge", optional["knowledge"])
         refresh_choice()
-        record["pending_optional"] = [name for name in optional if steps[name]["state"] != "ready"]
+        record["pending_optional"] = [name for name in OPTIONAL_STAGES if steps[name]["state"] != "ready"]
         record["collaboration_state"] = "pending" if any(name in record["pending_optional"] for name in ("knowledge", "reporting")) else "configured"
         record.update(state="ready" if choice else "pending", phase="complete", completed_at=datetime.now(timezone.utc).isoformat())
         if choice is None:

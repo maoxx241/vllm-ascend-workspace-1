@@ -351,7 +351,7 @@ def _read_capability(receipt: dict, name: str) -> dict:
 
 @_diagnostic_measured('environment.capability')
 def capability_receipt(receipt: dict, capability: str = "runtime", *, prepare_missing=False, timings=None) -> dict:
-    """Read one fixed owner; actual knowledge use may prepare only that child."""
+    """Read a fixed owner; only explicit setup may prepare its missing child."""
     if receipt.get("schema_version") != 2:
         return receipt
     name = "knowledge" if capability == "knowledge" else "runtime"
@@ -359,8 +359,8 @@ def capability_receipt(receipt: dict, capability: str = "runtime", *, prepare_mi
     if path.exists() or name == "runtime":
         return _read_capability(receipt, name)
     if not prepare_missing:
-        raise EnvironmentError("knowledge is not prepared for this fixed selection; actual knowledge use prepares it, "
-                               "or explicitly prewarm with `vaws_deps.py sync --capability knowledge`")
+        raise EnvironmentError("knowledge is not prepared for this fixed selection; run repo-init or "
+                               "`knowledge_setup.py` explicitly, or use `vaws_deps.py sync --capability knowledge`")
     from vaws_environment_capabilities import frozen_bundle_inputs
     directory, frozen = frozen_bundle_inputs(receipt)
     from vaws_knowledge_catalog import frozen_catalog

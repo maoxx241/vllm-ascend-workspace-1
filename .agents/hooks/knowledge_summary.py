@@ -99,24 +99,29 @@ def main() -> int:
                 result = {"status": "no_summary"}
                 if has_final_text(payload, client=args.client):
                     try:
-                        # Only a usable final response activates this optional
-                        # owner. A hop must receive the original bounded event.
+                        # Reuse the owner prepared by repo-init. A native Stop
+                        # event must never install packages to save its summary.
                         from vaws_diagnostics_adapter import operation, captured_stderr
-                        with operation("hook.knowledge_prepare") as observation, captured_stderr(observation) as errors, contextlib.redirect_stderr(errors):
+                        with operation("hook.knowledge_owner") as observation, captured_stderr(observation) as errors, contextlib.redirect_stderr(errors):
                             ensure_workspace_interpreter(repo_root=ROOT, packages=("vaws_knowledge",),
                                                          stdin=raw.encode("utf-8"))
                     except SystemExit as exc:
                         if exc.code:
                             from vaws_diagnostics_adapter import report_failure
-                            report_failure("hook.optional_preparation_unavailable", exc)
-                            print("{}")
-                        return 0
-                    from vaws_knowledge.summary_hook import capture_summary
-                    from vaws_knowledge_service import service_config
+                            report_failure("hook.knowledge_owner_unavailable", exc)
+                            result = {"status": "pending", "reason": "knowledge_environment_not_prepared",
+                                      "remedy": "Run .agents/scripts/knowledge_setup.py explicitly in the selected workspace."}
+                        else:
+                            return 0
+                    else:
+                        from vaws_knowledge.summary_hook import capture_summary
+                        from vaws_knowledge_service import service_config
 
-                    result = capture_summary(payload, config=service_config(args.project), client=args.client)
+                        result = capture_summary(payload, config=service_config(args.project), client=args.client)
                 facts = {"event": "knowledge_summary", "client": args.client,
                          "status": result.get("status", "unknown") if isinstance(result, dict) else "unknown"}
+                if facts["status"] == "pending":
+                    facts.update(reason=result.get("reason"), remedy=result.get("remedy"))
                 if native:
                     facts["native"] = native
                 from vaws_workspace_update import redact

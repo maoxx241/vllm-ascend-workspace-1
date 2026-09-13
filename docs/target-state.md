@@ -240,8 +240,10 @@ is required for this server-local reuse.
 
 `pyproject.toml` declares dependencies and `uv.lock` fixes their source.
 Normal clients select an immutable bundle of a small runtime environment and an
-independent knowledge environment. Normal preparation installs only the runtime;
-the first valid knowledge operation prepares its fixed optional dependency closure.
+independent knowledge environment. Normal task preparation installs only the runtime;
+repo-init prepares the fixed knowledge dependency closure separately, including
+for users who decline community contribution. Task hooks and knowledge MCP calls
+never install a missing owner: they report pending with an explicit setup remedy.
 Tool discovery reads the generated catalog frozen with that bundle and installs
 nothing. Explicit `vaws_deps.py sync --capability knowledge` can prepare it ahead of
 use. Each component key covers its locked dependency closure; a knowledge-only
@@ -315,7 +317,11 @@ publishing follow-up.
 
 Normal dependency sync installs or reuses runtime packages without installing the
 optional knowledge environment or preparing its model and index.
-Explicit knowledge setup can ask the package to prepare its model and index.
+Repo-init and explicit knowledge setup prepare its model, local services and index.
+Repo-init uses a read-only publishing configuration in its child process, preserving
+the saved contribution choice and existing queues. Knowledge runtime installation
+overlaps independent reporting-service setup. Optional failure stays recorded for
+an explicit setup retry and does not make task startup perform deferred installation.
 An unused knowledge MCP connection performs no backend startup, maintenance,
 model verification, index reconciliation or shared-release network request;
 initialize, tools/list, ping, invalid requests and unused EOF do not activate it.

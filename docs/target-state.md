@@ -299,7 +299,11 @@ Local and shared results are references, not instructions, approvals or current
 environment facts. Review or release does not confer authority. Agents assess
 relevance and reuse existing evidence with checks proportional to change.
 
-Shared releases are read-only. Project Markdown lives in `.agents/knowledge/`.
+General domain knowledge is maintained in the canonical
+[vaws-knowledge-corpus](https://github.com/vllm-ascend-workspace/vaws-knowledge-corpus)
+repository and consumed through read-only shared releases. The consumer does
+not keep another copy of these notes. `.agents/knowledge/` remains an optional
+project-specific Markdown mount; an absent or empty directory is valid.
 Explicitly associated client workspaces share the owning project's
 `.vaws-local/knowledge/service.json`, candidate content and configured model/index
 state. Preparation refreshes an owned project Markdown snapshot from the selected

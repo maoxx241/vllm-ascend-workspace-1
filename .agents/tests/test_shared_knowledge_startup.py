@@ -80,6 +80,10 @@ def test_latest_snapshot_updates_in_place_without_mutating_other_checkout(family
 
 def test_custom_sources_and_publishing_choices_are_retained(family):
     root, a, _, path = family
+    notes = a / ".agents/knowledge"
+    (notes / "fact.md").unlink()
+    notes.rmdir()
+    assert not notes.exists()
     custom = {"backend": "memory", "state_root": "../custom-state", "layers": {
         "project": {"roots": ["../custom-project"]}, "candidate": {"root": "../custom-candidate"},
         "shared": {"enabled": False}}, "shared_sync": {"enabled": False, "repository": "chosen/corpus"},
@@ -92,6 +96,12 @@ def test_custom_sources_and_publishing_choices_are_retained(family):
     mcp = load_config(env=knowledge.knowledge_server_env(a))
     assert config.mount("candidate").roots == mcp.mount("candidate").roots
     assert config.mount("candidate").roots[0].resolve() == (path.parent / "../custom-candidate").resolve()
+    assert config.mount("project").roots[0].resolve() == (path.parent / "../custom-project").resolve()
+    captured = capture(title="Optional project directory", content="Existing candidate storage remains usable.",
+                       config=config, index=False)
+    assert Path(captured["path"]).resolve().is_relative_to(config.mount("candidate").roots[0].resolve())
+    assert explain(config, captured["ref"])["found"] is True
+    assert not notes.exists()
 
 
 def test_cli_drops_inherited_location_and_uses_selected_runtime(family, monkeypatch):

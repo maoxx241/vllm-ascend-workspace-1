@@ -48,8 +48,10 @@ coordinator; do not ask for machine usernames or task aliases.
   Configuration alone is not live acceptance; use one small real task when
   verifying the requested integration.
 
-The shared guidance makes a new task prepare its workspace once through
-`vaws_start.py`; an independent native worktree whose setup already selected an
+For independent local editing or managed preparation, shared guidance prepares
+the task workspace once through `vaws_start.py`. Ordinary PR review and explicit
+remote endpoints, including existing containers, skip this preparation and need
+no identity setup or knowledge lookup. An independent native worktree whose setup already selected an
 environment is reused directly. The returned directory becomes the editing root,
 with shell cwd and absolute file paths. Native UI Worktree modes are optional
 optimizations, and official Grok/Kimi need no personal binary. Resume keeps the
@@ -58,8 +60,9 @@ original task, directory and environment with no preparation or update. See
 
 New tasks use the mainline workspace's locked component combination. The stable
 MCP gateway selects each task's fixed environment without a manual reconnect.
-Official Kimi uses the hook's `context_file` for startup and all three VAWS MCP
-providers; other clients inject it through their supported hooks.
+Official Kimi uses the hook's `context_file` for startup and task tools;
+remote-dev and knowledge accept it optionally to select that task's environment.
+Other clients inject it through their supported hooks.
 
 Dependency preparation also prepares knowledge. Linked worktrees share its
 configuration, project snapshot, candidate store and reusable model/index state.

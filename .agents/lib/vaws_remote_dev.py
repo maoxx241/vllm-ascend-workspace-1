@@ -98,6 +98,7 @@ def require_transport(repo_root: Path = ROOT):
     apply_consumer_environment(repo_root=repo_root)
     try:
         from remote_dev.core.endpoint import Endpoint
+        from remote_dev.core.container_endpoint import pin_container_endpoint
         from remote_dev.core.errors import RemoteExecutionError
         from remote_dev.core.ssh_transport import (
             interactive_ssh_command,
@@ -108,6 +109,7 @@ def require_transport(repo_root: Path = ROOT):
             run_script,
             run_stream,
             ssh_base_cmd,
+            ssh_command,
             stream_ssh_command,
         )
     except ImportError as exc:
@@ -116,6 +118,7 @@ def require_transport(repo_root: Path = ROOT):
         ) from exc
     return {
         "Endpoint": Endpoint,
+        "pin_container_endpoint": pin_container_endpoint,
         "RemoteExecutionError": RemoteExecutionError,
         "interactive_ssh_command": interactive_ssh_command,
         "local_forward_ssh_command": local_forward_ssh_command,
@@ -125,6 +128,7 @@ def require_transport(repo_root: Path = ROOT):
         "run_script": run_script,
         "run_stream": run_stream,
         "ssh_base_cmd": ssh_base_cmd,
+        "ssh_command": ssh_command,
         "stream_ssh_command": stream_ssh_command,
     }
 
@@ -139,6 +143,7 @@ def as_endpoint(
     cwd: str | None = None,
     identity_file: str | None = None,
     ssh_mux: bool | None = None,
+    container: str | None = None,
 ):
     """Build a remote-dev ``Endpoint``. Option construction stays in the package."""
     api = require_transport()
@@ -156,6 +161,8 @@ def as_endpoint(
         kwargs["identity_file"] = identity_file
     if ssh_mux is not None:
         kwargs["ssh_mux"] = ssh_mux
+    if container is not None:
+        kwargs["container"] = container
     if long_stream:
         return Endpoint.for_long_stream(**kwargs)
     return Endpoint(**kwargs)
@@ -169,6 +176,7 @@ def endpoint_from(
     cwd: str | None = None,
     identity_file: str | None = None,
     ssh_mux: bool | None = None,
+    container: str | None = None,
 ):
     """Accept a remote-dev ``Endpoint`` or a host/port/user duck type."""
     api = require_transport()
@@ -177,9 +185,11 @@ def endpoint_from(
         overrides = {}
         if connect_timeout_s is not None:
             overrides["connect_timeout_ms"] = max(1, int(connect_timeout_s)) * 1000
-        for name, value in (("cwd", cwd), ("identity_file", identity_file), ("ssh_mux", ssh_mux)):
+        for name, value in (("cwd", cwd), ("identity_file", identity_file), ("ssh_mux", ssh_mux), ("container", container)):
             if value is not None:
                 overrides[name] = value
+        if container is not None and container != endpoint.container:
+            overrides["container_selector"] = None
         selected = replace(endpoint, **overrides)
         if long_stream:
             # Preserve endpoint routing and runtime policy while the package
@@ -200,6 +210,7 @@ def endpoint_from(
         cwd=cwd,
         identity_file=identity_file,
         ssh_mux=ssh_mux,
+        container=container if container is not None else getattr(endpoint, "container", None),
     )
 
 
@@ -249,8 +260,9 @@ def ssh_exec(
     api = require_transport()
     ep = endpoint_from(endpoint, connect_timeout_s=connect_timeout)
     timeout_ms = None if timeout is None else int(timeout * 1000)
+    ep = api["pin_container_endpoint"](ep, timeout_ms=timeout_ms)
     completed = api["run_script"](ep, script, timeout_ms=timeout_ms)
-    cmd = [*api["ssh_base_cmd"](ep), "bash", "-s"]
+    cmd = api["ssh_command"](ep, "bash", "-s")
     if completed.timed_out:
         result = subprocess.CompletedProcess(
             cmd, 255, completed.stdout or "",

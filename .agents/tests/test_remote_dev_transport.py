@@ -180,7 +180,7 @@ class EndpointPolicyTests(unittest.TestCase):
                        root="/bound-root", cwd="/case", runtime_env=False,
                        runtime_env_file="/runtime/custom.sh", connect_timeout_ms=4000,
                        ssh_mux=False, keepalive=True, kind="direct-endpoint",
-                       alias="selected", source={"execution": "bound"})
+                       alias="selected", source={"execution": "bound"}, container=None, container_selector=None)
         endpoint = ssh_endpoint_from_mapping(mapping)
         self.assertEqual(asdict(remote_dev.endpoint_from(endpoint)), mapping)
         argv = remote_dev.ssh_argv(endpoint)
@@ -242,6 +242,45 @@ class EndpointPolicyTests(unittest.TestCase):
             timed_out = remote_dev.ssh_exec(endpoint, "true", timeout=2, check=False)
             self.assertIn("connection evidence", timed_out.stderr)
             self.assertIn("timed out after 2s", timed_out.stderr)
+
+    def test_container_mapping_clone_and_duck_type_keep_the_selected_coordinate(self):
+        from vaws_remote_target import ssh_endpoint_from_mapping
+        container = "a" * 64
+        endpoint = ssh_endpoint_from_mapping(dict(host=HOST, port=22, user=USER, container=container))
+        for value in (endpoint, SimpleNamespace(host=HOST, port=22, user=USER, container=container)):
+            self.assertEqual(remote_dev.endpoint_from(value).container, container)
+            self.assertEqual(remote_dev.endpoint_from(value, long_stream=True).container, container)
+        self.assertEqual(remote_dev.as_endpoint(HOST, 22, container=container).container, container)
+        selected = remote_dev.require_transport()["Endpoint"](HOST, 22, container=container, container_selector="old-name")
+        replacement = remote_dev.endpoint_from(selected, container="b" * 64)
+        self.assertIsNone(replacement.container_selector)
+
+    def test_container_exec_pins_once_and_reports_the_actual_container_command(self):
+        from dataclasses import replace
+        api = remote_dev.require_transport()
+        endpoint = api["Endpoint"](HOST, 22, container="selected-name")
+        pinned = replace(endpoint, container="a" * 64, container_selector="selected-name")
+        pin = mock.Mock(return_value=pinned)
+        run = mock.Mock(return_value=SimpleNamespace(returncode=0, stdout="ok", stderr="", timed_out=False))
+        with mock.patch.object(remote_dev, "require_transport", return_value={**api, "pin_container_endpoint": pin, "run_script": run}):
+            result = remote_dev.ssh_exec(endpoint, "echo ok")
+        pin.assert_called_once()
+        self.assertEqual(run.call_args.args[0].container, pinned.container)
+        self.assertIn("docker exec", " ".join(result.args))
+        self.assertIn(pinned.container, " ".join(result.args))
+
+    def test_unsupported_container_ssh_helpers_refuse_before_host_execution(self):
+        endpoint = remote_dev.as_endpoint(HOST, 22, container="a" * 64)
+        for call in (
+            lambda: remote_dev.ssh_argv(endpoint),
+            lambda: remote_dev.interactive_ssh_command(endpoint),
+            lambda: remote_dev.run_interactive(endpoint),
+            lambda: remote_dev.local_forward_ssh_command(endpoint, local_host="127.0.0.1", local_port=12345,
+                                                        remote_host="127.0.0.1", remote_port=12346),
+            lambda: remote_dev.open_local_forward(endpoint, 12346),
+        ):
+            with self.subTest(call=call), self.assertRaisesRegex(Exception, "container"):
+                call()
 
 
 if __name__ == "__main__":

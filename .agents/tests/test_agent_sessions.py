@@ -220,12 +220,14 @@ class AgentSessionTests(unittest.TestCase):
         self.assertEqual(ghosts[0]["parent_id"], parent["attachment"]["id"])
         self.assertEqual(self.store.context(parent["attachment"]["id"])["attachment"]["state"], "attached")
 
-    def test_hint_prints_context_path_on_its_own_line(self):
+    def test_initial_hint_prints_context_path_and_repeated_prompt_is_quiet(self):
         context = self.attach("hint-path")
-        output = hooks.handle("codex", {"hook_event_name": "UserPromptSubmit", "session_id": "hint-path",
+        output = hooks.handle("codex", {"hook_event_name": "SessionStart", "session_id": "hint-path",
                                         "cwd": str(self.root)}, self.store)
         hint = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn(context["context_file"], hint.splitlines())
+        self.assertEqual(hooks.handle("codex", {"hook_event_name": "UserPromptSubmit", "session_id": "hint-path",
+                                              "cwd": str(self.root)}, self.store), {})
 
 
 class ScaffoldSetupTests(unittest.TestCase):

@@ -36,15 +36,15 @@ def workspace(tmp_path, monkeypatch):
     project.mkdir()
     git(project, "init", "-b", "main")
     (project / ".gitignore").write_text(".vaws-local/\n", encoding="utf-8")
-    (project / "README").write_text("old\n")
+    (project / "README").write_text("old\n", encoding="utf-8")
     old = commit(project, "old")
     git(project, "worktree", "add", "--detach", str(stage), old)
-    (stage / "README").write_text("canonical latest\n")
-    (stage / "uv.lock").write_text("new locked components\n")
+    (stage / "README").write_text("canonical latest\n", encoding="utf-8")
+    (stage / "uv.lock").write_text("new locked components\n", encoding="utf-8")
     latest = commit(stage, "latest")
     git(project, "switch", "-c", "feature-work")
-    (project / "README").write_text("keep local work\n")
-    (project / "untracked.txt").write_text("keep untracked work\n")
+    (project / "README").write_text("keep local work\n", encoding="utf-8")
+    (project / "untracked.txt").write_text("keep untracked work\n", encoding="utf-8")
     receipt = {"key": "latest-environment", "python": sys.executable,
                "receipt": str(tmp_path / "latest-ready.json")}
     calls, selected = [], {}
@@ -67,7 +67,7 @@ def workspace(tmp_path, monkeypatch):
         selected[path] = chosen
         file = path / ".vaws-local/environment-selection" / f"{sys.platform}.json"
         file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(json.dumps(chosen))
+        file.write_text(json.dumps(chosen), encoding="utf-8")
 
     monkeypatch.setattr(start, "WorkspaceUpdater", Updater)
     monkeypatch.setattr(start, "select_environment", select)
@@ -96,10 +96,10 @@ def test_new_task_uses_canonical_worktree_and_preserves_native_cwd(workspace, cl
     assert result["head"] == latest
     assert result["environment"] == receipt
     assert result["knowledge"] == {"ready": True}
-    assert (target / "README").read_text() == "canonical latest\n"
+    assert (target / "README").read_text(encoding="utf-8") == "canonical latest\n"
     assert not (target / "untracked.txt").exists()
-    assert (project / "README").read_text() == "keep local work\n"
-    assert (project / "untracked.txt").read_text() == "keep untracked work\n"
+    assert (project / "README").read_text(encoding="utf-8") == "keep local work\n"
+    assert (project / "untracked.txt").read_text(encoding="utf-8") == "keep untracked work\n"
     assert git(project, "branch", "--show-current") == "feature-work"
     current = store.context(context["attachment"]["id"])
     assert current["attachment"] == context["attachment"]
@@ -109,12 +109,12 @@ def test_new_task_uses_canonical_worktree_and_preserves_native_cwd(workspace, cl
     assert configured[3] == receipt and "VAWS_ENV_RECEIPT" not in configured[4]
     before = list(calls)
     latest_runtime = project / ".vaws-local/latest-runtime.json"
-    assert json.loads(latest_runtime.read_text()) == {key: result[key] for key in ("workspace", "environment", "head")}
+    assert json.loads(latest_runtime.read_text(encoding="utf-8")) == {key: result[key] for key in ("workspace", "environment", "head")}
     runtime_time = latest_runtime.stat().st_mtime_ns
-    (target / "README").write_text("ongoing task edits\n")
+    (target / "README").write_text("ongoing task edits\n", encoding="utf-8")
     repeated = start.start(client, target, context["context_file"])
     assert repeated["status"] == "reused" and repeated["workspace"] == str(target)
-    assert calls == before and (target / "README").read_text() == "ongoing task edits\n"
+    assert calls == before and (target / "README").read_text(encoding="utf-8") == "ongoing task edits\n"
     assert latest_runtime.stat().st_mtime_ns == runtime_time
 
 
@@ -125,7 +125,7 @@ def test_prepared_native_old_ref_reuses_its_directory_and_receipt(workspace):
     select(stage, old_receipt)
     config = project / ".vaws-local/knowledge/service.json"
     config.parent.mkdir(parents=True)
-    config.write_text("{}")
+    config.write_text("{}", encoding="utf-8")
     context = store.attach("codex", "native-prepared", str(stage))
     result = start.start("codex", project, context["context_file"])
     assert result["status"] == "ready" and result["preparation"] == "native"
@@ -181,7 +181,7 @@ def test_failed_update_returns_evidence_without_binding_or_creating(workspace, m
     monkeypatch.setattr(start.WorkspaceUpdater, "step", failed)
     result = start.start("cursor", project, context["context_file"])
     assert result["status"] == "failed" and result["phase"] == "upstream"
-    assert json.loads(Path(result["evidence"]).read_text())["details"]["log"] == "/raw/updater-log.json"
+    assert json.loads(Path(result["evidence"]).read_text(encoding="utf-8"))["details"]["log"] == "/raw/updater-log.json"
     assert store.context(context["attachment"]["id"])["source_defaults"]["origin"] != "explicit"
     assert not (project.parent / (project.name + "-" + context["session"]["id"])).exists()
 

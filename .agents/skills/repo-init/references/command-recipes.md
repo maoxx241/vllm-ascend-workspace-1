@@ -18,8 +18,9 @@ initialization or inspect its record as a prerequisite.
 
 ## New native task
 
-Project guidance supplies this entry when native setup has not already prepared
-an independent worktree and selected environment:
+Project guidance supplies this entry when independent local editing or managed
+preparation is needed and native setup has not already supplied it. Ordinary
+review and explicit remote endpoints skip it:
 
 ```text
 uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT
@@ -28,8 +29,8 @@ uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT
 Use the actual client name: `codex`, `cursor`, `claude`, `grok` or `kimi`.
 Official Kimi adds `--context-file PATH` from its existing hook. The returned
 workspace is the shell cwd and root for absolute file/search/patch paths;
-sources and environment are already bound. Kimi also passes that context to all
-three VAWS MCP providers. Resume uses the earlier directory and environment
+sources and environment are already bound. Kimi passes that context to task tools;
+remote-dev and knowledge accept it optionally. Resume uses the earlier directory and environment
 without running preparation. See [client boundaries](../../../../docs/native-workspace-isolation.md).
 
 ## Optional Codex native hooks

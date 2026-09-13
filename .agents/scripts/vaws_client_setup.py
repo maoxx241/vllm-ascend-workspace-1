@@ -57,6 +57,7 @@ from vaws_local_state import agent_sessions_root
 from vaws_native_task_env import user_task_env
 from vaws_claude_config import provider_kind, wrapped_hook_kind
 from vaws_remote_dev import state_dir
+from vaws_codex_config import TASK_TOOL_MATCHER
 
 CLIENTS = {"claude", "grok", "kimi", "codex", "cursor"}
 EVENTS = ("SessionStart", "SessionEnd", "SubagentStart", "SubagentStop", "PreToolUse", "UserPromptSubmit")
@@ -65,7 +66,6 @@ TASK_SERVER_NAME = "vaws-task"
 REMOTE_DEV_SERVER_NAME = "remote-dev"
 KNOWLEDGE_SERVER_NAME = "vaws-knowledge"
 HOOK_TIMEOUT_SECONDS = 12
-TASK_TOOL_MATCHER = r"(?:^|:|__)vaws_(?:session|run|execution|finish|message)$"
 LEGACY_CONTEXT_MATCHERS = frozenset({TASK_TOOL_MATCHER, r"(?:^|:|__)vaws_(session|run|execution|finish|message)$"})
 COMPANION_TOOL_MATCHER = r"^(?:MCP:)?(?:mcp__)?(?:vaws[-_]knowledge__knowledge_(?:query|explain|capture)|remote[-_]dev__remote_[a-z_]+)$"
 CONTEXT_TOOL_MATCHER = "(?:" + TASK_TOOL_MATCHER + "|" + COMPANION_TOOL_MATCHER + ")"
@@ -879,7 +879,8 @@ def build_plan(client, project, *, kimi_config=None, task_only=False, kimi_sessi
     if client == "codex":
         from vaws_codex_config import add_codex_setup
         add_codex_setup(files, notes, project, ROOT, shell_command=local_hook_command,
-                        parse_command=hook_argv, enable=codex_global_hooks)
+                        parse_command=hook_argv, enable=codex_global_hooks,
+                        pretool_matcher=CONTEXT_TOOL_MATCHER)
     if client == "cursor":
         from vaws_cursor_mcp_config import add_cursor_global_mcp
         add_cursor_global_mcp(files, notes, project, ROOT, owned_server=owned_environment_server,

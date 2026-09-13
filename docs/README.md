@@ -36,6 +36,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 ## Dated design and validation evidence
 
 - [diagnostics-validation-2026-09-13.md](diagnostics-validation-2026-09-13.md) — logging and timing coverage, local failure injection, protocol and process tests, measured instrumentation costs and explicit deployment/device limits.
+- [legacy-retirement-2026-09-13.md](legacy-retirement-2026-09-13.md) — bounded consumer/Skill retirement, historical domain-note migration, retained live mechanisms and regression scope.
 
 - [task-cost-reduction-validation-2026-09-13.md](task-cost-reduction-validation-2026-09-13.md) — local startup, optional dependency loading, managed preparation and completion costs, preserved failures and exact acceptance boundaries.
 

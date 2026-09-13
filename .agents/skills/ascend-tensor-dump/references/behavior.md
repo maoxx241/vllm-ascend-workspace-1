@@ -6,7 +6,7 @@
 
 | 变量 | 默认 | 语义 |
 |------|------|------|
-| `DUMP_PROBE` | 未设置 | `1` 才启用。其他值一律禁用，所有入口是 no-op。 |
+| `DUMP_PROBE` | 未设置 | `1` 才启用普通采集、武装与读回；`graph_slot` 的分配和 `capture_graph` 的图内 copy 不受此开关控制。 |
 | `DUMP_PROBE_DIR` | `.` | 输出目录，启用时必须显式设置。 |
 | `DUMP_PROBE_RANKS` | `0` | 逗号分隔的全局 rank。默认只武装 rank 0。 |
 | `DUMP_PROBE_MATCH` | `1` | 1-based，第几个**不同的 label**。 |
@@ -141,7 +141,7 @@ Python 在调用前就会求值实参，禁用状态也一样。写 `capture("q"
 
 - `shape_match` / `dtype_match` 逐条给出。
 - `nonfinite_introduced`：右侧非有限计数大于左侧。
-- `stat_divergence`：逐个统计量按 `abs(left - right) > atol + rtol * abs(right)` 判断，默认 `atol=0`、`rtol=0`，即要求逐位相同。两侧同为 NaN 视为一致。
+- `stat_divergence`：逐个统计量按 `abs(left - right) > atol + rtol * abs(right)` 判断，默认 `atol=0`、`rtol=0`，即要求统计数值精确相等。两侧同为 NaN 视为一致；这不代表原始张量逐位相同。
 - `first_divergent`：按左侧顺序最早满足 shape/dtype 不匹配、引入非有限、或统计量分叉的记录，带 `reasons` 列表。
 - `only_in_left` / `only_in_right`：单侧独有的 key。**两者非空时先怀疑两轮跑的不是同一条路径**，而不是急着看数值。
 
@@ -175,11 +175,11 @@ Python 在调用前就会求值实参，禁用状态也一样。写 `capture("q"
 `PASS` 或 `INCONCLUSIVE`。空 payload、超出元素预算或不支持的非张量值不能建立通过结论。
 dtype 差异属于 mismatch；整数比较保留 Python 整数值，不经过会丢失 int64 低位的 float64 转换。
 
-非有限值不参与任何 diff 指标：一侧出现 NaN 时答案已经是"就是这个 stage"，把它平均进去只会藏住结论。
+发现非有限值时，返回两侧计数和 `comparable=false`，不计算 diff 指标。这是该采样位置的观察线索；确认初始化、消费前覆盖情况与实际使用范围后，再判断它是否与故障有关。
 
-`tensors` 的默认 `atol` 和 `rtol` 都是 `1e-2`，这是 bf16 端到端比较的宽松档。**要下"逐位一致"的结论必须显式传更紧的值**，不要用默认容差声称精度对齐。
+`tensors` 的默认 `atol` 和 `rtol` 都是 `1e-2`。按实际比较要求选择容差；`exact_equal` 比较转换后的数值，不能证明原始存储逐位一致。默认容差通过也不能代替业务精度验收。
 
-所有指标用纯 Python 计算，torch 只用于 `torch.load`。因此 dump 的大小就是唯一需要预算的东西：超过 `--max-elements`（默认 200 万）会明确拒绝并提示降低 `DUMP_PROBE_ROWS`，而不是静默跑很久。
+两侧 `.pt` 会先由 `torch.load` 完整加载到 CPU，再逐个张量转换和计算指标。`--max-elements`（默认 200 万）只限制单个张量的指标计算；超限条目标为 skipped，不能建立通过结论。它不限制文件读取、总张量数或进程内存，选择输入前需考虑 dump 总量，并通过采集范围和 `DUMP_PROBE_ROWS` 控制规模。
 
 ## 退出码
 

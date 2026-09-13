@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from vaws_knowledge_service import knowledge_server_env, query_knowledge, service_config
+from vaws_knowledge_service import knowledge_server_env, service_config
 from vaws_knowledge.markdown import load_document
 from vaws_knowledge.local.instance import instance_for_config
 from vaws_knowledge.server.capture import capture
@@ -36,29 +36,20 @@ class KnowledgeFlowTests(unittest.TestCase):
             result = call("query", "--ref", captured["ref"])
             self.assertIn("acknowledgement", json.dumps(result))
 
-    def test_failed_lookup_is_not_an_empty_success(self):
-        with mock.patch("vaws_knowledge.server.query.query", side_effect=OSError("index down")):
-            result = query_knowledge(knowledge_dir=ROOT / ".agents/knowledge", query="failure")
-        self.assertTrue(result["unavailable"])
-        self.assertEqual(result["results"], [])
-        self.assertIn("index down", result["index_detail"])
-
-    def test_client_environment_and_optional_lookup_work_without_package(self):
+    def test_client_environment_works_without_package(self):
         with tempfile.TemporaryDirectory() as temporary:
             code = (
                 "import json, sys\nfrom pathlib import Path\n"
                 f"sys.path.insert(0, {str(ROOT / '.agents/lib')!r})\n"
-                "from vaws_knowledge_service import knowledge_server_env, query_knowledge\n"
+                "from vaws_knowledge_service import knowledge_server_env\n"
                 f"root = Path({temporary!r})\n"
-                "print(json.dumps({'env': knowledge_server_env(root), "
-                "'lookup': query_knowledge(knowledge_dir=root / '.agents/knowledge', query='example')}))\n"
+                "print(json.dumps(knowledge_server_env(root)))\n"
             )
             result = subprocess.run([sys.executable, "-I", "-S", "-c", code],
                                     capture_output=True, text=True, encoding="utf-8", timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertEqual(Path(payload["env"]["VAWS_KNOWLEDGE_PROJECT_ROOTS"]), Path(temporary).resolve() / ".agents/knowledge")
-        self.assertTrue(payload["lookup"]["unavailable"])
+        self.assertEqual(Path(payload["VAWS_KNOWLEDGE_PROJECT_ROOTS"]), Path(temporary).resolve() / ".agents/knowledge")
 
     def test_mcp_and_hook_roots_agree_with_nested_service_config(self):
         with tempfile.TemporaryDirectory() as temporary:

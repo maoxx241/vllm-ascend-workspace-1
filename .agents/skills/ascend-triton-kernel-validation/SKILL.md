@@ -40,4 +40,5 @@ Read the relevant detail only when needed:
 
 - [case design](references/case-design.md)
 
-- [Business input example](references/inputs.md)
+- [Existing-evidence report command](references/command-recipes.md)
+- [Existing-evidence report input example](references/inputs.md)

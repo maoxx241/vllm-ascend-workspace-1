@@ -68,7 +68,6 @@ from vaws_coordinator.device_inventory import parse_npu_smi_hbm  # noqa: E402
 from _common import (
     ENV_PREAMBLE,
     SshEndpoint,
-    check_msprof_available,
     ensure_run_dir,
     get_machine_alias,
     load_serving_state,

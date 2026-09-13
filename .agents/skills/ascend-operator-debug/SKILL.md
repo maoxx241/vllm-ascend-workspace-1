@@ -33,4 +33,5 @@ Use ascend-tensor-dump while the first divergent stage is unknown. Use the Trito
 Read the relevant detail only when needed:
 
 
-- [Business input example](references/inputs.md)
+- [Existing-evidence report command](references/command-recipes.md)
+- [Existing-evidence report input example](references/inputs.md)

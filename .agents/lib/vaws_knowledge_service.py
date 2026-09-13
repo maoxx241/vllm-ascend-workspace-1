@@ -1,4 +1,4 @@
-"""Workspace roots and optional Markdown lookup over the installed knowledge owner."""
+"""Workspace roots and configuration for the installed knowledge owner."""
 from __future__ import annotations
 
 import json
@@ -221,15 +221,3 @@ def service_config(
         path=config_path if config_path.is_file() else None,
         base_dir=config_path.parent if config_path.is_file() else repo_root,
     )
-
-
-def query_knowledge(*, knowledge_dir: Path, query: str, limit: int = 3) -> dict[str, Any]:
-    """Keep index availability distinct from a successful query with zero results."""
-    repo = knowledge_dir.parent.parent if knowledge_dir.parent.name == ".agents" else knowledge_dir.parent
-    try:
-        from vaws_knowledge.server.query import query as package_query
-        override = None if knowledge_dir == repo / PROJECT_ROOT_RELATIVE else knowledge_dir
-        result = package_query(service_config(repo, project_root=override), text=query, limit=limit)
-        return result.to_dict()
-    except Exception as exc:
-        return {"results": [], "unavailable": True, "degraded": True, "index_detail": str(exc)}

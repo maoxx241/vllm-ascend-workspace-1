@@ -11,6 +11,7 @@ from vaws_diagnostics_adapter import measured as _diagnostic_measured
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 from vaws_environment import EnvironmentError, PIN_ENV, native_ready, capability_receipt
@@ -32,6 +33,7 @@ def configure_windows_stdio() -> None:
 @_diagnostic_measured('entry.interpreter')
 def ensure_workspace_interpreter(
     *, repo_root: Path, packages: tuple[str, ...] = SENTINEL_PACKAGES, use_saved: bool = True,
+    stdin: bytes | None = None,
 ) -> None:
     """Choose by dependency identity; importability alone never selects a runtime."""
     configure_windows_stdio()
@@ -75,11 +77,34 @@ def ensure_workspace_interpreter(
             arguments = original[1:]
         argv = [executable, *(["-X", "utf8"] if needs_utf8 else []), *arguments]
         event("INFO", "interpreter.handoff", runtime=receipt["key"], platform=sys.platform)
-        if os.name == "nt":
+        if stdin is not None:
+            # A caller may inspect a bounded event before choosing its owner.
+            # Replay that input through a real descriptor, not argv or env.
+            with tempfile.TemporaryFile() as replay:
+                replay.write(stdin)
+                replay.seek(0)
+                if os.name == "nt":
+                    original_stdin = sys.stdin
+                    try:
+                        sys.stdin = replay
+                        from vaws_windows import run_owned
+
+                        raise SystemExit(run_owned(argv, env=env))
+                    finally:
+                        sys.stdin = original_stdin
+                original_fd = os.dup(0)
+                try:
+                    os.dup2(replay.fileno(), 0)
+                    os.execve(executable, argv, env)
+                finally:  # Only reached if exec fails; preserve the caller.
+                    os.dup2(original_fd, 0)
+                    os.close(original_fd)
+        elif os.name == "nt":
             from vaws_windows import run_owned
 
             raise SystemExit(run_owned(argv, env=env))
-        os.execve(executable, argv, env)
+        else:
+            os.execve(executable, argv, env)
     sys.stderr.write(
         "the selected ready interpreter is missing; "
         f"install them with `{REMEDY}` "

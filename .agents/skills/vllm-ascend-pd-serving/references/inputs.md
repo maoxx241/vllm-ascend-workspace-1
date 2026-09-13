@@ -8,15 +8,17 @@ Each role parses its vLLM arguments when its managed process starts. The
 topology does not run a separate parse-only import before launch. Coordinator
 still owns group preparation, resource admission and execution cleanup.
 
+`start` needs only `services` and any optional topology/environment settings.
+Connector configuration is passed to vLLM through each service's `args` and
+`env`; fill in the options supported by the selected vLLM/connector version.
+
+`status --config` needs only `proxy`; `smoke --config` needs `proxy` and `smoke`.
+These operations address an existing proxy and do not start it. The combined
+example below may be reused across operations; unused sections are optional.
+
 ```json
 {
   "group_id": "pd-group",
-  "connector": {
-    "type": "mooncake",
-    "options": {
-      "port": 5000
-    }
-  },
   "services": [
     {
       "name": "decode",

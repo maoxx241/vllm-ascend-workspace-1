@@ -31,7 +31,8 @@ remote container would run can be executed locally against fake
 The real ``ASCEND_ENV_PREAMBLE`` is used unmodified; its
 ``[ -f /etc/profile.d/vaws-ascend-env.sh ]`` guard is a no-op off-container.
 
-Run: python3 scripts/selftest_parallel_analyse.py
+Run through tests/test_parallel_analyse.py. Native bash checks require POSIX;
+the timeout case separately requires GNU coreutils timeout or gtimeout.
 """
 
 from __future__ import annotations
@@ -49,6 +50,8 @@ if __name__ == "__main__":
         _vaws_entry = _vaws_bootstrap(__file__)
 
 import os
+import re
+import argparse
 import shlex
 import shutil
 import stat
@@ -57,7 +60,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
+from remote_dev.core.local_process import OwnedProcess
+
+_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
@@ -115,49 +120,53 @@ def make_rank_dirs(root: Path, names: list[str]) -> list[str]:
 
 
 def run_script(script: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["bash", "-c", script],
-        capture_output=True, text=True, env=env, timeout=120,
-    )
+    command = ["bash", "-c", script]
+    with OwnedProcess(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                      text=True, env=env) as owner:
+        stdout, stderr = owner.process.communicate(timeout=15)
+        return subprocess.CompletedProcess(command, owner.process.returncode, stdout, stderr)
 
 
-def install_timeout_shim(tmp: Path, env: dict[str, str]) -> bool:
-    """macOS lacks GNU timeout(1); install a passthrough shim on PATH.
+def find_gnu_timeout() -> str | None:
+    """Require the GNU implementation, not a same-named Windows command."""
+    if os.name != "posix":
+        return None
+    for name in ("timeout", "gtimeout"):
+        executable = shutil.which(name)
+        if executable is None:
+            continue
+        try:
+            result = subprocess.run(
+                [executable, "--version"], capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode == 0 and "(GNU coreutils)" in result.stdout:
+            return executable
+    return None
 
-    Returns True when a real timeout(1) was found (no shim installed).
-    """
-    if shutil.which("timeout"):
-        return True
+
+def install_timeout_shim(tmp: Path, env: dict[str, str], executable: str | None) -> None:
+    """Expose GNU timeout, or a passthrough for non-timeout checks only."""
     bin_dir = tmp / "bin"
     bin_dir.mkdir()
     shim = bin_dir / "timeout"
-    shim.write_text(
-        "#!/bin/bash\n"
-        "# passthrough shim: drop --kill-after=X style options, then the\n"
-        "# duration, then exec the command (no real timeout enforcement)\n"
-        'while [[ "$1" == --* ]]; do shift; done\n'
-        "shift\n"
-        'exec "$@"\n',
-        encoding="utf-8",
+    body = (
+        f'exec {shlex.quote(executable)} "$@"\n' if executable else
+        'while [[ "$1" == --* ]]; do shift; done\nshift\nexec "$@"\n'
     )
+    shim.write_text("#!/bin/bash\n" + body, encoding="utf-8")
     shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
-    env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
-    return False
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
 
 
-def main() -> int:
-    tmp = Path(tempfile.mkdtemp(prefix="analyse_parallel_selftest_"))
-    env = dict(os.environ)
-    real_timeout = install_timeout_shim(tmp, env)
-    print(f"selftest workspace: {tmp}")
-    print(f"timeout(1): {'real' if real_timeout else 'shimmed (no-op)'}")
-
+def run_checks(tmp: Path, env: dict[str, str]) -> int:
     # -- Case 0: generated script is syntactically valid bash ---------------
     dirs0 = make_rank_dirs(tmp / "case_shape", ["rank0_ascend_pt"])
     script0 = build_parallel_analyse_script(dirs0, parallelism=4, timeout_s=60)
     syntax = subprocess.run(
         ["bash", "-n", "-c", script0],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=10,
     )
     check("generated script passes bash -n", syntax.returncode == 0, syntax.stderr)
     check(
@@ -262,34 +271,6 @@ def main() -> int:
     fail_log = Path(fail_dir[0]) / PARALLEL_LOG_NAME
     check("case_fail: failing rank still wrote its log",
           fail_log.is_file() and "stub analyse of" in fail_log.read_text(encoding="utf-8"))
-
-    # -- Case 3: timeout kills a stuck rank (real timeout(1) only) -----------
-    if real_timeout:
-        dirs3 = make_rank_dirs(
-            tmp / "case_timeout", ["fast_ascend_pt", "slow_ascend_pt"],
-        )
-        script3 = build_parallel_analyse_script(
-            dirs3, parallelism=2, timeout_s=2, py_code=SLEEPY_PY,
-        )
-        r3 = run_script(script3, env)
-        results3 = parse_parallel_results(r3.stdout)
-        check("case_timeout: driver rc == 124 (timeout fired)",
-              r3.returncode == 124, f"rc={r3.returncode}")
-        check(
-            "case_timeout: fast rank done, slow rank has no result line",
-            results3 is not None
-            and results3.get(dirs3[0]) == 0
-            and dirs3[1] not in results3,
-            f"got {results3}",
-        )
-        leftover = subprocess.run(
-            ["pgrep", "-f", "slow_ascend_pt"],
-            capture_output=True, text=True,
-        )
-        check("case_timeout: no leftover sleep processes",
-              leftover.returncode != 0)
-    else:
-        print("[SKIP] case_timeout: no real GNU timeout(1) on this host")
 
     # -- Case 4: parser robustness -------------------------------------------
     check("parse: garbage stdout -> None", parse_parallel_results("hello") is None)
@@ -444,16 +425,13 @@ def main() -> int:
         and "profiler_metadata.json" in script_a,
     )
     syntax = subprocess.run(
-        ["bash", "-n", "-c", script_a], capture_output=True, text=True,
+        ["bash", "-n", "-c", script_a], capture_output=True, text=True, timeout=10,
     )
     check("archive: generated script passes bash -n", syntax.returncode == 0,
           syntax.stderr)
 
     def local_ssh_exec(ep, script, *, check=True, timeout=None):  # noqa: A002
-        return subprocess.run(
-            ["bash", "-c", script],
-            capture_output=True, text=True, timeout=timeout,
-        )
+        return run_script(script, env)
 
     orig_ssh_exec = collect_case.ssh_exec
     collect_case.ssh_exec = local_ssh_exec
@@ -520,6 +498,55 @@ def main() -> int:
         return 1
     print("SELFTEST OK")
     return 0
+
+
+def run_timeout_check(tmp: Path, env: dict[str, str]) -> int:
+    dirs3 = make_rank_dirs(
+        tmp / "case_timeout", ["fast_ascend_pt", "slow_ascend_pt"],
+    )
+    script3 = build_parallel_analyse_script(
+        dirs3, parallelism=2, timeout_s=2, py_code=SLEEPY_PY,
+    )
+    r3 = run_script(script3, env)
+    results3 = parse_parallel_results(r3.stdout)
+    check("case_timeout: driver rc == 124 (timeout fired)",
+          r3.returncode == 124, f"rc={r3.returncode}")
+    check(
+        "case_timeout: fast rank done, slow rank has no result line",
+        results3 is not None
+        and results3.get(dirs3[0]) == 0
+        and dirs3[1] not in results3,
+        f"got {results3}",
+    )
+    leftover = subprocess.run(
+        ["pgrep", "-f", re.escape(dirs3[1])],
+        capture_output=True, text=True, timeout=5,
+    )
+    check("case_timeout: no leftover sleep processes",
+          leftover.returncode == 1, f"rc={leftover.returncode}, stderr={leftover.stderr}")
+    return 1 if _FAILURES else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--timeout-only", action="store_true")
+    args = parser.parse_args()
+    required = ("bash", "xargs", "cp", "pgrep") if args.timeout_only else ("bash", "xargs", "cp")
+    missing = [name for name in required if shutil.which(name) is None]
+    if os.name != "posix" or missing:
+        print("SKIP: native POSIX bash tools required" + (f": {missing}" if missing else ""))
+        return 77
+    executable = find_gnu_timeout()
+    if args.timeout_only and executable is None:
+        print("SKIP: GNU coreutils timeout/gtimeout required for process-group timeout coverage")
+        return 77
+    _FAILURES.clear()
+    with tempfile.TemporaryDirectory(prefix="analyse_parallel_selftest_") as temporary:
+        tmp = Path(temporary)
+        env = dict(os.environ)
+        install_timeout_shim(tmp, env, executable)
+        print(f"timeout(1): {executable or 'passthrough; timeout assertions excluded'}")
+        return run_timeout_check(tmp, env) if args.timeout_only else run_checks(tmp, env)
 
 
 if __name__ == "__main__":

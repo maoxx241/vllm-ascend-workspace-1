@@ -39,7 +39,6 @@ def config() -> dict:
         "schema_version": 1,
         "run_id": "pd-run-1",
         "group_id": "pd-group",
-        "connector": {"type": "mooncake", "options": {"port": 5000}},
         "services": [
             {
                 "name": "decode",
@@ -108,15 +107,24 @@ class PdServingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = Path(tmp) / "config.json"
             document = config()
-            for field in ("run_id", "schema_version", "startup_order"):
+            for field in ("run_id", "schema_version", "startup_order", "proxy", "smoke"):
                 document.pop(field)
+            document["services"][0]["env"] = {"HCCL_BUFFSIZE": "1024$"}
+            document["services"][0]["args"] += ["--max-model-len", "1024"]
+            document["environment"] = {"soc": "Ascend910B", "cann": "fixture-version"}
             cfg.write_text(json.dumps(document), encoding="utf-8")
             owner = mock.Mock()
             owner.run.return_value = {"execution_id": "exec-1", "state": "preparing", "service": "pd-group"}
             result = pd.start(cfg, client=owner)
             self.assertEqual(result["state"], "preparing")
             self.assertEqual(result["execution_id"], "exec-1")
-            self.assertEqual(len(owner.run.call_args.kwargs["topology"]["roles"]), 2)
+            roles = owner.run.call_args.kwargs["topology"]["roles"]
+            self.assertEqual(len(roles), 2)
+            self.assertEqual(roles[0]["env"], {"HCCL_BUFFSIZE": "1024$"})
+            self.assertIn('{"kv_role":"kv_consumer"}', roles[0]["command"])
+            self.assertIn('{"kv_role":"kv_producer"}', roles[1]["command"])
+            self.assertIn("--max-model-len 1024", roles[0]["command"])
+            self.assertEqual(owner.run.call_args.kwargs["environment"], document["environment"])
             self.assertIsNone(owner.run.call_args.kwargs["timeout_seconds"])
             self.assertEqual(list(Path(tmp).iterdir()), [cfg])
 
@@ -133,10 +141,27 @@ class PdServingTests(unittest.TestCase):
         self.assertTrue(result["resources_released"])
         owner.run.assert_not_called()
 
+    def test_unused_legacy_settings_do_not_configure_or_block_topology(self):
+        document = config()
+        expected = pd.topology_from_config(document)
+        document.update(connector="obsolete", proxy=None, smoke=None)
+        document["services"][0]["health_timeout"] = "obsolete"
+        pd.validate_config(document)
+        self.assertEqual(pd.topology_from_config(document), expected)
+
+    def test_http_operations_validate_only_consumed_settings(self):
+        pd.validate_proxy({"proxy": {"base_url": "http://proxy:9000"}}, health=True)
+        with self.assertRaisesRegex(pd.PdServingError, "proxy must be an object"):
+            pd.validate_proxy({}, health=True)
+        with self.assertRaisesRegex(pd.PdServingError, "health_path"):
+            pd.validate_proxy({"proxy": {"base_url": "http://proxy:9000", "health_path": None}}, health=True)
+        with self.assertRaisesRegex(pd.PdServingError, "smoke must be an object"):
+            pd.validate_smoke({"proxy": {"base_url": "http://proxy:9000"}})
+
     def test_health_preserves_lifecycle_and_does_not_probe_terminal(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = Path(tmp) / "config.json"
-            cfg.write_text(json.dumps(config()), encoding="utf-8")
+            cfg.write_text(json.dumps({"proxy": config()["proxy"]}), encoding="utf-8")
             owner = mock.Mock()
             owner.observe.return_value = {"execution_id": "exec-1", "state": "running"}
             opener = mock.Mock(side_effect=urllib.error.HTTPError("http://proxy:9000/health", 502, "bad gateway", {}, None))
@@ -153,7 +178,9 @@ class PdServingTests(unittest.TestCase):
     def test_smoke_records_only_observed_http_fact(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = Path(tmp) / "config.json"
-            cfg.write_text(json.dumps(config()), encoding="utf-8")
+            document = config()
+            document["proxy"]["health_path"] = None  # Not used by smoke.
+            cfg.write_text(json.dumps({key: document[key] for key in ("proxy", "smoke")}), encoding="utf-8")
             response = mock.MagicMock()
             response.__enter__.return_value.status = 200
             response.__enter__.return_value.read.return_value = b'{"choices":[{"text":"ok"}]}'

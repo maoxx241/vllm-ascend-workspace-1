@@ -531,8 +531,13 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
                 shutil.rmtree(root)
             with tempfile.TemporaryDirectory(prefix="vaws-locked-inputs-") as temporary:
                 frozen = Path(temporary)
+                from vaws_download_source import select_pypi_transport
+                install_lock, source_options, source_evidence = select_pypi_transport(lock, offline="--offline" in transport)
+                timings["download_source"] = source_evidence
+                if source_evidence.get("probe") not in {"not_configured", "no_pypi_artifacts"}:
+                    print("VAWS download source: " + json.dumps(source_evidence), file=sys.stderr, flush=True)
                 (frozen / "pyproject.toml").write_bytes(project)
-                (frozen / "uv.lock").write_bytes(lock)
+                (frozen / "uv.lock").write_bytes(install_lock)
                 command = ["uv", "sync", "--project", str(frozen), "--locked", "--no-editable", "--no-install-project",
                            "--python", executable, "--no-default-groups"]
                 for group in selection["groups"]:
@@ -542,6 +547,7 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
                 for name in exclude:
                     command.extend(("--no-install-package", name))
                 command.extend(transport)
+                command.extend(source_options)
                 environment = {name: value for name, value in os.environ.items()
                                if (not name.startswith("UV_") or name in UV_TRANSPORT_ENV)
                                and name not in ("VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", PIN_ENV)}

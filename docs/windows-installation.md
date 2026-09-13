@@ -64,6 +64,28 @@ proxy, add that mirror's hostname to the session's `NO_PROXY`, preserving existi
 entries. Keep external GitHub traffic on the configured proxy. Do not put proxy
 credentials in tracked configuration or diagnostic output.
 
+For an approved PyPI mirror, set `VAWS_PYPI_MIRROR` to its HTTPS simple-index URL
+before resuming setup. For example, replace the placeholder below with the actual
+mirror available on the machine:
+
+```powershell
+$env:VAWS_PYPI_MIRROR = 'https://mirror.example/simple'
+uv run --no-project python .agents/scripts/vaws_init.py apply
+```
+
+On a cold install, VAWS compares a bounded sample (at most 256 KiB per source,
+four-second connection/read timeouts) from the locked source and configured mirror.
+It selects the mirror when the measured rate is at least 25% higher, or the default
+source fails. Warm environment reuse and explicit `--offline` runs do not probe.
+The selected source and measurements appear on stderr. A missing artifact,
+incompatible mirror layout, or slower mirror retains the default source.
+
+The mirror must retain PyPI's `packages/` artifact paths. Only the temporary
+installation copy maps registry/artifact URLs; the checked-in lock, exact versions,
+Git revisions, artifact SHA256 values and environment key stay unchanged. uv still
+enforces `--locked` and rejects modified artifacts. This setting covers locked
+PyPI packages; GitHub and knowledge model downloads use their own transports.
+
 ## Prepare an offline bundle while online
 
 First complete the online sync above for the exact checkout and target Python.

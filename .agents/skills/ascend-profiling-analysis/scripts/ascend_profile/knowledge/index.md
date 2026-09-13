@@ -1,9 +1,14 @@
 # Analyzer data and references
 
+Status: current
+
 This directory keeps analyzer implementation data and optional explanations
 in their existing locations. The runtime data is versioned with the code;
 it is not a format for workspace knowledge or a reading checklist for agents.
-Workspace knowledge under `.agents/knowledge/` supplies related notes only.
+General domain notes come from the shared
+[vaws-knowledge-corpus](https://github.com/vllm-ascend-workspace/vaws-knowledge-corpus).
+Analyzer rules and report-field explanations remain with this code; they do
+not depend on a knowledge query or the optional `.agents/knowledge/` mount.
 Current measurements, model configuration and source evidence take precedence.
 
 ## Runtime data and test fixtures

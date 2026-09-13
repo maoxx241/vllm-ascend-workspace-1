@@ -111,13 +111,22 @@ class KnowledgeFlowTests(unittest.TestCase):
             self.assertEqual(instance_for_config(mcp).state_root, root / ".vaws-local/knowledge/instance")
             self.assertEqual(instance_for_config(mcp).state_root, instance_for_config(hook).state_root)
 
-    def test_historical_observation_retains_its_source_and_limits(self):
-        root = ROOT / ".agents/knowledge"
-        document = load_document(root / "tensor-graph-capture-observation.md", layer="project", root=root)
-        self.assertIn("migrated 2026-09-11", document.content)
-        self.assertIn("original run identifier are unavailable", document.content)
-        self.assertIn("114", document.content)
-        self.assertIn("contextual evidence only", document.content)
+    def test_optional_note_retains_its_source_and_uncertainty(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "observation.md"
+            path.write_text(
+                "# Synthetic observation\n\n"
+                "Source: isolated test fixture; no device experiment was run.\n\n"
+                "One sample showed a missing event. Runtime versions and raw trace "
+                "are unavailable; this observation does not establish a root cause.\n",
+                encoding="utf-8")
+            document = load_document(path, layer="project", root=root)
+            self.assertEqual(document.title, "Synthetic observation")
+            self.assertIn("Source: isolated test fixture", document.content)
+            self.assertIn("no device experiment was run", document.content)
+            self.assertIn("Runtime versions and raw trace are unavailable", document.content)
+            self.assertIn("does not establish a root cause", document.content)
 
 
 if __name__ == "__main__":

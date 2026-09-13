@@ -7,6 +7,14 @@ vLLM, Ascend NPU, AI and inference infrastructure. Normal tasks retain optional
 `knowledge_query`, `knowledge_explain` and `knowledge_capture`. A title and
 Markdown body are enough. Maintenance is independent of development tasks.
 
+General model, debugging and infrastructure notes belong to the canonical
+[vaws-knowledge-corpus](https://github.com/vllm-ascend-workspace/vaws-knowledge-corpus),
+with their sources, conditions and uncertainty retained. Shared releases supply
+these references; the consumer keeps tool instructions, runtime contracts and
+engineering validation. `.agents/knowledge/` is an optional project-specific
+mount, not a second domain library. It may be absent or empty. Existing custom
+mounts, intake output and candidate storage remain supported.
+
 ## Available capabilities
 
 | Need | Owner and behavior |

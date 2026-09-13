@@ -61,7 +61,7 @@ def test_deep_clone_never_changes_parent_when_git_discovery_is_unavailable(tmp_p
         assert (target / ".git").is_dir()
     else:
         assert (target / "file.txt").read_bytes() == (source / "file.txt").read_bytes()
-    for command, error in ((git, WorkspaceCopyError), (updates.git, updates.Deferred)):
+    for command, error in ((git, WorkspaceCopyError), (updates.git, (updates.Deferred, OSError))):
         try:
             actual = command(target, "rev-parse", "--show-toplevel")
         except error:

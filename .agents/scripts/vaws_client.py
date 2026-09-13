@@ -47,7 +47,8 @@ def resolve_client(client: str) -> list[str]:
 
 
 def prepare_workspace(client: str, workspace: Path | None, *, source: Path = ROOT,
-                      source_channel: str = "development", sources=None, latest=False, preferred=None) -> dict:
+                      source_channel: str = "development", sources=None, latest=False, preferred=None,
+                      source_context_file: str | None = None) -> dict:
     from vaws_local_state import shared_workspace_root
     from vaws_workspace_entry import read_preparation
     from vaws_worktree_setup import prepare_worktree
@@ -68,6 +69,8 @@ def prepare_workspace(client: str, workspace: Path | None, *, source: Path = ROO
         options["latest"] = True
     if preferred is not None:
         options["preferred"] = preferred
+    if source_context_file is not None:
+        options.update(preserve_source=True, source_context_file=source_context_file)
     return prepare_worktree(client, source, target, **options)
 
 
@@ -111,6 +114,7 @@ def main(argv=None) -> int:
     parser.add_argument("--latest", action="store_true", help="explicitly check upstream for a new workspace")
     parser.add_argument("--sources", nargs="*", choices=("vllm", "vllm-ascend"))
     parser.add_argument("--repo", choices=("workspace", "vllm", "vllm-ascend"), help="explicit editing repository for a new workspace")
+    parser.add_argument("--source-context-file", help="explicit context of this workspace's parent task when forking")
     values = list(sys.argv[1:] if argv is None else argv)
     split = values.index("--") if "--" in values else len(values)
     args = parser.parse_args(values[:split])
@@ -147,6 +151,8 @@ def main(argv=None) -> int:
             options["latest"] = True
         if args.repo is not None:
             options["preferred"] = args.repo
+        if args.source_context_file is not None:
+            options["source_context_file"] = args.source_context_file
         result = prepare_workspace(args.client, args.workspace, source=ROOT, **options)
         target = Path(result["workspace"])
         native = saved_ready(target)

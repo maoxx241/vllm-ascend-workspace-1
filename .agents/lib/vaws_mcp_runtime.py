@@ -65,6 +65,7 @@ def caller_context(arguments: dict, metadata: dict | None, *, state_dir: str = "
 def selection(root: Path, context: dict | None = None, *, catalog: bool = False,
               require_prepared: bool = True) -> Selection:
     focus = {}
+    native_cwd = None
     if context is None and not catalog:
         # Direct capabilities use their configured workspace, without task or
         # catalog discovery. No Git process is needed to read this selection.
@@ -89,6 +90,7 @@ def selection(root: Path, context: dict | None = None, *, catalog: bool = False,
                 target = prepared.resolve(strict=True)
                 from vaws_local_state import read_preparation
                 focus = read_preparation(target) or {}
+                native_cwd = context["attachment"]["cwd"]
             else:
                 from vaws_workspace_update import common_dir, git, repository_root
                 shared_git = common_dir(root)
@@ -99,8 +101,9 @@ def selection(root: Path, context: dict | None = None, *, catalog: bool = False,
                         or (require_prepared and actual_git == shared_git)):
                     raise ValueError("This new task has no prepared workspace. Run the project vaws_start.py entry once, then reuse its context.")
         receipt = saved_ready(target)
-    from vaws_source_view import recorded_focus
-    editing = recorded_focus(target, focus.get("sources", {}), focus)
+    from vaws_source_view import native_focus, recorded_focus
+    editing = (native_focus(target, focus.get("sources", {}), focus, cwd=native_cwd)
+               if native_cwd is not None else recorded_focus(target, focus.get("sources", {}), focus))
     return Selection(target, receipt["receipt"], receipt["python"], receipt["key"],
                      context["context_file"] if context else "",
                      Path(editing["cwd"]), editing["repository"])

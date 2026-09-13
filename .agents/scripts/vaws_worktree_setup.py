@@ -133,8 +133,23 @@ def prepare_canonical(source: Path, baseline: dict | None = None, *, source_chan
         return {**result, "upstream_checked": True, "lock_wait_seconds": lock_seconds}, updater.state["prepared"]
 
 
+def source_task_focus(source: Path, context_file: str) -> dict:
+    """Read a caller-supplied parent task; never infer one from a directory."""
+    from vaws_coordinator.agent_session import load_context
+    from vaws_mcp_runtime import selection
+
+    if not isinstance(context_file, (str, Path)) or not str(context_file).strip():
+        raise ValueError("source task context must be supplied explicitly")
+    context = load_context(context_file, allow_native_context=False)
+    selected = selection(source, context)
+    if selected.workspace.resolve() != source.resolve():
+        raise ValueError("source task context belongs to another editing workspace")
+    return {"repository": selected.repository or "workspace", "cwd": str(selected.cwd or source)}
+
+
 def prepare_worktree(client: str, source: Path, target: Path, *, preserve_source: bool = False,
-                     source_channel: str = "development", sources=None, latest=False, preferred=None) -> dict:
+                     source_channel: str = "development", sources=None, latest=False, preferred=None,
+                     source_context_file: str | None = None) -> dict:
     """Prepare a complete independent bundle, outside an existing native worktree.
 
     Clients that accept a returned cwd can request a missing target directly.
@@ -149,6 +164,8 @@ def prepare_worktree(client: str, source: Path, target: Path, *, preserve_source
     source, target = source.resolve(), target.resolve()
     if source_channel not in {"development", "release"}:
         raise ValueError("source_channel must be development or release")
+    if source_context_file is not None and not preserve_source:
+        raise ValueError("source task context is only used when preserving a fork source")
     if windows_mounted_workspace(target):
         raise ValueError("run native worktree setup with the Windows owner for this mounted workspace")
     if source == target:
@@ -171,8 +188,14 @@ def prepare_worktree(client: str, source: Path, target: Path, *, preserve_source
         if preserve_source:
             source_channel = source_record["source_channel"]
             focus = recorded_focus(source, source_record["sources"], source_record)
-            if preferred is None:
+            if preferred is None and source_context_file is None:
                 preferred = focus["repository"]
+    if source_context_file is not None:
+        focus = source_task_focus(source, source_context_file)
+        # An explicit override applies to this new fork only. Always validate
+        # the supplied parent, even when the override chooses another repo.
+        if preferred is None:
+            preferred = focus["repository"]
     project = shared_workspace_root(source)
     supplied = target.exists()
     if supplied:
@@ -287,6 +310,7 @@ def main(argv=None) -> int:
     parser.add_argument("--latest", action="store_true", help="check upstream for a new workspace explicitly")
     parser.add_argument("--sources", nargs="*", choices=("vllm", "vllm-ascend"))
     parser.add_argument("--repo", choices=("workspace", "vllm", "vllm-ascend"), help="explicit editing repository for a new workspace")
+    parser.add_argument("--source-context-file", help="explicit parent task context for a source-preserving fork")
     args = parser.parse_args(argv)
     # Native setup starts before session pins exist; inherited parent pins
     # must not choose this new directory's dependencies.
@@ -295,7 +319,9 @@ def main(argv=None) -> int:
     try:
         source, target = native_paths(args.client, os.environ, Path.cwd())
         result = prepare_worktree(args.client, source, target, latest=args.latest,
-                                  sources=None if args.sources is None else tuple(args.sources), preferred=args.repo)
+                                  sources=None if args.sources is None else tuple(args.sources), preferred=args.repo,
+                                  preserve_source=args.source_context_file is not None,
+                                  source_context_file=args.source_context_file)
     except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as exc:
         result = {"status": "failed", "phase": "native_worktree_setup", "error": str(exc)}
         print(json.dumps(result, ensure_ascii=False), file=sys.stderr, flush=True)

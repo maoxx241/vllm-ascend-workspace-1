@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from vaws_source_view import recorded_focus, source_focus, write_source_view
+from vaws_source_view import native_focus, recorded_focus, source_focus, write_source_view
 
 
 def test_view_lists_selected_roots_only_and_survives_a_directory_move(tmp_path):
@@ -31,6 +31,46 @@ def test_new_task_defaults_to_ascend_without_git_or_source_discovery(tmp_path, m
     assert source_focus(workspace, sources) == {
         "repository": "vllm-ascend", "cwd": str((workspace / "vllm-ascend").resolve())}
     assert not workspace.exists()
+
+
+def test_native_focus_is_read_only_and_respects_explicit_child_or_saved_root(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    sources = {"workspace": workspace, "vllm": workspace / "vllm", "vllm-ascend": workspace / "vllm-ascend"}
+    record = source_focus(workspace, sources, preferred="workspace")
+    def forbidden(*args, **kwargs):
+        pytest.fail("native focus must not scan repositories or write selection")
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    monkeypatch.setattr(Path, "iterdir", forbidden)
+    monkeypatch.setattr(Path, "write_text", forbidden)
+    assert native_focus(workspace, sources, record, cwd=workspace) == record
+    assert native_focus(workspace, sources, record, cwd=workspace / "vllm/subdir")["repository"] == "vllm"
+    assert native_focus(workspace, sources, record, cwd=workspace / "vllm", preferred="workspace") == record
+    assert native_focus(workspace, sources, {}, cwd=workspace)["repository"] == "workspace"
+    with pytest.raises(ValueError, match="both"):
+        native_focus(workspace, sources, {"repository": "vllm"}, preferred="workspace")
+    with pytest.raises(ValueError, match="absolute"):
+        native_focus(workspace, sources, record, cwd="vllm")
+    assert not workspace.exists()
+
+
+def test_task_editor_views_keep_shared_default_and_remain_portable(tmp_path):
+    workspace = tmp_path / "workspace"
+    sources = {"workspace": workspace, "vllm": workspace / "vllm", "vllm-ascend": workspace / "vllm-ascend"}
+    for root in sources.values():
+        root.mkdir(parents=True, exist_ok=True)
+    shared = write_source_view(workspace, sources, preferred="vllm-ascend")
+    before = shared.read_bytes()
+    first = write_source_view(workspace, sources, preferred="vllm", task_id="task/one")
+    second = write_source_view(workspace, sources, preferred="workspace", task_id="task/two")
+    assert shared.read_bytes() == before and first != second != shared
+    assert first == write_source_view(workspace, sources, preferred="vllm", task_id="task/one")
+    data = json.loads(first.read_text(encoding="utf-8"))
+    moved = tmp_path / "moved"
+    workspace.rename(moved)
+    for folder in data["folders"]:
+        assert (moved / first.relative_to(workspace).parent / folder["path"]).resolve().is_dir()
+    assert data["folders"][0]["name"] == "vllm"
+    assert data["settings"]["terminal.integrated.cwd"] == "${workspaceFolder:vllm}"
 
 
 @pytest.mark.parametrize("preferred", ["workspace", "vllm", "vllm-ascend"])

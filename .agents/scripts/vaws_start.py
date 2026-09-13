@@ -120,7 +120,7 @@ def reuse(record: Path) -> dict:
 def start(client: str, project: Path = ROOT, context_file: str | None = None,
           *, source_channel: str = "development", sources=None, latest=False, preferred=None) -> dict:
     from vaws_coordinator.agent_session import AgentSessions, load_context
-    from vaws_source_view import recorded_focus, source_focus
+    from vaws_source_view import native_focus, source_focus, write_source_view
 
     phase, context, record, workspace = "context", None, None, None
     begun = time.monotonic()
@@ -157,9 +157,8 @@ def start(client: str, project: Path = ROOT, context_file: str | None = None,
                 sources = prepared_sources(workspace)
                 native_record = read_preparation(workspace)
                 source_channel = native_record["source_channel"]
-                base_focus = recorded_focus(workspace, sources, native_record)
-                choice = preferred or native_source_preference(context["attachment"]["cwd"], sources)
-                focus = source_focus(workspace, sources, preferred=choice) if choice is not None else base_focus
+                focus = native_focus(workspace, sources, native_record,
+                                     cwd=context["attachment"]["cwd"], preferred=preferred)
             else:
                 phase = "upstream" if latest else "local_preparation"
                 print("VAWS: selecting fixed workspace inputs and required packages", file=sys.stderr, flush=True)
@@ -205,9 +204,12 @@ def start(client: str, project: Path = ROOT, context_file: str | None = None,
             # Defaults belong to this attachment. Explicit user sources, including
             # an empty map, retain precedence in the coordinator.
             context = store.bind_native_sources(context, sources=sources)
+            editor = write_source_view(workspace, sources, preferred=focus["repository"],
+                                       task_id=context["session"]["id"])
             result = selected_result(workspace, receipt, context, status="ready", evidence=record,
                                      preparation=preparation, update=update, sources=sources,
-                                     source_channel=source_channel, head=selected_head, **focus)
+                                     source_channel=source_channel, head=selected_head,
+                                     editor_workspace=str(editor), **focus)
             result["startup_timings"] = {**timings, "total_seconds": time.monotonic()-begun}
             write_json(record, result)
             if preparation == "created":

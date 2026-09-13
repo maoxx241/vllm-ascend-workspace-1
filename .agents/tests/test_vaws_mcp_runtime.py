@@ -338,6 +338,77 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SelectionTests(unittest.TestCase):
+    def prepared_focus(self, base, preferred="vllm-ascend"):
+        from vaws_workspace_entry import write_preparation
+
+        project, workspace = base / "project", base / "bundle"
+        project.mkdir()
+        sources = {"workspace": workspace, "vllm": workspace / "vllm",
+                   "vllm-ascend": workspace / "vllm-ascend"}
+        for path in sources.values():
+            (path / ".git").mkdir(parents=True)
+        record = write_preparation(workspace, project_root=project, native_workspace=workspace,
+                                   workspace=workspace, sources=sources, preferred=preferred)
+        context = {"session": {"id": "vaws-" + "a" * 32}, "context_file": "known",
+                   "attachment": {"cwd": str(workspace)}}
+        saved = {"key": "prepared", "python": sys.executable, "receipt": "fixed-receipt"}
+        protected = [workspace / ".vaws-local/native-workspace.json", Path(record["editor_workspace"])]
+        return project, workspace, sources, context, saved, protected
+
+    def test_prepared_child_cwd_selects_its_repository_without_start_or_shared_writes(self):
+        for suffix in ("vllm", "vllm/src"):
+            with self.subTest(cwd=suffix), tempfile.TemporaryDirectory() as tmp:
+                project, workspace, sources, context, saved, protected = self.prepared_focus(Path(tmp))
+                child = workspace / suffix
+                child.mkdir(parents=True, exist_ok=True)
+                context["attachment"]["cwd"] = str(child)
+                before = {path: path.read_bytes() for path in protected}
+                files = set((workspace / ".vaws-local").rglob("*"))
+                with patch.object(runtime, "shared_workspace_root", return_value=project), \
+                     patch.object(runtime, "saved_ready", return_value=saved), \
+                     patch("vaws_workspace_update.git", side_effect=AssertionError("unneeded Git discovery")):
+                    selected = runtime.selection(project, context)
+                self.assertEqual(selected.workspace, workspace)
+                self.assertEqual(selected.repository, "vllm")
+                self.assertEqual(selected.cwd, sources["vllm"])
+                self.assertEqual(selected.key, saved["key"])
+                self.assertFalse((runtime.task_dir(context["session"]["id"], project) / "start.json").exists())
+                self.assertEqual({path: path.read_bytes() for path in protected}, before)
+                self.assertEqual(set((workspace / ".vaws-local").rglob("*")), files)
+
+    def test_prepared_root_cwd_keeps_explicit_receipt_focus_without_shared_writes(self):
+        for preferred in ("workspace", "vllm"):
+            with self.subTest(repository=preferred), tempfile.TemporaryDirectory() as tmp:
+                project, workspace, sources, context, saved, protected = self.prepared_focus(Path(tmp), preferred)
+                before = {path: path.read_bytes() for path in protected}
+                with patch.object(runtime, "shared_workspace_root", return_value=project), \
+                     patch.object(runtime, "saved_ready", return_value=saved):
+                    selected = runtime.selection(project, context)
+                self.assertEqual(selected.repository, preferred)
+                self.assertEqual(selected.cwd, sources[preferred])
+                self.assertEqual({path: path.read_bytes() for path in protected}, before)
+                self.assertFalse((runtime.task_dir(context["session"]["id"], project) / "start.json").exists())
+
+    def test_existing_start_focus_wins_over_native_child_and_shared_preparation(self):
+        for preferred in ("workspace", "vllm"):
+            with self.subTest(repository=preferred), tempfile.TemporaryDirectory() as tmp:
+                project, workspace, sources, context, saved, protected = self.prepared_focus(Path(tmp))
+                context["attachment"]["cwd"] = str(sources["vllm-ascend"])
+                path = runtime.task_dir(context["session"]["id"], project) / "start.json"
+                path.parent.mkdir(parents=True)
+                path.write_text(json.dumps({"workspace": str(workspace), "sources": {
+                    name: str(root) for name, root in sources.items()}, "environment": saved,
+                    "repository": preferred, "cwd": str(sources[preferred])}), encoding="utf-8")
+                protected.append(path)
+                before = {item: item.read_bytes() for item in protected}
+                with patch.object(runtime, "shared_workspace_root", return_value=project), \
+                     patch.object(runtime, "read_receipt", return_value=saved), \
+                     patch.object(runtime, "saved_ready", side_effect=AssertionError("reselected prepared runtime")):
+                    selected = runtime.selection(project, context)
+                self.assertEqual(selected.repository, preferred)
+                self.assertEqual(selected.cwd, sources[preferred])
+                self.assertEqual({item: item.read_bytes() for item in protected}, before)
+
     def test_metadata_cannot_override_an_explicit_different_native_context(self):
         with patch("vaws_coordinator.agent_session.AgentSessions") as store:
             store.return_value.native_context.return_value = {"context_file": "native-context"}

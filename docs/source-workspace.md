@@ -24,6 +24,8 @@ VAWS 保留可直接查看、搜索和编辑的 `vllm/` 与 `vllm-ascend/`，用
 默认任务直接在返回的 `cwd` 使用原生 `git status/diff/add/commit`，无需先查看
 父仓再切换子仓。VAWS 脚本和 Skill 仍通过 `workspace` 下的绝对路径访问。
 续接保留此前选择；没有聚焦字段的旧任务仍使用原来的 workspace。
+没有 task 启动记录的原生任务也使用同一选仓逻辑：明确的已选业务仓 cwd 优先，
+完整目录根则保留 preparation 的选择。此路由只读，不重写共享目录的默认值。
 
 ## 精确的两个基准
 
@@ -81,6 +83,11 @@ workspace/
 正常处理。两种路径的实际成本见 [dated 验证](source-workspace-validation-2026-09-13.md)。
 新固定版本副本的各仓创建普通可提交任务分支；客户端明确提供的分支保持其名称。
 已有目录恢复和 conversation fork 保留实际分支，不重新选择默认分支。
+fork 默认继承来源目录 preparation 的选仓。若调用方已有明确的父任务
+`context_file`，可向复制入口传 `source_context_file`（CLI 为 `--source-context-file`），
+校验它属于该来源目录后继承该任务实际选仓；显式 `--repo` 仍优先。
+这只读取父任务选择，不把新任务加入父任务。现有原生回调未提供可靠父关联时，
+不从最近任务或 cwd 猜父身份；也不要求 Agent 为普通 fork 补填上下文。
 
 完整任务根不能是包住 ignored 内仓的 linked worktree：父仓可能显示干净，
 普通 `git worktree remove` 却删除内仓尚未提交或推送的工作。linked 内仓还会
@@ -108,6 +115,9 @@ git -C vllm-ascend diff
 `editor_workspace` 字段返回 `.vaws-local/vaws.code-workspace`，其中列出已经
 选中的实际来源，默认操作仓库列在第一位，集成终端 cwd 指向该仓库；其余仓库
 仍可浏览。路径引用随整个目录移动保留。它不拉取或补建源码。
+`start` 返回由同一实际选仓生成的任务编辑器文件；多个任务在相同完整目录选择
+不同仓库时，其视图独立。任务覆盖不改共享 preparation 或默认编辑器文件；
+恢复直接复用该任务记录，不重写其他任务的视图。
 多仓 Git UI、搜索发现和分仓 diff 按实际客户端能力接线与验收，不从生成
 配置文件或一次 `rg` 测试推断全部客户端自动支持。
 

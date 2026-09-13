@@ -5,6 +5,7 @@ The caller owns task identity and decides whether a new default is appropriate.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -68,7 +69,29 @@ def recorded_focus(workspace: Path, sources: dict, record: dict) -> dict[str, st
     return focus
 
 
-def write_source_view(workspace: Path, sources: dict, *, preferred: str | None = None) -> Path:
+def native_focus(workspace: Path, sources: dict, record: dict, *,
+                 cwd: str | Path | None = None, preferred: str | None = None) -> dict[str, str]:
+    """Resolve a new native attachment without changing saved workspace defaults."""
+    from vaws_local_owner import accessible_windows_path
+
+    workspace = Path(accessible_windows_path(workspace)).resolve()
+    sources = {name: Path(accessible_windows_path(value)) for name, value in sources.items()}
+    base = recorded_focus(workspace, sources, record)
+    if preferred is None and cwd is not None:
+        actual = Path(accessible_windows_path(cwd))
+        if not actual.is_absolute():
+            raise ValueError("native editing cwd must be absolute")
+        actual = actual.resolve()
+        for name, value in sources.items():
+            root = value.resolve()
+            if name != "workspace" and (actual == root or root in actual.parents):
+                preferred = name
+                break
+    return source_focus(workspace, sources, preferred=preferred) if preferred is not None else base
+
+
+def write_source_view(workspace: Path, sources: dict, *, preferred: str | None = None,
+                      task_id: str | None = None) -> Path:
     workspace = Path(workspace).resolve()
     if preferred is None:
         # Explicit client maintenance must not replace an existing task choice.
@@ -82,7 +105,14 @@ def write_source_view(workspace: Path, sources: dict, *, preferred: str | None =
     roots = _source_roots(workspace, sources)
     focus = source_focus(workspace, sources, preferred=preferred)
     names = [focus["repository"], *(name for name in roots if name != focus["repository"])]
+    if task_id is not None and (not isinstance(task_id, str) or not task_id):
+        raise ValueError("a task editor view requires an explicit task identity")
     target = workspace / ".vaws-local/vaws.code-workspace"
+    if task_id is not None:
+        # The existing native identity scopes a generated view, not a new task
+        # registry. Concurrent tasks may choose different repos in the same W.
+        name = hashlib.sha256(task_id.encode("utf-8")).hexdigest() + ".code-workspace"
+        target = workspace / ".vaws-local/editor-workspaces" / name
     folders = [{"name": name, "path": Path(os.path.relpath(roots[name], target.parent)).as_posix()}
                for name in names]
     write_json(target, {"folders": folders, "settings": {

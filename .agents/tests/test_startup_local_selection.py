@@ -158,12 +158,61 @@ def test_new_task_in_prepared_business_cwd_honors_actual_or_explicit_focus(start
     for name in ("vllm", "vllm-ascend"):
         roots[name] = str(repository(stage / name))
     select(stage, receipt)
-    start.write_preparation(stage, project_root=project, native_workspace=stage, workspace=stage, sources=roots)
+    preparation = start.write_preparation(stage, project_root=project, native_workspace=stage,
+                                          workspace=stage, sources=roots)
+    protected = [stage / ".vaws-local/native-workspace.json", Path(preparation["editor_workspace"])]
+    before = {path: path.read_bytes() for path in protected}
     context = store.attach("codex", "new-child-task", str(stage / "vllm"))
     result = start.start("codex", project, context["context_file"], preferred=preferred)
     assert result["status"] == "ready" and result["preparation"] == "native", result
     assert result["repository"] == expected and result["cwd"] == roots[expected]
+    view_path = Path(result["editor_workspace"])
+    assert view_path.parent == stage / ".vaws-local/editor-workspaces"
+    assert view_path != protected[1]
+    view = json.loads(view_path.read_text(encoding="utf-8"))
+    assert view["folders"][0]["name"] == expected
+    assert (view_path.parent / view["folders"][0]["path"]).resolve() == Path(result["cwd"])
+    assert {folder["name"] for folder in view["folders"]} == set(roots)
+    assert view["settings"]["terminal.integrated.cwd"] == "${workspaceFolder:" + expected + "}"
+    assert {path: path.read_bytes() for path in protected} == before
     assert store.context(context["attachment"]["id"])["attachment"]["cwd"] == str(stage / "vllm")
+
+
+def test_two_native_tasks_keep_separate_editor_views_and_resume_their_original_focus(startup_workspace):
+    project, stage, _, receipt, _, _, select, store = startup_workspace
+    roots = {"workspace": str(stage)}
+    for name in ("vllm", "vllm-ascend"):
+        roots[name] = str(repository(stage / name))
+    select(stage, receipt)
+    preparation = start.write_preparation(stage, project_root=project, native_workspace=stage,
+                                          workspace=stage, sources=roots)
+    shared = [stage / ".vaws-local/native-workspace.json", Path(preparation["editor_workspace"])]
+    before = {path: path.read_bytes() for path in shared}
+    contexts = [store.attach("codex", "independent-focus-" + name, str(stage))
+                for name in ("vllm", "workspace")]
+    results = []
+    for context, preferred in zip(contexts, ("vllm", "workspace")):
+        result = start.start("codex", project, context["context_file"], preferred=preferred)
+        assert result["status"] == "ready", result
+        assert result["repository"] == preferred and result["cwd"] == roots[preferred]
+        results.append(result)
+    paths = [Path(result["editor_workspace"]) for result in results]
+    assert paths[0] != paths[1]
+    assert all(path.parent == stage / ".vaws-local/editor-workspaces" for path in paths)
+    for path, result in zip(paths, results):
+        view = json.loads(path.read_text(encoding="utf-8"))
+        assert view["folders"][0]["name"] == result["repository"]
+        assert (path.parent / view["folders"][0]["path"]).resolve() == Path(result["cwd"])
+        assert view["settings"]["terminal.integrated.cwd"] == "${workspaceFolder:" + result["repository"] + "}"
+    protected = [*shared, *paths, *(Path(result["evidence"]) for result in results)]
+    saved = {path: path.read_bytes() for path in protected}
+    assert {path: path.read_bytes() for path in shared} == before
+    for context, first in zip(contexts, results):
+        resumed = start.start("codex", project, context["context_file"], preferred="vllm-ascend", latest=True)
+        assert resumed["status"] == "reused"
+        for key in ("workspace", "repository", "cwd", "editor_workspace", "sources", "environment", "context_file"):
+            assert resumed[key] == first[key]
+    assert {path: path.read_bytes() for path in protected} == saved
 
 
 @pytest.mark.parametrize("preferred", ["workspace", "vllm"])

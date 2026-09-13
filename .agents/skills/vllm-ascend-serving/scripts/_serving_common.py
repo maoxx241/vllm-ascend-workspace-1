@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -60,7 +61,61 @@ def print_json(data: dict[str, Any]) -> None:
         data,
         skill="vllm-ascend-serving",
         entry_point=".agents/skills/vllm-ascend-serving/scripts/serving.py",
+        compact=True,
+        record_dir=ROOT / ".vaws-local" / "results",
     )
+
+
+def probe_service(ep: SshEndpoint, port: int, *, served_model: str | None = None,
+                  timeout: float = 10) -> dict[str, Any]:
+    """One remote round trip for health, models and optional completion.
+
+    HTTP requests remain conditional; their combined curl budgets fit within
+    the caller's remaining readiness budget. No log-tail or vLLM import runs.
+    """
+    if timeout < 0.01:
+        return {"health": False, "models": None, "first_token": False}
+    short = min(5, timeout / (4 if served_model is not None else 2))
+    token_budget = min(120, timeout - 2 * short)
+    base = f"http://127.0.0.1:{int(port)}"
+    curl = f"curl --noproxy '*' -s --connect-timeout {min(3, short):.3f} --max-time {short:.3f}"
+    lines = [
+        'probe_dir=$(mktemp -d /tmp/vaws-probe.XXXXXX) || exit 1',
+        'trap \'rm -rf -- "$probe_dir"\' EXIT',
+        f'code=$({curl} -o /dev/null -w \'%{{http_code}}\' {base}/health 2>/dev/null)',
+        'rc=$?; [ "$rc" = 0 ] || { echo __PROBE_FAILED__; exit 0; }',
+        'echo "__HEALTH__=$code"',
+        '[ "$code" = 200 ] || exit 0',
+        f'code=$({curl} -o "$probe_dir/models" -w \'%{{http_code}}\' {base}/v1/models 2>/dev/null)',
+        'rc=$?; [ "$rc" = 0 ] || { echo __PROBE_FAILED__; exit 0; }',
+        'echo "__MODELS_CODE__=$code"',
+        'echo __MODELS_BEGIN__; head -c 65536 "$probe_dir/models"; echo; echo __MODELS_END__',
+        '[ "$code" = 200 ] || exit 0',
+    ]
+    if served_model is not None:
+        payload = json.dumps({"model": served_model, "prompt": "Hello", "max_tokens": 8, "temperature": 0})
+        lines.extend([
+            f'code=$(curl --noproxy \'*\' -s --connect-timeout {min(3, token_budget):.3f} --max-time {token_budget:.3f} '
+            f'-o "$probe_dir/token" -w \'%{{http_code}}\' -X POST {base}/v1/completions '
+            f'-H \'Content-Type: application/json\' -d {shlex.quote(payload)} 2>/dev/null)',
+            'rc=$?; [ "$rc" = 0 ] || { echo __PROBE_FAILED__; exit 0; }',
+            'echo "__TOKEN_CODE__=$code"',
+            'echo __TOKEN_BEGIN__; head -c 400 "$probe_dir/token"; echo; echo __TOKEN_END__',
+        ])
+    response = ssh_exec(ep, "\n".join(lines), check=False, timeout=timeout)
+    out = response.stdout or ""
+    models = None
+    if "__MODELS_CODE__=200\n" in out and "__MODELS_BEGIN__" in out and "__MODELS_END__" in out:
+        body = out.split("__MODELS_BEGIN__", 1)[1].split("__MODELS_END__", 1)[0].strip()
+        try:
+            data = json.loads(body)
+            if isinstance(data, dict) and data.get("data"):
+                models = data
+        except ValueError:
+            pass
+    return {"health": "__HEALTH__=200\n" in out, "models": models,
+            "first_token": "__TOKEN_CODE__=200\n" in out,
+            "probe_error": response.returncode != 0 or "__PROBE_FAILED__" in out}
 
 
 def now_utc() -> str:

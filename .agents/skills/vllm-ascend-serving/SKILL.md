@@ -27,6 +27,11 @@ context through its session environment. MCP input injection does not imply
 shell environment injection; other client boundaries are recorded in
 [native context support](../../../docs/native-workspace-isolation.md#context-in-mcp-and-shell).
 
+Stdout is a compact receipt with business facts under `result` and a local
+`record_ref` for the full envelope. `VAWS_FULL_ENVELOPE=1` requests the full
+envelope directly. Healthy startup probes health, models and a completion in
+one remote call; logs are fetched only when diagnosing a failed startup.
+
 Use pd-serving for prefill/decode topology, benchmark for measurement, and profiling-collection for profiler-window control.
 
 Use `--host` before `--` to select a coordinator placement host. When the user

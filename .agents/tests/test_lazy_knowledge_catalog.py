@@ -1,4 +1,4 @@
-"""Official catalog projection and real lazy package construction boundaries."""
+"""Catalogs and tool calls consume owners prepared by explicit setup."""
 import asyncio
 from importlib import metadata
 import json
@@ -27,7 +27,7 @@ def test_generator_rejects_wrong_installed_commit():
         catalogs.generate_catalog((root / "uv.lock").read_bytes(), wrong)
 
 
-def test_tools_list_keeps_package_missing_and_call_installs_fixed_owner(workspace, monkeypatch):
+def test_cold_call_is_pending_without_io_and_explicit_setup_unblocks_fixed_owner(workspace, monkeypatch):
     configure(workspace)
     receipt = envs.prepare_environment(workspace)
     selected = runtime.Selection(workspace, receipt["receipt"], receipt["python"], receipt["key"])
@@ -51,12 +51,28 @@ def test_tools_list_keeps_package_missing_and_call_installs_fixed_owner(workspac
         return Backend()
     monkeypatch.setattr(provider, "backend", backend)
     async def scenario():
-        assert (await provider.list_tools())[0].name == "knowledge_query"
-        assert not Path(receipt["components"]["knowledge"]).exists()
-        invalid = await provider.call_tool("knowledge_query", {"unknown": 1})
-        assert invalid.isError and invalid.structuredContent["submitted"] is False
-        assert not Path(receipt["components"]["knowledge"]).exists()
-        result = await provider.call_tool("knowledge_query", {"text": "actual use"})
+        import socket
+        import subprocess
+        with monkeypatch.context() as guard:
+            guard.setattr(envs, "_install", lambda *args, **kw: pytest.fail("consumption installed packages"))
+            guard.setattr(subprocess.Popen, "__init__", lambda *args, **kw: pytest.fail("cold consumption started a process"))
+            guard.setattr(socket.socket, "connect", lambda *args, **kw: pytest.fail("cold consumption opened a socket"))
+            assert (await provider.list_tools())[0].name == "knowledge_query"
+            assert not Path(receipt["components"]["knowledge"]).exists()
+            invalid = await provider.call_tool("knowledge_query", {"unknown": 1})
+            assert invalid.isError and invalid.structuredContent["submitted"] is False
+            result = await provider.call_tool("knowledge_query", {"text": "actual use"})
+            assert result.isError
+            facts = result.structuredContent
+            assert facts["status"] == "pending" and facts["submitted"] is False
+            assert facts["category"] == "environment_not_prepared"
+            assert facts["environment_receipt"] == receipt["receipt"]
+            assert facts["workspace"] == str(workspace)
+            assert "knowledge_setup.py" in facts["remedy"]
+            assert not Path(receipt["components"]["knowledge"]).exists()
+            assert calls == []
+        envs.capability_receipt(receipt, "knowledge", prepare_missing=True)
+        result = await provider.call_tool("knowledge_query", {"text": "after explicit setup"})
         assert result.structuredContent == {"ok": True}
         assert len(calls) == 1
         assert (await provider.list_tools())[0].name == "knowledge_query"
@@ -119,7 +135,7 @@ def test_windows_handoff_uses_bundle_runtime_and_fixed_receipt(monkeypatch):
     assert "prepare_missing=True" in command[command.index("-c") + 1]
 
 
-def test_cancel_during_preparation_submits_no_knowledge_call(workspace, monkeypatch):
+def test_cancel_during_receipt_read_submits_no_knowledge_call(workspace, monkeypatch):
     import threading
     configure(workspace)
     receipt = envs.prepare_environment(workspace)
@@ -128,6 +144,7 @@ def test_cancel_during_preparation_submits_no_knowledge_call(workspace, monkeypa
     monkeypatch.setattr(runtime, "caller_context", lambda *args, **kw: None)
     entered, finish = threading.Event(), threading.Event()
     def prepare(*args, **kw):
+        assert kw["prepare_missing"] is False
         entered.set()
         assert finish.wait(5)
     monkeypatch.setattr(runtime, "capability_receipt", prepare)

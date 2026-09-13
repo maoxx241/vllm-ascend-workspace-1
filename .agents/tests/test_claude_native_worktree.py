@@ -159,9 +159,9 @@ def test_hook_uses_actual_target_and_selected_environment(repository, monkeypatc
 @pytest.mark.parametrize("kind,capability,prepare_missing", [
     ("summary", "runtime", False), ("session", "runtime", False),
     ("task", "runtime", False), ("remote", "runtime", False),
-    ("knowledge", "knowledge", True),
+    ("knowledge", "knowledge", False),
 ])
-def test_launch_plan_prepares_only_explicit_knowledge_provider(repository, monkeypatch, kind, capability, prepare_missing):
+def test_launch_plan_only_enters_prepared_owners(repository, monkeypatch, kind, capability, prepare_missing):
     receipt = {"python": sys.executable, "receipt": "/selected/receipt"}
     monkeypatch.setattr(entry, "saved_ready", lambda target: receipt)
     select = mock.Mock(return_value={"python": "/selected/owner-python"})

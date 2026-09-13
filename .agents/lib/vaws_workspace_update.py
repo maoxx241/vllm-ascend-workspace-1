@@ -56,7 +56,9 @@ def run(argv: list[str], *, cwd: Path, timeout: int = 120, env=None, check=True)
 
 
 def git(root: Path, *args: str, check=True) -> str:
-    return run(["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []), *args], cwd=root, check=check).stdout.strip()
+    environment = {**os.environ, "GIT_CEILING_DIRECTORIES": str(Path(root).resolve().parent)}
+    return run(["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []), *args],
+               cwd=root, env=environment, check=check).stdout.strip()
 
 
 def read_json(path: Path) -> dict:
@@ -304,8 +306,10 @@ class WorkspaceUpdater:
         stage_id = locations.get(key, "")
         if not isinstance(stage_id, str) or (stage_id and not re.fullmatch(r"[0-9a-f]{32}", stage_id)):
             raise Deferred("invalid_update_state", "invalid private stage id")
-        suffix = "-" + stage_id if stage_id else ""
-        return self.base / "releases" / (key + suffix)
+        # Keep retry paths equally short: Windows Git repository discovery
+        # has a stricter path limit than tracked-file checkout.
+        directory = hashlib.sha256((key + "\0" + stage_id).encode()).hexdigest()[:32]
+        return self.base / "releases" / directory
 
     def same_selection(self, release: dict, active: dict) -> bool:
         return (self.state.get("target") == release["target"]

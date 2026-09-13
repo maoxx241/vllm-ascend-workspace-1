@@ -24,10 +24,15 @@ class WorkspaceCopyError(RuntimeError):
 
 
 def git(root: Path, *args: str, data: bytes | None = None, env=None, timeout: int = 120) -> bytes:
+    # Calls target an explicit repository root (or a parent for clone/init).
+    # Windows Git can miss a deeply nested .git even with core.longpaths;
+    # never let discovery silently redirect an operation to an ancestor.
+    environment = dict(os.environ if env is None else env)
+    environment["GIT_CEILING_DIRECTORIES"] = str(Path(root).resolve().parent)
     result = subprocess.run(
         ["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []),
          "--no-optional-locks", "-C", str(root), *args], input=data, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, env=env, timeout=timeout, check=False,
+        stderr=subprocess.PIPE, env=environment, timeout=timeout, check=False,
     )
     if result.returncode:
         raise WorkspaceCopyError(result.stderr.decode("utf-8", "replace").strip())

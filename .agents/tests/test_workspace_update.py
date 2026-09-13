@@ -467,7 +467,7 @@ def test_prepare_uses_only_target_locked_packages(fixture, monkeypatch):
     assert commands[0][0][-2:] == ["sync", "--locked"]
     assert "VAWS_ENV_RECEIPT" not in commands[0][1]["env"]
     assert "VAWS_TOP_FROM" not in commands[0][1]["env"]
-    assert fixture["new"] in commands[0][0][1]
+    assert git(Path(commands[0][0][1]).parents[2], "rev-parse", "HEAD") == fixture["new"]
     assert git(root, "rev-parse", "HEAD") == fixture["old"]
 
 
@@ -573,9 +573,11 @@ def test_failed_child_clone_retries_in_new_stage_without_altering_failed_files(f
     (previous / "diagnosis.txt").write_text("keep user diagnosis in failed staging directory")
     monkeypatch.setattr(copying, "prepare_source", original)
     retry = updater(fixture)
-    assert retry.step(apply=True, activate=False)["status"] == "ready"
+    retried = retry.step(apply=True, activate=False)
+    assert retried["status"] == "ready", retried
     prepared = retry.state["prepared"]
     assert Path(prepared["stage"]) != previous
+    assert len(Path(prepared["stage"]).name) == len(previous.name) == 32
     assert retry.state["retained_failed_stage"] == str(previous)
     assert partial.read_text() == "injected incomplete clone"
     assert (previous / "diagnosis.txt").read_text() == "keep user diagnosis in failed staging directory"

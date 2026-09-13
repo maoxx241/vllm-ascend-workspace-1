@@ -29,6 +29,52 @@ def state(path):
             git(path, "diff", "--binary"), git(path, "status", "--porcelain=v1", "-z"))
 
 
+@pytest.mark.parametrize("owner", ["copy", "update"])
+def test_git_helpers_cannot_write_parent_of_unrecognized_checkout(tmp_path, owner):
+    import vaws_workspace_update as updates
+    source = repository(tmp_path / "parent")
+    before = (source / ".git/config").read_bytes()
+    nested = source / "unrecognized checkout"
+    nested.mkdir()
+    command, error = (git, WorkspaceCopyError) if owner == "copy" else (updates.git, updates.Deferred)
+    with pytest.raises(error):
+        command(nested, "config", "--local", "remote.origin.url", "https://example.invalid/wrong")
+    assert (source / ".git/config").read_bytes() == before
+
+
+def test_deep_clone_never_changes_parent_when_git_discovery_is_unavailable(tmp_path):
+    import vaws_workspace_update as updates
+    source = repository(tmp_path / "parent")
+    git(source, "remote", "add", "origin", "https://github.com/alice/vllm.git")
+    before = (git(source, "rev-parse", "HEAD"), git(source, "symbolic-ref", "HEAD"),
+              (source / ".git/index").read_bytes(), (source / ".git/config").read_bytes())
+    target = source / ".vaws-local"
+    while len(str(target).encode("utf-8")) < 275:
+        target /= "deep-repository-directory"
+    revision = before[0].decode().strip()
+    try:
+        workspace.prepare_source(target, repository="vllm-project/vllm", revision=revision, local_source=source)
+    except WorkspaceCopyError:
+        # Windows Git may be unable to discover this .git, even though clone
+        # can create it. The incomplete target remains for diagnosis.
+        assert os.name == "nt"
+        assert (target / ".git").is_dir()
+    else:
+        assert (target / "file.txt").read_bytes() == (source / "file.txt").read_bytes()
+    for command, error in ((git, WorkspaceCopyError), (updates.git, updates.Deferred)):
+        try:
+            actual = command(target, "rev-parse", "--show-toplevel")
+        except error:
+            assert os.name == "nt"
+        else:
+            if isinstance(actual, bytes):
+                actual = actual.decode("utf-8")
+            assert Path(actual.strip()).resolve() == target.resolve()
+    after = (git(source, "rev-parse", "HEAD"), git(source, "symbolic-ref", "HEAD"),
+             (source / ".git/index").read_bytes(), (source / ".git/config").read_bytes())
+    assert after == before
+
+
 def test_explicit_business_roots_and_receipt_reuse_preserve_actual_edits(tmp_path):
     from vaws_workspace_entry import write_preparation
     source = repository(tmp_path / "project")

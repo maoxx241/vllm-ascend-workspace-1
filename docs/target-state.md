@@ -310,6 +310,20 @@ owner. Shared configuration and state do not establish compatibility between
 concurrently running package versions or imply one backend process for all tasks.
 Pending knowledge remains separate from local review and remote work.
 
+Queries combine semantic ranking with lexical matches in mounted Markdown.
+Readable local notes remain searchable during vector outages, with the actual
+degraded state retained. Hits include matching text, source lines and a hash of
+the observed normalized text; shared hits identify the indexed snapshot when
+available. Ranking expresses relevance, never knowledge authority.
+
+Active package maintenance also refreshes a cached local worklist of exact
+duplicates, age hints and observed linked-source changes. The package CLI
+`python -m vaws_knowledge health --config PATH` lets an independent maintainer
+inspect it without a model or external requests. The cache does not edit or
+publish notes, and findings do not affect readiness. Ordinary task agents do
+not call or wait for this maintenance. Replayed native summaries preserve their
+original timestamp, source and any maintainer revision instead of writing again.
+
 Public sharing follows existing authorization/configuration and uses only a
 package-prepared redacted copy. Public review and merge remain human; failed
 redaction blocks that export, not local work. Ordinary development needs no fork

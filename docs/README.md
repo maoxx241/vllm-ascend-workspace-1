@@ -34,6 +34,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 ## Dated design and validation evidence
 
 - [source-workspace-validation-2026-09-13.md](source-workspace-validation-2026-09-13.md) — four-machine source capture/materialization, measured independent-copy costs, package-only sync, old-layout migration and explicit pending final acceptance.
+- [knowledge-adoption-2026-09-13.md](knowledge-adoption-2026-09-13.md) — source-level TeamAI/WeKnora comparison, selected knowledge mechanisms, nine-principle assessment and package/consumer validation boundaries.
 
 - [mechanism-performance-review-2026-09-13.md](mechanism-performance-review-2026-09-13.md) — critical-path and reuse review, local source-packet and lock probes, and ranked mechanism proposals with explicit measurement limits.
 

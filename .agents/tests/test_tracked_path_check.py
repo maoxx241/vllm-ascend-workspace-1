@@ -60,7 +60,6 @@ SYNTHETIC_POLICY = {
         ".codex/",
         ".cursor/",
         ".grok/",
-        ".trae/",
         ".github/",
         "docs/",
         "scripts/",

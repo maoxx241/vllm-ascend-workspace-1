@@ -63,8 +63,7 @@ in linked references. Do not duplicate package APIs or add a compulsory
 management workflow before business work. Report aggregation applies when a
 report is requested; it is not a general development or validation prerequisite.
 
-`.claude/skills/` contains generated routing shims. ModelScope's Trae package is
-also generated; remaining Trae stubs link to their canonical skill. Regenerate
+`.claude/skills/` contains generated routing shims for the canonical skills. Regenerate
 with `uv run --no-project python .agents/scripts/sync_claude_skills.py` and verify with `--check`.
 `uv run --no-project python .agents/scripts/skill_catalog.py --help` lists catalog checks.
 

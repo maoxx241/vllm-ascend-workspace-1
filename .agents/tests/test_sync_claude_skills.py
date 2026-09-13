@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for generated Claude shims and the ModelScope Trae projection."""
+"""Tests for generated Claude shims and canonical ModelScope metadata/help."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr
 from pathlib import Path
 
 import yaml
@@ -20,7 +20,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / ".agents" / "scripts" / "sync_claude_skills.py"
 CATALOG_SCRIPT = ROOT / ".agents" / "scripts" / "skill_catalog.py"
 CANONICAL_MODELSCOPE = ROOT / ".agents" / "skills" / "modelscope"
-TRAE_MODELSCOPE = ROOT / ".trae" / "skills" / "modelscope"
 MODELSCOPE_SCRIPTS = (
     "modelscope_auto.py",
     "download_from_modelscope.py",
@@ -63,23 +62,6 @@ def frontmatter_yaml(text: str) -> str:
     return "\n".join(lines[1:end]) + "\n"
 
 
-def write_owned_modelscope(package: Path, payload_prefix: str) -> None:
-    for relative in sync.MODELSCOPE_TRAE_PATHS:
-        path = package / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"{payload_prefix}:{relative}\n", encoding="utf-8")
-        if relative.endswith(".py"):
-            path.chmod(path.stat().st_mode | 0o111)
-
-
-def snapshot_package(package: Path) -> dict[str, tuple[bytes, int]]:
-    snapshot: dict[str, tuple[bytes, int]] = {}
-    for relative in sync.MODELSCOPE_TRAE_PATHS:
-        path = package / relative
-        snapshot[relative] = (path.read_bytes(), path.stat().st_mode & 0o111)
-    return snapshot
-
-
 def deny_network_pythonpath(root: Path) -> str:
     package = root / "requests"
     package.mkdir()
@@ -93,25 +75,22 @@ def deny_network_pythonpath(root: Path) -> str:
     return str(root)
 
 
-class ModelScopeTraeProjectionTests(unittest.TestCase):
+class ClaudeShimTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
         self.agents_skills = self.root / "agents-skills"
         self.claude_skills = self.root / "claude-skills"
-        self.trae_skills = self.root / "trae-skills"
         self.canonical = self.agents_skills / "modelscope"
-        self.projected = self.trae_skills / "modelscope"
-        self.foreign = self.trae_skills / "other-skill" / "SKILL.md"
         self.agents_skills.mkdir()
         self.claude_skills.mkdir()
-        self.trae_skills.mkdir()
-        write_owned_modelscope(self.canonical, "canonical")
-        self.foreign.parent.mkdir()
-        self.foreign.write_text("foreign-skill-body\n", encoding="utf-8")
+        self.canonical.mkdir()
+        (self.canonical / "SKILL.md").write_text(
+            "---\nname: modelscope\ndescription: ModelScope fixture\n---\n\n# ModelScope\n",
+            encoding="utf-8",
+        )
         sync.AGENTS_SKILLS = self.agents_skills
         sync.CLAUDE_SKILLS = self.claude_skills
-        sync.TRAE_SKILLS = self.trae_skills
         shim_dir = self.claude_skills / "modelscope"
         shim_dir.mkdir()
         (shim_dir / "SKILL.md").write_text(
@@ -122,7 +101,6 @@ class ModelScopeTraeProjectionTests(unittest.TestCase):
     def tearDown(self) -> None:
         sync.AGENTS_SKILLS = ROOT / ".agents" / "skills"
         sync.CLAUDE_SKILLS = ROOT / ".claude" / "skills"
-        sync.TRAE_SKILLS = ROOT / ".trae" / "skills"
         self._tmp.cleanup()
 
     def test_shim_cleanup_only_removes_unextended_generated_shims(self) -> None:
@@ -149,19 +127,6 @@ class ModelScopeTraeProjectionTests(unittest.TestCase):
         self.assertIn("extra Claude skill shim: foreign-skill", sync.check_shims())
         self.assertIn("extra Claude skill shim: extended-skill", sync.check_shims())
 
-    def test_generate_copies_exact_bytes_and_preserves_foreign_package(self) -> None:
-        self.assertEqual(sync.sync_modelscope_trae(), None)
-        for relative in sync.MODELSCOPE_TRAE_PATHS:
-            source = self.canonical / relative
-            target = self.projected / relative
-            self.assertEqual(source.read_bytes(), target.read_bytes(), relative)
-            self.assertEqual(
-                source.stat().st_mode & 0o111,
-                target.stat().st_mode & 0o111,
-                relative,
-            )
-        self.assertEqual(self.foreign.read_text(encoding="utf-8"), "foreign-skill-body\n")
-        self.assertEqual(sync.check_modelscope_trae(), [])
 
     def test_foreign_skill_at_canonical_name_is_preserved_and_reported(self) -> None:
         target = self.claude_skills / "modelscope" / "SKILL.md"
@@ -176,113 +141,30 @@ class ModelScopeTraeProjectionTests(unittest.TestCase):
         outside.mkdir()
         sentinel = outside / "SKILL.md"
         sentinel.write_text("outside content\n", encoding="utf-8")
-        for target, generate in (
-            (self.claude_skills / "modelscope", sync.sync_shims),
-            (self.projected, sync.sync_modelscope_trae),
-        ):
-            with self.subTest(target=target):
-                if target.exists():
-                    (target / "SKILL.md").unlink()
-                    target.rmdir()
-                if os.name == "nt":
-                    proc = subprocess.run(
-                        ["cmd", "/c", "mklink", "/J", str(target), str(outside)],
-                        capture_output=True,
-                    )
-                    self.assertEqual(proc.returncode, 0, proc.stderr)
-                else:
-                    target.symlink_to(outside, target_is_directory=True)
-                try:
-                    with self.assertRaisesRegex(sync.ProjectionConflict, "linked projection path"):
-                        generate()
-                    self.assertEqual(sentinel.read_text(encoding="utf-8"), "outside content\n")
-                    self.assertEqual(list(outside.iterdir()), [sentinel])
-                finally:
-                    if os.name == "nt":
-                        target.rmdir()
-                    else:
-                        target.unlink()
-
-    def test_generate_is_idempotent(self) -> None:
-        sync.sync_modelscope_trae()
-        first = snapshot_package(self.projected)
-        sync.sync_modelscope_trae()
-        second = snapshot_package(self.projected)
-        self.assertEqual(first, second)
-        self.assertEqual(sync.check_modelscope_trae(), [])
-        with redirect_stdout(io.StringIO()) as captured:
-            self.assertEqual(sync.main(["--check"]), 0)
-        self.assertEqual(captured.getvalue(), "")
-
-    def test_check_detects_projected_file_drift_then_regenerate_restores(self) -> None:
-        sync.sync_modelscope_trae()
-        drifted = self.projected / "SKILL.md"
-        drifted.write_text("projected-drift\n", encoding="utf-8")
-        errors = sync.check_modelscope_trae()
-        self.assertIn("stale Trae modelscope projection: SKILL.md", errors)
-        with redirect_stdout(io.StringIO()) as captured:
-            self.assertEqual(sync.main(["--check"]), 1)
-        self.assertIn("stale Trae modelscope projection: SKILL.md", captured.getvalue())
-        sync.sync_modelscope_trae()
-        self.assertEqual((self.canonical / "SKILL.md").read_bytes(), drifted.read_bytes())
-        self.assertEqual(sync.check_modelscope_trae(), [])
-
-    def test_check_detects_canonical_edit_until_regenerated(self) -> None:
-        sync.sync_modelscope_trae()
-        canonical_script = self.canonical / "scripts" / "modelscope_auto.py"
-        canonical_script.write_text("canonical-edit:modelscope_auto.py\n", encoding="utf-8")
-        canonical_script.chmod(canonical_script.stat().st_mode | 0o111)
-        errors = sync.check_modelscope_trae()
-        self.assertIn(
-            "stale Trae modelscope projection: scripts/modelscope_auto.py",
-            errors,
-        )
-        sync.sync_modelscope_trae()
-        self.assertEqual(
-            canonical_script.read_bytes(),
-            (self.projected / "scripts" / "modelscope_auto.py").read_bytes(),
-        )
-        self.assertEqual(sync.check_modelscope_trae(), [])
-
-    def test_check_detects_missing_projected_file(self) -> None:
-        sync.sync_modelscope_trae()
-        (self.projected / "agents" / "openai.yaml").unlink()
-        errors = sync.check_modelscope_trae()
-        self.assertIn("missing Trae modelscope projection: agents/openai.yaml", errors)
-
-    def test_unexpected_projection_file_is_reported_and_not_deleted(self) -> None:
-        sync.sync_modelscope_trae()
-        extra = self.projected / "notes.txt"
-        extra.write_text("user-owned extra\n", encoding="utf-8")
-        errors = sync.check_modelscope_trae()
-        self.assertIn("unexpected file in Trae modelscope projection: notes.txt", errors)
-        sync.sync_modelscope_trae()
-        self.assertEqual(extra.read_text(encoding="utf-8"), "user-owned extra\n")
-        self.assertEqual(self.foreign.read_text(encoding="utf-8"), "foreign-skill-body\n")
-        self.assertIn(
-            "unexpected file in Trae modelscope projection: notes.txt",
-            sync.check_modelscope_trae(),
-        )
+        target = self.claude_skills / "modelscope"
+        (target / "SKILL.md").unlink()
+        target.rmdir()
+        if os.name == "nt":
+            proc = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(target), str(outside)],
+                capture_output=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        else:
+            target.symlink_to(outside, target_is_directory=True)
+        try:
+            with self.assertRaisesRegex(sync.ProjectionConflict, "linked projection path"):
+                sync.sync_shims()
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "outside content\n")
+            self.assertEqual(list(outside.iterdir()), [sentinel])
+        finally:
+            if os.name == "nt":
+                target.rmdir()
+            else:
+                target.unlink()
 
 
 class CurrentTreeProjectionTests(unittest.TestCase):
-    def test_canonical_and_trae_payloads_match(self) -> None:
-        owned = set(sync.MODELSCOPE_TRAE_PATHS)
-        observed = {
-            path.relative_to(TRAE_MODELSCOPE).as_posix()
-            for path in TRAE_MODELSCOPE.rglob("*")
-            if path.is_file() and "__pycache__" not in path.parts
-        }
-        self.assertEqual(observed, owned)
-        for relative in sync.MODELSCOPE_TRAE_PATHS:
-            source = CANONICAL_MODELSCOPE / relative
-            target = TRAE_MODELSCOPE / relative
-            self.assertEqual(source.read_bytes(), target.read_bytes(), relative)
-            self.assertEqual(
-                source.stat().st_mode & 0o111,
-                target.stat().st_mode & 0o111,
-                relative,
-            )
 
     def test_check_passes_on_current_tree(self) -> None:
         proc = subprocess.run(
@@ -303,38 +185,27 @@ class CurrentTreeProjectionTests(unittest.TestCase):
                 self.assertEqual(actual, expected)
 
     def test_skill_frontmatter_parses_through_catalog(self) -> None:
-        for skill_file in (
-            CANONICAL_MODELSCOPE / "SKILL.md",
-            TRAE_MODELSCOPE / "SKILL.md",
-        ):
-            record = catalog.parse_skill(skill_file, ROOT)
-            self.assertEqual(record.name, "modelscope")
-            self.assertIn("ModelScope", record.description)
-            self.assertGreater(len(record.description), 20)
+        record = catalog.parse_skill(CANONICAL_MODELSCOPE / "SKILL.md", ROOT)
+        self.assertEqual(record.name, "modelscope")
+        self.assertIn("ModelScope", record.description)
+        self.assertGreater(len(record.description), 20)
 
     def test_modelscope_yaml_documents_parse(self) -> None:
-        for skill_file in (
-            CANONICAL_MODELSCOPE / "SKILL.md",
-            TRAE_MODELSCOPE / "SKILL.md",
-        ):
-            frontmatter = frontmatter_yaml(skill_file.read_text(encoding="utf-8"))
-            metadata = yaml.safe_load(frontmatter)
-            self.assertEqual(metadata["name"], "modelscope")
-            self.assertIsInstance(metadata["description"], str)
-            self.assertIn("ModelScope", metadata["description"])
-        for yaml_file in (
-            CANONICAL_MODELSCOPE / "agents" / "openai.yaml",
-            TRAE_MODELSCOPE / "agents" / "openai.yaml",
-        ):
-            text = yaml_file.read_text(encoding="utf-8")
-            document = yaml.safe_load(text)
-            interface = document["interface"]
-            self.assertIsInstance(interface, dict)
-            self.assertEqual(interface["display_name"], "ModelScope")
-            self.assertIn("ModelScope", interface["short_description"])
-            self.assertIn("$modelscope", interface["default_prompt"])
+        skill_file = CANONICAL_MODELSCOPE / "SKILL.md"
+        frontmatter = frontmatter_yaml(skill_file.read_text(encoding="utf-8"))
+        metadata = yaml.safe_load(frontmatter)
+        self.assertEqual(metadata["name"], "modelscope")
+        self.assertIsInstance(metadata["description"], str)
+        self.assertIn("ModelScope", metadata["description"])
+        text = (CANONICAL_MODELSCOPE / "agents" / "openai.yaml").read_text(encoding="utf-8")
+        document = yaml.safe_load(text)
+        interface = document["interface"]
+        self.assertIsInstance(interface, dict)
+        self.assertEqual(interface["display_name"], "ModelScope")
+        self.assertIn("ModelScope", interface["short_description"])
+        self.assertIn("$modelscope", interface["default_prompt"])
 
-    def test_generator_help_names_trae_output(self) -> None:
+    def test_generator_help_names_claude_output(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(SCRIPT), "--help"],
             capture_output=True,
@@ -342,8 +213,8 @@ class CurrentTreeProjectionTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("ModelScope Trae", proc.stdout)
-        self.assertIn(".trae/skills/modelscope", proc.stdout)
+        self.assertIn("Claude Code skill shims", proc.stdout)
+        self.assertIn(".claude/skills", proc.stdout)
         self.assertIn("--check", proc.stdout)
 
 
@@ -385,17 +256,13 @@ class ModelScopeHelpTests(unittest.TestCase):
             timeout=20,
         )
 
-    def test_canonical_and_trae_help_match(self) -> None:
+    def test_canonical_help_without_network(self) -> None:
         for name in MODELSCOPE_SCRIPTS:
             with self.subTest(script=name):
                 canonical = self._run_help(
                     CANONICAL_MODELSCOPE / "scripts" / name, "--help"
                 )
-                trae = self._run_help(TRAE_MODELSCOPE / "scripts" / name, "--help")
                 self.assertEqual(canonical.returncode, 0, canonical.stderr)
-                self.assertEqual(trae.returncode, 0, trae.stderr)
-                self.assertEqual(canonical.stdout, trae.stdout)
-                self.assertEqual(canonical.stderr, trae.stderr)
                 self.assertIn("usage:", canonical.stdout)
                 for marker in HELP_MARKERS[name]:
                     self.assertIn(marker, canonical.stdout)
@@ -406,13 +273,7 @@ class ModelScopeHelpTests(unittest.TestCase):
                             command,
                             "--help",
                         )
-                        trae_sub = self._run_help(
-                            TRAE_MODELSCOPE / "scripts" / name,
-                            command,
-                            "--help",
-                        )
                         self.assertEqual(canonical_sub.returncode, 0, canonical_sub.stderr)
-                        self.assertEqual(trae_sub.stdout, canonical_sub.stdout)
                         self.assertIn("--model", canonical_sub.stdout)
 
 

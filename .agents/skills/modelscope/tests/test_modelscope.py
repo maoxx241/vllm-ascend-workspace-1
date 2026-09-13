@@ -65,19 +65,25 @@ def write_report(spec, files, revision="master"):
 
 
 class ArgumentValidationTests(unittest.TestCase):
-    def test_live_unrelated_or_reused_pid_is_not_an_active_download(self) -> None:
+    def test_unrelated_or_reused_pid_is_not_an_active_download(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spec = _spec(tmp)
             spec.local_dir.mkdir(parents=True)
             pidfile = spec.local_dir / "download.pid"
-            identity = auto.process_identity(os.getpid())
-            self.assertIsNotNone(identity)
-            for record in (os.getpid(), {"pid": os.getpid(), "identity": {**identity, "started": "other"}}):
-                pidfile.write_text(json.dumps(record), encoding="utf-8")
-                with mock.patch.object(auto, "fetch_official_files", return_value=OFFICIAL[:2]):
-                    self.assertEqual(auto.inspect_model(spec, "master")["state"], "needs-download")
-            pidfile.write_text(json.dumps({"pid": os.getpid(), "identity": identity}), encoding="utf-8")
-            self.assertTrue(auto.worker_is_active(spec.local_dir, os.getpid()))
+            pid = 12345
+            identity = {"started": "worker-start", "command": "python modelscope_auto.py worker"}
+            # Exercise real record matching against a fixed OS snapshot. Native
+            # process discovery belongs to the subprocess lifecycle tests.
+            with mock.patch("vaws_process_identity.process_identity",
+                            side_effect=lambda queried: identity if queried == pid else None):
+                for record in (pid,
+                               {"pid": pid, "identity": {**identity, "started": "other"}},
+                               {"pid": pid, "identity": {**identity, "command": "other"}}):
+                    pidfile.write_text(json.dumps(record), encoding="utf-8")
+                    with mock.patch.object(auto, "fetch_official_files", return_value=OFFICIAL[:2]):
+                        self.assertEqual(auto.inspect_model(spec, "master")["state"], "needs-download")
+                pidfile.write_text(json.dumps({"pid": pid, "identity": identity}), encoding="utf-8")
+                self.assertTrue(auto.worker_is_active(spec.local_dir, pid))
 
     def test_aggregate_report_filters_model_and_directory_and_rejects_null(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -90,10 +90,11 @@ MCP 连接可以服务另一个新 task 的新环境；恢复旧 task 仍调用�
 
 Codex 使用真实 thread metadata；Claude、Cursor、Grok 的 PreToolUse 可以补入
 context。Cursor 的已观测 MCP:toolName 形式也用于固定的 knowledge 工具和
-remote 工具。官方 Kimi 没有同等的透明 native metadata，调用三个 VAWS provider
-时带已有 `context_file`。其他客户端若工具报告缺少 context，复用已有值即可，
-不用事先检查每次是否注入。gateway 会在转发非 task 工具前去掉这个路由字段。
-Kimi 的工具 schema 将此字段声明为必填，避免先失败一次才补入上下文。
+remote 工具。官方 Kimi 的 task 工具显式携带已有 `context_file`，其 schema 将
+此字段声明为必填。remote-dev 和 knowledge 可选携带它以复用任务的固定环境；
+不带时使用配置工作区的已保存环境，无需准备任务。其他客户端若工具报告缺少
+context，复用已有值即可，不用事先检查每次是否注入。gateway 会在转发非 task
+工具前去掉这个路由字段。
 
 shell 与 MCP 的身份传递各自独立。shell 优先读取 VAWS_CONTEXT_FILE 或客户端
 提供的原生 ID；官方 Kimi 使用 hook 返回的显式 context。Bash 的一次 cd 不被

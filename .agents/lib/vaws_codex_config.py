@@ -126,6 +126,13 @@ def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shel
         covered = [conditions(group, event) for group in kept_shared
                    if isinstance(group, dict) and isinstance(group.get("hooks"), list)
                    and any(hook_kind(item, root, parse_command) == "adapter" for item in group["hooks"])]
+        # An already reviewed unconditional callback also handles companion
+        # tools. Ordinary worktree wiring must not append a second filtered
+        # copy; explicit setup above can replace the generated broad matcher.
+        unconditional = event == "PreToolUse" and any(
+            isinstance(group, dict) and set(group) == {"hooks"} and isinstance(group["hooks"], list)
+            and any(hook_kind(item, root, parse_command) == "adapter" for item in group["hooks"])
+            for group in kept_shared)
         kept = []
         for group in groups:
             if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
@@ -144,7 +151,7 @@ def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shel
         else:
             events.pop(event, None)
         for condition in wanted:
-            if condition in covered:
+            if unconditional or condition in covered:
                 continue
             shared.setdefault(event, []).append({**condition, "hooks": [{"type": "command", "command": command,
                 "timeout": 3 if event == "SessionEnd" else 5 if event == "Stop" else 12}]})

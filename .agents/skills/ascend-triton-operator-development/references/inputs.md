@@ -1,8 +1,9 @@
-# Business input example
+# Development report input example
 
-This is an illustrative configuration shape. Select cases and values for the
-actual task. The tool generates report metadata internally; observed output
-files are produced by the relevant execution or measurement harness.
+Use this illustrative configuration when reporting an implemented candidate and
+its existing validation evidence. Select cases and values for the report scope.
+The tool generates report metadata internally; observed output files come from
+the relevant execution or measurement harness.
 
 ```json
 {

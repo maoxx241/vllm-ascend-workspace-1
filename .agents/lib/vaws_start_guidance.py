@@ -14,28 +14,25 @@ END = "<!-- END VAWS session-start -->"
 
 def guidance(client: str | None = None) -> str:
     name = client or "CLIENT"
-    selection = (" Replace CLIENT with your native client: codex, cursor, claude, grok or kimi."
+    selection = (" CLIENT is codex, cursor, claude, grok or kimi."
                  if client is None else "")
+    kimi = (
+        " Official Kimi task tools require `context_file`; companion tools accept it "
+        "when reusing the task's selected environment."
+        if client in (None, "kimi") else ""
+    )
     return (
-        "For local PR review or an explicit remote endpoint (including a user-supplied container), "
-        "use the native or remote-dev tools directly. No startup command, identity setup or "
-        "knowledge lookup is required. When the task needs a new independent local editing "
-        "workspace or managed preparation, run once "
-        f"`uv run --no-project python .agents/scripts/vaws_start.py --client {name}`."
-        + selection + " Add `--context-file PATH` when the native hook supplied that context "
-        "and the command cannot obtain it from the client environment (official Kimi needs it). "
-        "The command checks saved initialization itself and reports missing first-use setup; "
-        "no configuration inspection is needed beforehand. If the native hook explicitly "
-        "reports a prepared workspace W and selected environment, use them directly.\n\n"
-        "Use the returned `workspace` as W: shell tools use W as cwd (or `cd W && ...`), "
-        "and file, search and patch tools use absolute paths under W. Sources and the selected "
-        "environment are already bound; do not repeat session setup. Official Kimi task calls "
-        "carry the returned `context_file`; companion calls can also supply it to use that "
-        "prepared task's selected environment. "
-        "Other clients receive context through hooks; if a tool reports missing context, pass "
-        "the existing `context_file`. Use configured knowledge tools when useful.\n\n"
-        "Resume keeps the earlier W, task and environment; do not prepare, update or create "
-        "another directory. Client UI/default cwd can remain at the original project.\n"
+        "Reuse a prepared workspace W and environment supplied by the native hook. "
+        "Ordinary local review uses native tools; explicit remote endpoint or existing-container "
+        "work uses remote-dev directly. These tasks need no startup, identity or knowledge preparation.\n\n"
+        "When independent local editing or managed preparation is needed and no W is prepared, run "
+        f"`uv run --no-project python .agents/scripts/vaws_start.py --client {name}` once."
+        + selection + " Follow its result without a separate initialization probe. "
+        "Pass `--context-file PATH` when the hook supplies context outside the client environment.\n\n"
+        "Use the returned `workspace` as W for shell calls and absolute paths under W for file, "
+        "search and patch tools, even if the client UI shows the original project. Sources and "
+        "environment are bound. Pass the existing `context_file` to tools that need task context."
+        + kimi + " Resume reuses the earlier W, task and environment without preparation or updates.\n"
     )
 
 

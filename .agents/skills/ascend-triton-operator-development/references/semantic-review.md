@@ -48,8 +48,11 @@ flattened for Ascend, record the reconstruction formula and the added scalar
 division/modulo cost.
 
 Do not automatically flatten a legal regular 2D mapping. Do not automatically
-preserve a very large GPU logical grid. Design and measure both physical-core
-grid-stride and compiler-assisted blockification candidates when supported.
+preserve a very large GPU logical grid. Choose a mapping that preserves the
+operator's index semantics for the first correct candidate. Compare physical-core
+grid-stride and compiler-assisted blockification candidates when both are
+supported and a concrete performance question or hypothesis warrants measuring
+the alternatives.
 
 ## Numerical and side-effect semantics
 

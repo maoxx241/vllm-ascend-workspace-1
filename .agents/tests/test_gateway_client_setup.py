@@ -41,7 +41,6 @@ def test_every_provider_uses_stable_gateway_and_stock_startup(client, configured
         assert Path(server["args"][0]).name in {"vaws_native_mcp.py", "vaws_claude_entry.py"}
         assert server["args"][1] in {"task", "remote", "knowledge"}
     assert "vaws_start.py --client CLIENT" in plan["files"][project / "AGENTS.md"]
-    assert "Resume keeps" in plan["files"][project / "AGENTS.md"]
     if client == "kimi":
         hooks = tomllib.loads(plan["files"][user_dir / ".kimi-code/config.toml"])["hooks"]
         assert all(hook["event"] != "SessionSetup" for hook in hooks)
@@ -121,9 +120,13 @@ def old_context_hook(client, project, *, wrapped=False):
 
 
 @pytest.mark.parametrize("client", ["claude", "cursor", "grok", "codex"])
-def test_existing_generated_task_only_matcher_upgrades_companion_context(client, configured_project):
+@pytest.mark.parametrize("legacy_matcher", [
+    LEGACY_TASK_MATCHER, r"(?:^|:|__)vaws_(?:session|run|execution|finish|message)$",
+])
+def test_existing_generated_task_only_matcher_upgrades_companion_context(client, configured_project, legacy_matcher):
     project, _, _ = configured_project
     event, old = old_context_hook(client, project, wrapped=client == "claude")
+    old["matcher"] = legacy_matcher
     relative = {"claude": ".claude/settings.local.json", "cursor": ".cursor/hooks.json",
                 "grok": ".grok/hooks/vaws-session.json", "codex": ".codex/hooks.json"}[client]
     path = project / relative

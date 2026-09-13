@@ -1,33 +1,34 @@
 ---
 name: ascend-triton-workflow
-description: Orchestrate an end-to-end Ascend Triton operator effort across task definition, GPU-to-NPU migration or direct development, explicit correctness validation, profiler-driven optimization, and evidence aggregation with Run Manifest v1. Use when the request spans two or more lifecycle stages or asks for a complete operator delivery. Do not use for only implementing, validating, or optimizing an already-scoped kernel; route those to the owning stage Skill.
+description: Consolidate existing Ascend Triton development, correctness and optimization evidence when asked for a report or a summary across stages. Operator development, validation and tuning do not require an aggregate report.
 ---
 
-# ascend-triton-workflow
+# Ascend Triton evidence report
 
-Carry an operator through development, validation and optimization when the request spans those stages.
-
-Choose the stages required by the requested outcome. Reuse relevant existing evidence. Development owns implementation, validation owns the correctness matrix, and optimization owns measured tuning decisions.
+Summarize supplied stage manifests within the requested report scope.
+Development evidence identifies the implementation, correctness evidence covers
+tested cases, and optimization evidence records measured tuning. The report
+tool links existing observations and does not launch these stages.
 
 ## Agent entry
 
 Run from the repository root. The entry reuses the installed platform environment.
 
 ```text
-uv run --no-project python .agents/skills/ascend-triton-workflow/scripts/triton_workflow.py --config operator.json --development development/manifest.json --validation validation/manifest.json --optimization optimization/manifest.json
+uv run --no-project python .agents/skills/ascend-triton-workflow/scripts/triton_workflow.py --config operator.json --development development/manifest.json --validation validation/manifest.json
 ```
 
-The config contains op_name, source, target, cases and required_stages. One report call verifies stage scope, actual artifacts, passing cases and kernel identity. Missing or unrelated evidence cannot complete the workflow. Stage identifiers and linking are internal.
+The config describes the operator and the stages this report should cover.
+The report checks artifact availability, case scope and kernel identity and
+records missing or unrelated evidence. `required_stages` is a report input,
+not a prerequisite for ordinary operator work. Linking and report identifiers
+are generated internally.
 
-For only one stage, use its owning skill directly.
+Imported numerical results and latency measurements do not by themselves prove
+candidate NPU execution; this remains
+unknown in the aggregate status. Assess those limits alongside the actual runner
+or profiler evidence. An inconclusive report does not by itself require another
+experiment or determine whether the user's development task is complete.
 
-The report aggregates supplied evidence. Imported numerical results and latency
-measurements do not by themselves prove candidate NPU execution; this remains
-unknown in the aggregate status. Keep the measured outcomes and use existing
-runner or profiler evidence in the task assessment. That report limitation adds
-no prerequisite for work already supported by valid execution evidence.
-
-Read the relevant detail only when needed:
-
-
-- [Business input example](references/inputs.md)
+See the [report input example](references/inputs.md) for configuration and
+[command options](references/command-recipes.md) for optional stage inputs.

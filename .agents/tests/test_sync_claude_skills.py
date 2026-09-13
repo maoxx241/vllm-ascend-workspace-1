@@ -21,7 +21,6 @@ SCRIPT = ROOT / ".agents" / "scripts" / "sync_claude_skills.py"
 CATALOG_SCRIPT = ROOT / ".agents" / "scripts" / "skill_catalog.py"
 CANONICAL_MODELSCOPE = ROOT / ".agents" / "skills" / "modelscope"
 TRAE_MODELSCOPE = ROOT / ".trae" / "skills" / "modelscope"
-FOREIGN_TRAE_SKILL = ROOT / ".trae" / "skills" / "repo-init" / "SKILL.md"
 MODELSCOPE_SCRIPTS = (
     "modelscope_auto.py",
     "download_from_modelscope.py",
@@ -294,12 +293,6 @@ class CurrentTreeProjectionTests(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout, "")
-
-    def test_foreign_trae_package_remains_on_current_tree(self) -> None:
-        self.assertTrue(FOREIGN_TRAE_SKILL.is_file())
-        body = FOREIGN_TRAE_SKILL.read_text(encoding="utf-8")
-        self.assertIn("repo-init", body)
-        self.assertNotEqual(body, (CANONICAL_MODELSCOPE / "SKILL.md").read_text(encoding="utf-8"))
 
     def test_all_claude_shims_expose_the_canonical_metadata(self) -> None:
         for source in sync.source_skill_dirs():

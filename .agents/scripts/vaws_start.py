@@ -18,7 +18,7 @@ from vaws_native_workspace import create_workspace
 from vaws_session_state import task_dir, write_json
 from vaws_task_target import resolve_context_file
 from vaws_venv import configure_windows_stdio, ensure_workspace_interpreter
-from vaws_workspace_entry import copy_workspace_identity, workspace_entry
+from vaws_workspace_entry import FIRST_USE_REFERENCE, MAINTENANCE_REFERENCE, copy_workspace_identity, workspace_entry
 from vaws_workspace_update import WorkspaceUpdater, common_dir, git, redact, update_lock
 from vaws_worktree_setup import configure_target, prepare_selected_knowledge, unpinned_environment
 
@@ -150,12 +150,14 @@ def main(argv=None) -> int:
     setup = workspace_entry(shared_workspace_root(ROOT), announce=False)
     if setup["state"] != "configured":
         first_use = setup["state"] in {"identity_pending", "needs_github_user"}
-        next_step = ("Follow AGENTS.md First use, forks and updates. Reuse an already supplied personal "
-                     "GitHub username, or ask once; workspace_forks.py prepares the personal forks. "
-                     "Then prepare dependencies and client wiring as described there." if first_use else
-                     "Inspect the reported local initialization state; no identity, update preference or task was changed.")
+        reference = FIRST_USE_REFERENCE if first_use else MAINTENANCE_REFERENCE
+        next_step = (f"Read {FIRST_USE_REFERENCE} for this repository's one-time initialization. "
+                     "Reuse an already supplied personal GitHub username, or ask once." if first_use else
+                     setup.get("message") or
+                     f"Inspect the reported state and {MAINTENANCE_REFERENCE} for the relevant maintenance command; "
+                     "do not restart first-use initialization.")
         print(json.dumps({"status": "needs_setup" if first_use else "failed", "phase": "initialization",
-                          "setup": setup, "next": next_step}, ensure_ascii=False))
+                          "setup": setup, "reference": reference, "next": next_step}, ensure_ascii=False))
         return 1
     ensure_workspace_interpreter(repo_root=ROOT)
     result = start(args.client, ROOT, args.context_file)

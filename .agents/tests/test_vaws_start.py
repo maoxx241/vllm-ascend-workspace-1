@@ -194,5 +194,47 @@ def test_first_use_returns_setup_before_dependency_or_native_context_checks(work
     assert start.main(["--client", "grok"]) == 1
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "needs_setup" and result["phase"] == "initialization"
+    assert result["reference"] == ".agents/bootstrap/repo-init/SKILL.md"
     assert "ask once" in result["next"]
     assert not (project / ".vaws-local/updates/onboarding-notice.json").exists()
+
+
+@pytest.mark.parametrize("failure", ["missing_identity", "invalid_identity", "invalid_config"])
+def test_established_configuration_failure_never_routes_to_first_use(workspace, monkeypatch, capsys, failure):
+    project = workspace[0]
+    state = project / ".vaws-local"
+    state.mkdir(exist_ok=True)
+    (state / "client-initialization.json").write_text('{"clients":{}}')
+    if failure != "missing_identity":
+        (state / "github.json").write_text(json.dumps(
+            {"schema": "vaws.github.v1", "login": "fixture" if failure == "invalid_config" else ""}))
+    if failure == "invalid_config":
+        updates = state / "updates"
+        updates.mkdir()
+        (updates / "config.json").write_text("{")
+    monkeypatch.setattr(start, "ROOT", project)
+    monkeypatch.setattr(start, "ensure_workspace_interpreter", lambda **kwargs: pytest.fail("configuration failure installed dependencies"))
+    monkeypatch.setattr(start, "start", lambda *args: pytest.fail("configuration failure started a task"))
+    assert start.main(["--client", "codex"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "failed"
+    assert result["reference"] == start.MAINTENANCE_REFERENCE
+    assert "repo-init" not in json.dumps(result)
+    assert not (state / "updates/onboarding-notice.json").exists()
+
+
+def test_configured_repository_starts_without_bootstrap_rerun(workspace, monkeypatch, capsys):
+    project = workspace[0]
+    identity = project / ".vaws-local/github.json"
+    identity.parent.mkdir(exist_ok=True)
+    identity.write_text('{"schema":"vaws.github.v1","login":"fixture"}')
+    before = identity.read_bytes()
+    monkeypatch.setattr(start, "ROOT", project)
+    calls = []
+    monkeypatch.setattr(start, "ensure_workspace_interpreter", lambda **kwargs: calls.append("environment"))
+    monkeypatch.setattr(start, "start", lambda *args: calls.append(args) or {"status": "ready"})
+    assert start.main(["--client", "codex", "--context-file", "native.json"]) == 0
+    assert calls == ["environment", ("codex", project, "native.json")]
+    assert json.loads(capsys.readouterr().out) == {"status": "ready"}
+    assert identity.read_bytes() == before
+    assert not (project / ".vaws-local/client-initialization.json").exists()

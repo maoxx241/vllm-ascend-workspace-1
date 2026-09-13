@@ -18,7 +18,7 @@ When you need the complete development configuration, ask:
 
 > Initialize this workspace for vLLM Ascend development.
 
-Initialization reuses configuration, installs locked packages and runs `vaws_client_setup.py --client all --apply` to configure installed Codex, Cursor, Claude, Grok and Kimi clients together. It requires neither invoking a Skill nor installing a personal client build. When independent local editing or managed preparation is needed, short project guidance prepares one editing directory, upstream revision and component environment; existing native worktree setup results are reused directly. Ordinary review and direct endpoint work skip `vaws_start`. Users keep working in their usual client, and resume retains the original directory and environment. See [workspace isolation](docs/native-workspace-isolation.md) for the contract and [this round's acceptance record](docs/unified-session-validation-2026-09-13.md) for verified scope. Installation and platform behavior are in [dependency-plane.md](docs/dependency-plane.md) and [platform-contract.md](docs/platform-contract.md).
+Initialization reuses configuration, installs locked packages and runs `vaws_client_setup.py --client all --apply` to configure installed Codex, Cursor, Claude, Grok and Kimi clients together. Users need neither manually invoke a Skill nor install a personal client build. When independent local editing or managed preparation is needed, short project guidance prepares one editing directory, upstream revision and component environment; existing native worktree setup results are reused directly. Ordinary review and direct endpoint work skip `vaws_start`. Users keep working in their usual client, and resume retains the original directory and environment. See [workspace isolation](docs/native-workspace-isolation.md) for the contract and [this round's acceptance record](docs/unified-session-validation-2026-09-13.md) for verified scope. Installation and platform behavior are in [dependency-plane.md](docs/dependency-plane.md) and [platform-contract.md](docs/platform-contract.md).
 
 For daily work, describe the outcome and the inputs that matter:
 
@@ -43,10 +43,10 @@ The workspace owns project materials, client wiring and business skills. `remote
 
 ## Business skills
 
+First-use setup follows the one-time [repo-init reference](.agents/bootstrap/repo-init/SKILL.md); local monitor lifecycle uses [monitor commands](docs/npu-fleet-monitor.md). Neither participates in automatic business Skill discovery.
+
 | Skill                  | Purpose                                                                                      | When to use                                                |
 | ---------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **repo-init**          | Install GitHub CLI, authenticate, initialize submodules, install locked platform dependencies, configure forks and remote topology | When initialization or a related repair is requested |
-| **npu-fleet-monitor**  | Start, inspect, or stop the local NPU dashboard using the published vaws-top package | When continuously monitoring fleet resources and history |
 | **modelscope**       | Download, resume, status-check, and SHA256-verify ModelScope model weights                  | When model weights need to be downloaded into an explicit local directory |
 | **vllm-ascend-serving** | Launch a vLLM Ascend inference service on a remote container, through coordinator-owned execution | When you need an inference service on a remote machine |
 | **vllm-ascend-benchmark** | Run `vllm bench serve` performance benchmarks on a remote container, with multi-run warmup and statistical aggregation | When measuring throughput/latency; use performance-regression for code comparisons |
@@ -55,7 +55,7 @@ The workspace owns project materials, client wiring and business skills. `remote
 | **ascend-profiling-analysis** | Analyze collected profiler roots/manifests and generate step/layer/operator/cross-rank reports | When you need to analyze profiling output |
 | **vllm-ascend-graph-debug** | Diagnose graph compile, capture, replay, and graph/eager correctness divergence | When graph mode fails or diverges from eager mode |
 | **vllm-ascend-correctness-validation** | Compare baseline/candidate, eager/graph, offline/online, and AISBench correctness | When validating accuracy or normalized outputs |
-| **vllm-ascend-change-validation** | Consolidate experimental validation evidence against a code diff | For experimental validation or formal reports; ordinary PR reading/review uses native tools |
+| **vllm-ascend-change-validation** | Consolidate experimental validation evidence against a code diff | When explicitly consolidating validation evidence or producing a formal report |
 | **vllm-ascend-performance-regression** | Run alternating A/B experiments and assess variance and regression thresholds | When deciding whether throughput or latency regressed |
 | **vllm-ascend-distributed-debug** | Diagnose topology, endpoint, collective, and per-rank distributed failures | When a failure depends on ranks, nodes, or parallel topology |
 | **ascend-tensor-dump** | Capture bounded intermediate tensor dumps and locate the first divergent stage, in eager or graph mode | When output is wrong or two configurations disagree and the divergence must be localized |
@@ -63,16 +63,16 @@ The workspace owns project materials, client wiring and business skills. `remote
 | **ascend-triton-operator-development** | Produce a first correct Ascend Triton candidate from PyTorch or GPU Triton semantics | When creating or migrating a Triton operator |
 | **ascend-triton-kernel-validation** | Detect PyTorch fallback and execute an explicit correctness matrix | When validating an Ascend Triton candidate |
 | **ascend-triton-kernel-optimization** | Optimize the selected kernel using correctness and profiler evidence | When tuning a correct Ascend Triton kernel |
-| **ascend-triton-workflow** | Orchestrate development, validation, optimization, and Run Manifest evidence | When delivering an end-to-end Triton operator workflow |
+| **ascend-triton-workflow** | Consolidate existing Triton stage evidence and check its associations | When a stage summary report is requested |
 | **vllm-ascend-pd-serving** | Start and observe one prefill/decode topology with HTTP smoke checks | When deploying disaggregated PD serving |
 
 Skill selection follows the task. Detailed inputs and procedures live beside the relevant `SKILL.md`; ordinary local files and Git use native tools. [AGENTS.md](AGENTS.md) is the client entry and [the documentation index](docs/README.md) separates current contracts from dated evidence.
 
 ## Repository and local state
 
-The canonical repository is `vllm-ascend-workspace/vllm-ascend-workspace`. Git submodules `vllm/` and `vllm-ascend/` remain on their community upstreams. First-use identity confirmation applies to requested setup or a managed operation that actually needs a missing personal-container identity. Ordinary review and explicit remote I/O do not trigger it. Personal forks are development remotes; setup preserves established remote choices.
+The canonical repository is `vllm-ascend-workspace/vllm-ascend-workspace`. Git submodules `vllm/` and `vllm-ascend/` remain on their community upstreams. AGENTS points to the one-time [repo-init reference](.agents/bootstrap/repo-init/SKILL.md) for first setup; it does not trigger automatically afterward. Identity confirmation applies to requested setup or a managed operation that actually needs a missing personal-container identity. Ordinary review and explicit remote I/O do not trigger it. Personal forks are development remotes; setup preserves established remote choices.
 
-A new task checks canonical main once and selects that revision's locked component combination; no Release is required. Startup binds the returned editing directory as task sources, and the MCP gateway routes calls to the task's fixed environment. The client's displayed cwd may stay at the original project. Work and resume do not switch versions. Related worktrees share knowledge configuration, content and reusable model/index state. See [forks and updates](docs/forks-and-updates.md).
+A new task needing independent editing or managed preparation checks canonical main once and selects that revision's locked component combination; no Release is required. Startup binds the returned editing directory as task sources, and the MCP gateway routes calls to the task's fixed environment. The client's displayed cwd may stay at the original project. Work and resume do not switch versions. Related worktrees share knowledge configuration, content and reusable model/index state. See [forks and updates](docs/forks-and-updates.md).
 
 `.agents/skills/` contains business skills, `.agents/lib/` contains shared consumer code, and `.agents/scripts/` contains client wiring and maintenance tools. Client projections route to canonical skills. Runtime state and private configuration stay under untracked `.vaws-local/`; credentials are never committed. Public knowledge uses only package-prepared redacted copies.
 

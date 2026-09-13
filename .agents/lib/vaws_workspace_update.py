@@ -333,7 +333,7 @@ class WorkspaceUpdater:
             raise Deferred("dependencies_pending")
         environment["VAWS_ENV_RECEIPT"] = payload["receipt"]["receipt"]
         print("caching the pinned monitor package; existing services keep running", file=sys.stderr, flush=True)
-        monitor = run([interpreter, str(stage / ".agents/skills/npu-fleet-monitor/scripts/manage_monitor.py"), "deploy"],
+        monitor = run([interpreter, str(stage / ".agents/scripts/manage_monitor.py"), "deploy"],
                       cwd=stage, timeout=600, env=environment)
         if monitor.stderr:
             print(monitor.stderr, file=sys.stderr, end="", flush=True)

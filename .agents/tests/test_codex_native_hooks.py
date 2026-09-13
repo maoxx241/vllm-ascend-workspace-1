@@ -389,3 +389,26 @@ def test_explicit_setup_does_not_copy_the_first_custom_group_matcher(family, tmp
                            pretool_matcher=current)
     assert json.loads(files[user_path])["hooks"]["PreToolUse"] == [{"hooks": [item], "matcher": current}]
     assert json.loads(files[project_path])["hooks"]["PreToolUse"] == [custom]
+
+
+def test_worktree_setup_reuses_reviewed_unconditional_pretool_adapter(family, tmp_path, monkeypatch):
+    source, target = family
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    spec = importlib.util.spec_from_file_location("codex_owner_integration", ROOT / ".agents/scripts/vaws_client_setup.py")
+    setup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(setup)
+    from client_setup_fixtures import selected_runtime
+    receipt = selected_runtime(monkeypatch, setup, tmp_path)
+    monkeypatch.setattr(setup, "ROOT", source)
+    monkeypatch.setattr(config, "managed_receipt", lambda _: receipt)
+    item = {"type": "command", "command": setup.local_hook_command([
+        receipt["python"], str(source / ".agents/scripts/vaws_codex_session.py")])}
+    existing = [{"hooks": [item]}]
+    user_path = home / "hooks.json"
+    user_path.write_text(json.dumps({"hooks": {"PreToolUse": existing}}))
+    plan = setup.build_plan("codex", target, task_only=True)
+    rendered = json.loads(plan["files"].get(user_path, user_path.read_text()))
+    assert rendered["hooks"]["PreToolUse"] == existing
+    assert "PreToolUse" not in json.loads(plan["files"][target / ".codex/hooks.json"])["hooks"]

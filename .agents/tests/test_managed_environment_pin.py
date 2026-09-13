@@ -150,8 +150,10 @@ def test_client_setup_selects_current_inputs_unless_explicitly_pinned(tmp_path, 
 
     monkeypatch.setattr(vaws_venv, 'ensure_workspace_interpreter', bootstrap)
     spec = importlib.util.spec_from_file_location('setup_bootstrap_fixture', ROOT / '.agents/scripts/vaws_client_setup.py')
+    setup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(setup)  # Planning imports do not select an interpreter.
     with pytest.raises(BootstrapObserved):
-        spec.loader.exec_module(importlib.util.module_from_spec(spec))
+        setup.main(['--client', 'cursor', '--project', str(checkout)])
 
 
 def test_saved_ready_without_selection_looks_up_native_but_requires_windows_configuration(tmp_path, monkeypatch):

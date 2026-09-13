@@ -31,6 +31,21 @@ def test_hidden_gui_hook_does_not_consume_visible_first_use_notice(tmp_path):
     assert entry.workspace_entry(tmp_path)["state"] == "needs_github_user"
 
 
+def test_missing_identity_after_client_initialization_is_a_repair(tmp_path):
+    record = tmp_path / ".vaws-local/client-initialization.json"
+    record.parent.mkdir()
+    record.write_text('{"clients":{"codex":{"state":"configured"}}}')
+    original = record.read_bytes()
+    for announce in (False, True):
+        result = entry.workspace_entry(tmp_path, announce=announce)
+        assert result["state"] == "identity_missing"
+        assert result["evidence"] == str(record)
+        assert result["path"] == str(record.parent / "github.json")
+        assert result["reference"] == entry.MAINTENANCE_REFERENCE
+        assert record.read_bytes() == original
+    assert not (record.parent / "updates/onboarding-notice.json").exists()
+
+
 def test_local_entry_never_starts_children_or_updates(tmp_path, monkeypatch):
     configure(tmp_path)
     monkeypatch.setattr(entry.subprocess, "Popen", lambda *a, **k: pytest.fail("background process"))

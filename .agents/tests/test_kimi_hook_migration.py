@@ -1,5 +1,6 @@
 """Only generated callbacks from the same Git family are superseded."""
 import hashlib
+from pathlib import Path
 import json
 import shlex
 import tomllib
@@ -75,7 +76,7 @@ def test_repair_after_native_writer_removed_markers_keeps_one_callback(tmp_path,
     assert set(events) == set(client_setup.EVENTS) - {"PreToolUse"}
     for entry in hooks:
         argv = client_setup.hook_argv(entry["command"])
-        assert argv[1] == str(client_setup.ROOT / ".agents/hooks/vaws_session.py")
+        assert argv[1] == str(Path(initial["configuration_owner"]) / ".agents/hooks/vaws_session.py")
         assert argv[argv.index("--client") + 1] == "kimi"
         assert argv[argv.index("--project") + 1] == str(project)
     config.write_text(repaired)

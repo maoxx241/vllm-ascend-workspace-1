@@ -18,7 +18,7 @@ PR review 直接使用原生 Git 和文件工具。已有容器任务直接把 h
 
 > 初始化这个工作区，配好 vLLM Ascend 的开发环境。
 
-初始化复用已有配置，安装锁定依赖，并通过 `vaws_client_setup.py --client all --apply` 一次配置已安装的 Codex、Cursor、Claude、Grok 和 Kimi；不以调用 Skill 或安装个人修改版客户端为前提。需要独立本地编辑或受管准备时，项目短指引让新任务准备一次编辑目录、主仓版本及配套环境；已有原生 worktree setup 的结果直接复用。普通 Review 和直接 endpoint 任务不调用 `vaws_start`。用户继续在原客户端表达目标，恢复会话沿用原目录和环境。实际边界见[编辑隔离合同](docs/native-workspace-isolation.md)，本轮实测进度见[验收记录](docs/unified-session-validation-2026-09-13.md)。安装与平台行为见 [dependency-plane.md](docs/dependency-plane.md) 和 [platform-contract.md](docs/platform-contract.md)。
+初始化复用已有配置，安装锁定依赖，并通过 `vaws_client_setup.py --client all --apply` 一次配置已安装的 Codex、Cursor、Claude、Grok 和 Kimi；无需用户手动调用 Skill 或安装个人修改版客户端。需要独立本地编辑或受管准备时，项目短指引让新任务准备一次编辑目录、主仓版本及配套环境；已有原生 worktree setup 的结果直接复用。普通 Review 和直接 endpoint 任务不调用 `vaws_start`。用户继续在原客户端表达目标，恢复会话沿用原目录和环境。实际边界见[编辑隔离合同](docs/native-workspace-isolation.md)，本轮实测进度见[验收记录](docs/unified-session-validation-2026-09-13.md)。安装与平台行为见 [dependency-plane.md](docs/dependency-plane.md) 和 [platform-contract.md](docs/platform-contract.md)。
 
 日常工作只需说明目标和影响结果的输入，例如：
 
@@ -43,10 +43,10 @@ Agent 按任务选择工具或技能；执行引用、状态推进和报告由�
 
 ## 业务技能
 
+首次仓库设置见一次性 [repo-init](.agents/bootstrap/repo-init/SKILL.md)；本地监控生命周期使用[监控命令](docs/npu-fleet-monitor.md)。两者均不进入业务 Skill 自动发现。
+
 | 技能                       | 用途                                             | 何时使用               |
 | ------------------------ | ---------------------------------------------- | ------------------ |
-| **repo-init**            | 安装 GitHub CLI、登录 GitHub、初始化子模块、安装锁定的平台依赖、配置 Fork 和远程仓库拓扑 | 明确请求工作区初始化或相关修复时   |
-| **npu-fleet-monitor**    | 使用已发布的 vaws-top 包拉起、检查或停止本地 NPU 监控页面            | 需要持续查看设备、主机和历史资源状态时 |
 | **modelscope**           | 下载、续传、查看进度并 SHA256 校验 ModelScope 模型权重                  | 需要把模型权重下载到明确目录时 |
 | **vllm-ascend-serving**  | 在远程容器上一键拉起 vLLM Ascend 推理服务，由 coordinator 管理执行和资源 | 需要在远程机器上起推理服务时     |
 | **vllm-ascend-benchmark** | 在远程容器上运行 `vllm bench serve` 性能基准测试，支持多轮预热和统计聚合     | 需要测量吞吐或延迟时 |
@@ -55,7 +55,7 @@ Agent 按任务选择工具或技能；执行引用、状态推进和报告由�
 | **ascend-profiling-analysis** | 分析已采集的 profiler root/manifest，生成 step/layer/operator/cross-rank 诊断报告 | 需要分析 profiling 结果或生成报告时 |
 | **vllm-ascend-graph-debug** | 定位图编译、捕获、重放及 graph/eager 正确性分歧 | 图模式失败或与 eager 结果不一致时 |
 | **vllm-ascend-correctness-validation** | 对比 baseline/candidate、eager/graph、离线/在线和 AISBench 正确性 | 需要精度验证或输出对拍时 |
-| **vllm-ascend-change-validation** | 对照代码 diff 汇总已执行的验证证据和报告 | 需要实验验证或正式验证报告时；普通 PR 阅读和 review 直接使用原生工具 |
+| **vllm-ascend-change-validation** | 对照代码 diff 汇总已执行的验证证据和报告 | 明确要求汇总验证结果或生成正式报告时 |
 | **vllm-ascend-performance-regression** | 运行交替 A/B 实验并分析波动和回退阈值 | 判断吞吐或延迟是否回退时 |
 | **vllm-ascend-distributed-debug** | 从拓扑、端点、collective 和逐 rank 事件诊断分布式故障 | 故障依赖多卡、多机或 rank 时 |
 | **ascend-tensor-dump** | 有界采集中间张量并定位首个数值分叉的 stage，覆盖 eager 与图模式 | 输出错误或两个配置结果不一致，需要定位到层、stage 或单算子时 |
@@ -63,16 +63,16 @@ Agent 按任务选择工具或技能；执行引用、状态推进和报告由�
 | **ascend-triton-operator-development** | 从 PyTorch 或 GPU Triton 语义生成首个正确的 Ascend Triton 实现 | 新建或迁移 Triton 算子时 |
 | **ascend-triton-kernel-validation** | 检测 PyTorch fallback 并执行显式正确性矩阵 | 验证 Triton 候选实现时 |
 | **ascend-triton-kernel-optimization** | 根据正确性和 profiler 证据优化已选 kernel | 优化已正确的 Triton kernel 时 |
-| **ascend-triton-workflow** | 编排开发、验证、优化和 Run Manifest 证据 | 交付完整 Triton 算子生命周期时 |
+| **ascend-triton-workflow** | 汇总已有 Triton 阶段证据并检查关联 | 明确要求阶段汇总报告时 |
 | **vllm-ascend-pd-serving** | 启动和观察一个 prefill/decode 拓扑，并做 HTTP smoke | 部署 PD 分离服务时 |
 
 技能按任务选用。详细输入和方法位于对应 `SKILL.md` 的参考资料；普通本地文件与 Git 操作使用原生工具。[AGENTS.md](AGENTS.md) 是客户端入口，[文档索引](docs/README.md) 区分当前契约和历史验收证据。
 
 ## 仓库与本地状态
 
-规范仓库是 `vllm-ascend-workspace/vllm-ascend-workspace`。`vllm/`、`vllm-ascend/` 是指向社区上游的 Git 子模块。明确初始化，或受管操作真正需要尚未确认的个人容器身份时，入口才进行一次 GitHub 身份确认；普通 review 和显式远端 I/O 不触发这套流程。开发 Fork 必须属于个人账号，`origin` 指向个人 Fork，`upstream` 保留官方来源。
+规范仓库是 `vllm-ascend-workspace/vllm-ascend-workspace`。`vllm/`、`vllm-ascend/` 是指向社区上游的 Git 子模块。首次初始化由 AGENTS 指向一次性的 [repo-init](.agents/bootstrap/repo-init/SKILL.md)，完成后不再自动触发。明确初始化，或受管操作真正需要尚未确认的个人容器身份时，才进行 GitHub 身份确认；普通 review 和显式远端 I/O 不触发这套流程。开发 Fork 必须属于个人账号，`origin` 指向个人 Fork，`upstream` 保留官方来源。
 
-新任务检查一次 VAWS 主仓，采用该提交的锁定组件组合并同步个人 Fork，无需等待 Release。启动入口绑定返回目录的 sources，MCP gateway 为该任务固定组件环境；客户端 UI 可以保持原目录，Agent 在返回目录中编辑。工作中和恢复会话不检查或切换版本，知识配置、内容和模型/index 缓存按工作区家族复用。见[个人 Fork 与自动更新](docs/forks-and-updates.md)。共享 root 下的用户容器命名、随正常调用投递的留言和算子产物缓存由组件处理；权重沿用服务器现有路径，初始化后无需 Agent 填写身份、轮询或登记成果。见[身份与协调](docs/identity-and-agent-coordination.md)。
+需要独立编辑或受管准备的新任务检查一次 VAWS 主仓，采用该提交的锁定组件组合并同步个人 Fork，无需等待 Release。启动入口绑定返回目录的 sources，MCP gateway 为该任务固定组件环境；客户端 UI 可以保持原目录，Agent 在返回目录中编辑。工作中和恢复会话不检查或切换版本，知识配置、内容和模型/index 缓存按工作区家族复用。见[个人 Fork 与自动更新](docs/forks-and-updates.md)。共享 root 下的用户容器命名、随正常调用投递的留言和算子产物缓存由组件处理；权重沿用服务器现有路径，初始化后无需 Agent 填写身份、轮询或登记成果。见[身份与协调](docs/identity-and-agent-coordination.md)。
 
 `.agents/skills/` 保存业务技能，`.agents/lib/` 保存共享消费代码，`.agents/scripts/` 保存客户端接线和维护工具。客户端投影统一指向规范技能。运行状态和私人配置放在未跟踪的 `.vaws-local/`，凭据不入库。公开知识只使用包生成的脱敏副本。
 

@@ -4,13 +4,16 @@ The workspace keeps project materials, installation/client wiring and business
 skills. Runtime behavior belongs to the four installed components; see
 [AGENTS.md](../AGENTS.md) and [target-state.md](../docs/target-state.md).
 
-- `skills/repo-init/` initializes or repairs workspace configuration and clients.
+- `bootstrap/repo-init/SKILL.md` is the one-time initialization reference linked
+  by AGENTS and a first-use startup result. It stays outside automatic Skill
+  discovery; later repairs use the relevant maintenance tool directly.
 - `scripts/workspace_forks.py` configures verified personal GitHub forks without
   a Skill or installed runtime.
 - `scripts/vaws_client_setup.py` configures installed clients and shared project
   guidance once. Official Codex, Cursor, Claude, Grok and Kimi use
-  `scripts/vaws_start.py` for one new-task preparation; existing native worktree
+  `scripts/vaws_start.py` when independent editing or managed preparation is needed; existing native worktree
   callbacks can supply an already selected workspace and environment.
+  Ordinary local review and explicit remote endpoint/container work skip startup.
   Startup binds sources and returns the editing root. Resume retains the task,
   directory and environment. See [client boundaries](../docs/native-workspace-isolation.md)
   and [current acceptance progress](../docs/unified-session-validation-2026-09-13.md).
@@ -22,10 +25,11 @@ skills. Runtime behavior belongs to the four installed components; see
   CLIs; ordinary native sessions do not require the Agent to call it.
   `scripts/workspace_update.py` provides explicit maintenance using the same
   updater; see [forks and updates](../docs/forks-and-updates.md).
-- `skills/npu-fleet-monitor/` starts, checks or stops the local uvx monitor.
+- `scripts/manage_monitor.py` starts, checks or stops the local uvx monitor;
+  see [monitor commands](../docs/npu-fleet-monitor.md).
 - Other `skills/` directories add vLLM-Ascend business methods such as serving,
-  measurements, profiling and debugging. Their `SKILL.md` files are the source
-  of truth; the client skill catalog provides discovery.
+  measurements, profiling and debugging. Their `SKILL.md` files provide task-specific
+  guidance; the client skill catalog provides discovery.
 - `scripts/vaws.py` optionally forwards session/run/execution/finish to coordinator.
   Startup binds the selected editing root; explicit source overrides remain available.
   Use native Git for source inspection.
@@ -34,7 +38,7 @@ skills. Runtime behavior belongs to the four installed components; see
   APIs. Managed runs prepare their bound sources internally.
 - Knowledge lookup and capture use the package tools. `scripts/knowledge_setup.py`
   retries package preparation or changes the requested sharing configuration.
-  Dependency sync prepares knowledge; MCP maintains it while alive. Linked
+  Knowledge preparation is explicit; the MCP connection stays idle until actual use. Linked
   worktrees share configuration, content and reusable model/index state.
   New setup keeps public contribution disabled, and preserves existing choices.
 
@@ -56,7 +60,8 @@ task completion require no curation skill.
 Keep names/descriptions specific enough for discovery. Put task decisions and
 common entry points in SKILL.md; put detailed formats and conditional procedures
 in linked references. Do not duplicate package APIs or add a compulsory
-management workflow before business work.
+management workflow before business work. Report aggregation applies when a
+report is requested; it is not a general development or validation prerequisite.
 
 `.claude/skills/` contains generated routing shims. ModelScope's Trae package is
 also generated; remaining Trae stubs link to their canonical skill. Regenerate
@@ -66,3 +71,8 @@ with `uv run --no-project python .agents/scripts/sync_claude_skills.py` and veri
 Local control-plane tests belong in `.agents/tests/` or the owning business
 skill. Preserve caller coverage when moving code out of a retired skill; device
 execution and model tests still require remote Ascend hardware.
+
+When changing a Skill, update affected helpers, references, metadata and client
+projections together. Scripts emit progress on stderr and results on stdout.
+Runtime records remain under untracked `.vaws-local/`. Documentation under
+`docs/` carries a `Status:` line; dated evidence is not a current contract.

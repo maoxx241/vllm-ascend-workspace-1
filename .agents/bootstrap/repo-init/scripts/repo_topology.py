@@ -20,12 +20,7 @@ LIB = ROOT / ".agents" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from vaws_venv import ensure_workspace_interpreter  # noqa: E402
 from vaws_github import REPOSITORIES  # noqa: E402
-
-ensure_workspace_interpreter(repo_root=ROOT)
-
-
 
 class RepoTopologyError(RuntimeError):
     """Raised for deterministic, user-facing failures."""

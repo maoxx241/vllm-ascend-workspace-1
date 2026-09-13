@@ -9,8 +9,11 @@ Status: current
 
 ## 首次使用
 
-仅在明确初始化或实际缺少所需受管身份时，根 `AGENTS.md` 提供一次身份提示。
-初始化通过 `vaws_client_setup.py --client all --apply` 配置已安装的五种客户端。
+仅在用户明确初始化，或需要准备的操作报告尚未建立所需个人身份时，读取根
+`AGENTS.md` 指向的[一次性初始化参考](../.agents/bootstrap/repo-init/SKILL.md)。
+该参考位于自动 Skill 发现目录之外，后续新会话、更新和修复不再触发它。
+初始化通过 `workspace_forks.py`、`vaws_deps.py sync` 和
+`vaws_client_setup.py --client all --apply` 配置个人 Fork、依赖和已安装的五种客户端。
 普通本地文件、Git/PR review 或显式 remote-dev endpoint（含现有容器）不因缺少
 `github.json` 询问身份、建 Fork、同步源码或初始化。原生客户端负责项目与 hook
 信任；Git clone 和写配置文件不等于已启用。实际验收见
@@ -22,6 +25,11 @@ Status: current
 coordinator 自动将它用于 native session 的用户归属，SSH 仍使用 root；见
 [用户与协调](identity-and-agent-coordination.md)。身份待确认时，独立本地查询
 和 Review 可继续，不重复追问或添加任务检查清单。
+
+显式准备入口复用现有身份配置，不要求 Agent 检查状态文件。若已保存客户端初始化
+记录却缺少身份文件，返回缺失路径和现有记录，按具体故障修复；不会将已初始化
+的仓库重新当作第一次使用。损坏的配置、环境缺失和客户端接线变化也直接使用
+下面的维护入口，不重新运行完整初始化。
 
 ## 个人 Fork
 
@@ -59,7 +67,8 @@ Fork、其他所有者的 redirect 和无关同名仓库。`origin` 是个人 Fo
 `environment` 和 `context_file`，并绑定任务的默认 sources。用户继续使用原客户端，
 无需启动 VAWS launcher。客户端 UI/default cwd 可以保持原目录；后续 shell
 以返回目录为 cwd，文件、搜索和补丁使用该目录下的绝对路径。
-官方 Kimi 从已有 hook 取得 context，并将其传给启动命令及三个 VAWS MCP provider。
+官方 Kimi 从已有 hook 取得 context，并将其传给启动命令及 task 工具；
+remote-dev 和 knowledge 可选接收该 context，用于选择该任务的环境。
 各客户端短指引和边界见[编辑隔离合同](native-workspace-isolation.md)。
 
 准备检查 canonical 默认分支一次（当前为 main），不依赖 tag 或 Release。
@@ -110,6 +119,28 @@ coordinator daemon 的 idle 升级和 monitor 的实例管理仍由各包负责�
 状态不由 workspace 强制改写。没有每五分钟轮询、常驻代码 watcher 或工作中换版本。
 
 ## 显式维护与证据
+
+维护由具体请求或工具报告的故障触发，无需调用初始化参考，也没有统一全量探测。
+
+| 需要处理的问题 | 入口 |
+|---|---|
+| 依赖或 pin 状态不明 | `uv run --no-project python .agents/scripts/vaws_deps.py doctor` |
+| 需要准备当前锁定的依赖 | `uv run --no-project python .agents/scripts/vaws_deps.py sync` |
+| 某个客户端接线需修改或修复 | `uv run --no-project python .agents/scripts/vaws_client_setup.py --client CLIENT --apply` |
+| 身份文件缺失、损坏或个人 Fork remote 有冲突 | 恢复已有快照，或用已确认用户名运行 `workspace_forks.py --github-user USER` 查看计划；只 apply 已判明需要的修复 |
+| 知识准备重试或配置变化 | `uv run --no-project python .agents/scripts/knowledge_setup.py` |
+
+`CLIENT` 使用实际客户端名；明确要求重新配置全部已安装客户端才使用 `all`。
+知识准备重试本身无需重配客户端；只有 provider 配置实际变化时才运行相应客户端
+配置入口。`knowledge_setup.py` 保留已有根目录和发布选择，默认不开启公开贡献。
+公开贡献设置与脱敏边界见[知识合同](target-state.md#54-knowledge)。
+
+显式要求 vLLM 与 Ascend 的 CI ref 对齐时，可在已初始化的 `vllm-ascend/` 上使用
+`uv run --no-project python .agents/bootstrap/repo-init/scripts/resolve_vllm_ci_pin.py --vllm-ascend-dir vllm-ascend`。
+它返回 ref 及来源；是否采用该 ref 由请求、现有改动和兼容依据决定。普通更新遵守
+主仓的 submodule gitlink，不顺带改成别的 CI ref。可选 Git topology helper
+`.agents/bootstrap/repo-init/scripts/repo_topology.py` 仅用于明确的 remote/main
+查询或操作，个人 Fork 配置仍使用上面的验证入口。
 
 ```text
 uv run --no-project python .agents/scripts/workspace_update.py check

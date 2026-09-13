@@ -36,6 +36,8 @@ COLLECTION_STATE_DIR = ROOT / ".vaws-local" / "ascend-profiling-collection" / "r
 # Lazy import of serving _common (single source of truth for SSH + inventory)
 # ---------------------------------------------------------------------------
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 def _load_serving_common():
     """Load the serving skill's _common.py without polluting sys.path.
 
@@ -187,6 +189,7 @@ def open_local_tunnel(ep, remote_port: int):
 # JSON-emitting subprocess wrapper for sibling scripts
 # ---------------------------------------------------------------------------
 
+@_diagnostic_measured('business.child_command')
 def call_json_command(cmd: list[str], *, cwd: Path | None = None) -> dict[str, Any]:
     """Run ``cmd`` and parse its stdout as JSON.
 
@@ -240,11 +243,13 @@ def call_json_command(cmd: list[str], *, cwd: Path | None = None) -> dict[str, A
 # Convenience wrappers around the serving skill's CLI scripts
 # ---------------------------------------------------------------------------
 
+@_diagnostic_measured('business.service_start')
 def call_serve_start(extra_args: list[str]) -> dict[str, Any]:
     cmd = [sys.executable, str(SERVING_SCRIPTS / "serving.py"), "start", *extra_args]
     return call_json_command(cmd)
 
 
+@_diagnostic_measured('business.service_cleanup')
 def call_serve_stop(
     *,
     context_file: str | None = None,

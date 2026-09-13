@@ -934,7 +934,7 @@ class ReproducibilityTests(unittest.TestCase):
             envelope["attempt"]["remote_command"]["script_preview"]["truncated"]
         )
 
-    def test_reproduce_is_a_single_copy_pasteable_string(self) -> None:
+    def test_display_remains_shell_quoted_but_redacts_private_paths(self) -> None:
         command = make_command(
             argv=[
                 "python3",
@@ -943,7 +943,7 @@ class ReproducibilityTests(unittest.TestCase):
                 "/home/weights/Model With Space",
             ]
         )
-        self.assertIn("'/home/weights/Model With Space'", command["display"])
+        self.assertIn("'<redacted:user-path> With Space'", command["display"])
 
     def test_empty_argv_is_rejected(self) -> None:
         command = make_command(argv=[])

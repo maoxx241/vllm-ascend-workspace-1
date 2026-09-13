@@ -226,7 +226,7 @@
           "minLength": 1
         },
         "started_at": {
-          "type": "string",
+          "type": ["string", "null"],
           "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
         },
         "duration_ms": {"type": ["integer", "null"], "minimum": 0}

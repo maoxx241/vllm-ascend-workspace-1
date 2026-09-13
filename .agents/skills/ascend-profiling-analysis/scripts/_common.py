@@ -207,6 +207,8 @@ FAST_PULL_PATHS = (
 # SSH endpoint (SshEndpoint itself is imported from vaws_remote_target)
 # ---------------------------------------------------------------------------
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 def get_machine_alias(machine: dict[str, Any]) -> str:
     host = machine.get("host", {})
     if isinstance(host, dict):
@@ -349,6 +351,7 @@ def _extract_tar_bytes(data: bytes, local_path: Path) -> None:
         tf.extractall(local_path, **kwargs)
 
 
+@_diagnostic_measured('artifact.upload')
 def sync_to_remote(
     endpoint: SshEndpoint,
     local_path: Path,
@@ -392,6 +395,7 @@ def sync_to_remote(
         )
 
 
+@_diagnostic_measured('artifact.download')
 def sync_from_remote(
     endpoint: SshEndpoint,
     remote_path: str,
@@ -477,6 +481,7 @@ def ensure_run_dir(
     return allocate_run_dir(ANALYSIS_STATE_DIR, tag)
 
 
+@_diagnostic_measured('artifact.read_manifest')
 def load_collection_manifest(manifest_path: Path) -> dict[str, Any]:
     """Read and shallow-validate a manifest produced by ascend-profiling-collection.
 
@@ -519,6 +524,7 @@ def load_collection_manifest(manifest_path: Path) -> dict[str, Any]:
     return data
 
 
+@_diagnostic_measured('environment.remote_python')
 def remote_python_with_module(
     endpoint: SshEndpoint,
     module: str,
@@ -657,6 +663,7 @@ def prepare_run_dir(
     return run_dir, None
 
 
+@_diagnostic_measured('artifact.framework')
 def sync_framework(
     endpoint: SshEndpoint, remote_work_dir: str, remote_output_dir: str
 ) -> str:
@@ -677,6 +684,7 @@ def sync_framework(
     return remote_framework_dir
 
 
+@_diagnostic_measured('business.remote_analysis')
 def stream_remote_command(
     endpoint: SshEndpoint,
     cmd: str,
@@ -697,6 +705,7 @@ def stream_remote_command(
         return None, fail_return(fail_phase, exc, **fail_extra)
 
 
+@_diagnostic_measured('artifact.collect')
 def pull_artifacts(
     endpoint: SshEndpoint,
     remote_output_dir: str,

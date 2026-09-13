@@ -413,10 +413,11 @@ def make_command(
     timeout_seconds: float | None = None,
     display: str | None = None,
 ) -> dict[str, Any]:
-    argv_list = [str(part) for part in argv]
+    from vaws_diagnostics_adapter import redact_arguments, redact
+    argv_list = redact_arguments(argv)
     return {
         "argv": argv_list,
-        "display": display or shlex.join(argv_list),
+        "display": redact(display) if display is not None else shlex.join(argv_list),
         "cwd": cwd,
         "env_keys": sorted({str(key) for key in (env_keys or ())}),
         "timeout_seconds": timeout_seconds,
@@ -439,13 +440,14 @@ def make_remote_command(
     Local ``argv`` alone is not reproducible for remote work: the agent needs
     the exact remote script, bounded, plus a ref to the full text.
     """
+    from vaws_diagnostics_adapter import redact_arguments, redact
     if endpoint_kind not in TARGET_KINDS:
         raise EnvelopeError(f"unsupported endpoint kind: {endpoint_kind!r}")
     return {
         "endpoint": {"kind": endpoint_kind, "ref": endpoint_ref},
-        "argv": [str(part) for part in argv] if argv is not None else None,
+        "argv": redact_arguments(argv) if argv is not None else None,
         "script_preview": (
-            text_preview(script, ref=script_ref) if script is not None else None
+            text_preview(redact(script), ref=script_ref) if script is not None else None
         ),
         "script_ref": script_ref,
         "cwd": cwd,
@@ -462,11 +464,17 @@ def make_attempt(
     started_at: str | None = None,
     duration_ms: int | None = None,
 ) -> dict[str, Any]:
+    if started_at is None or duration_ms is None:
+        from vaws_diagnostics_adapter import attempt_facts
+        observed = attempt_facts()
+        started_at = started_at or observed["started_at"]
+        if duration_ms is None:
+            duration_ms = observed["duration_ms"]
     return {
         "command": dict(command),
         "remote_command": dict(remote_command) if remote_command else None,
         "reproduce": reproduce,
-        "started_at": started_at or utc_now(),
+        "started_at": started_at,
         "duration_ms": duration_ms,
     }
 
@@ -1501,8 +1509,8 @@ def _validate_attempt(value: Any, errors: list[str]) -> None:
     _validate_command(value.get("command"), "attempt.command", errors)
     _require_str(value.get("reproduce"), "attempt.reproduce", errors)
     timestamp = value.get("started_at")
-    if not isinstance(timestamp, str) or not RFC3339_UTC_RE.fullmatch(timestamp):
-        errors.append("attempt.started_at must be an RFC3339 UTC timestamp")
+    if timestamp is not None and (not isinstance(timestamp, str) or not RFC3339_UTC_RE.fullmatch(timestamp)):
+        errors.append("attempt.started_at must be an RFC3339 UTC timestamp or null when unobserved")
     duration = value.get("duration_ms")
     if duration is not None and not isinstance(duration, int):
         errors.append("attempt.duration_ms must be an integer or null")
@@ -1908,7 +1916,8 @@ def write_full_record(envelope: Mapping[str, Any], directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     ident = str(envelope.get("envelope_id") or "envelope")
     path = directory / f"{ident}.json"
-    path.write_text(dumps(envelope) + "\n", encoding="utf-8")
+    from vaws_session_state import write_json
+    write_json(path, dict(envelope))
     return path
 
 
@@ -1990,8 +1999,20 @@ def progress(
     Progress never goes to ``stdout``: a consumer must be able to parse
     ``stdout`` as exactly one JSON object without filtering.
     """
-    payload: dict[str, Any] = {"phase": phase, "message": message}
-    payload.update({key: value for key, value in extra.items() if value is not None})
+    from vaws_diagnostics_adapter import event, redact
+    severity = str(extra.pop("level", "INFO"))
+    event(severity, "progress", phase=phase, message=message, **extra)
+    payload: dict[str, Any] = {"phase": phase, "message": redact(message)[:2000], "level": severity}
+    payload.update({key: value for key, value in list(extra.items())[:12] if value is not None})
     target = stream if stream is not None else sys.stderr
-    target.write(sentinel + json.dumps(payload, ensure_ascii=False) + "\n")
-    target.flush()
+    # Only bounded safe values are projected onto the old progress protocol.
+    for key, value in list(payload.items()):
+        if isinstance(value, str):
+            payload[key] = redact(value)[:(2000 if key == "message" else 512)]
+        elif not isinstance(value, (int, float, bool, type(None))):
+            payload[key] = "[details in diagnostics]"
+    try:
+        target.write(sentinel + json.dumps(payload, ensure_ascii=False) + "\n")
+        target.flush()
+    except (OSError, ValueError):
+        event("WARNING", "progress.write_failed")

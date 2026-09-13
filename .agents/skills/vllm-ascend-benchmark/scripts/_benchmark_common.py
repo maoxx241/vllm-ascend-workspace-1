@@ -44,6 +44,8 @@ _SERVE_START_TIMEOUT_MARGIN = 300
 # Progress / output helpers
 # ---------------------------------------------------------------------------
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 def emit_progress(phase: str, message: str, **extra: Any) -> None:
     envelope_progress(phase, message, **extra)
 
@@ -75,6 +77,7 @@ def benchmark_runs_dir(config: "BenchConfig") -> Path:
     return benchmark_dir(task_id, ROOT) / "runs"
 
 
+@_diagnostic_measured('business.save_result')
 def write_local_result(config: "BenchConfig", result: dict[str, Any], *, path: Path | None = None) -> Path:
     runs_dir = benchmark_runs_dir(config)
     runs_dir.mkdir(parents=True, exist_ok=True)
@@ -90,6 +93,7 @@ def write_local_result(config: "BenchConfig", result: dict[str, Any], *, path: P
     return result_path
 
 
+@_diagnostic_measured('business.child_command')
 def _run_json_command_streaming(
     cmd: list[str],
     *,
@@ -570,6 +574,7 @@ def assemble_config(
 # Serving skill wrappers
 # ---------------------------------------------------------------------------
 
+@_diagnostic_measured('business.service_start')
 def call_serve_start(config: BenchConfig, *, sources: dict[str, str] | None = None) -> dict[str, Any]:
     """Call serving.py start and return its JSON output.
 
@@ -609,6 +614,7 @@ def call_serve_start(config: BenchConfig, *, sources: dict[str, str] | None = No
     return data
 
 
+@_diagnostic_measured('business.service_cleanup')
 def call_serve_stop(config: BenchConfig, force: bool = False) -> dict[str, Any]:
     """Call serving.py stop and return its JSON output."""
     script = str(SERVING_SCRIPTS / "serving.py")
@@ -688,6 +694,7 @@ def _ascend_env_preamble() -> str:
     return ascend_env_preamble(set_e=True, export_driver_lib=True) + "\n"
 
 
+@_diagnostic_measured('business.benchmark')
 def run_bench_on_remote(
     config: BenchConfig,
     base_url: str,
@@ -874,6 +881,7 @@ print(json.dumps({
 '''.strip()
 
 
+@_diagnostic_measured('business.prepare_dataset')
 def prepare_fixed_request_dataset(
     container_ip: str,
     container_port: int,
@@ -977,6 +985,7 @@ print(json.dumps(out, ensure_ascii=False))
 '''.strip()
 
 
+@_diagnostic_measured('business.accuracy_probe')
 def run_accuracy_probe(
     container_ip: str,
     container_port: int,

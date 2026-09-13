@@ -19,6 +19,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [windows-installation.md](windows-installation.md) — PowerShell setup, same-filesystem uv cache and verified offline transfer.
 - [local-tests.md](local-tests.md) — local test progress, subprocess lifetime, retained evidence and validated retries.
 - [runtime-feedback-design.md](runtime-feedback-design.md) — real-machine progress, loaded runtime identity, state projection, compact output and connection diagnostics.
+- [diagnostics-system.md](diagnostics-system.md) — shared severity, phase timing, bounded local evidence, automatic redacted issues and supervised Grok diagnosis.
 - [README.md](README.md) — this index.
 - [agent-feedback-contract.md](agent-feedback-contract.md) — Result Envelope v1: the JSON stdout contract for agent-facing commands.
 - [comparability-certificate.md](comparability-certificate.md) — observational comparability certificate for paired measurements.
@@ -33,6 +34,8 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [tracked-path-guard.md](tracked-path-guard.md) — anti-rot guard against dead in-tree paths in tracked docs.
 
 ## Dated design and validation evidence
+
+- [diagnostics-validation-2026-09-13.md](diagnostics-validation-2026-09-13.md) — logging and timing coverage, local failure injection, protocol and process tests, measured instrumentation costs and explicit deployment/device limits.
 
 - [task-cost-reduction-validation-2026-09-13.md](task-cost-reduction-validation-2026-09-13.md) — local startup, optional dependency loading, managed preparation and completion costs, preserved failures and exact acceptance boundaries.
 

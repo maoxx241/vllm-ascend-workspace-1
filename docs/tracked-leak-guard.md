@@ -3,7 +3,7 @@
 Status: current
 
 The [scanner](../.agents/scripts/tracked_leak_scan.py) checks tracked text using
-rules from the installed knowledge package and the workspace's reviewed
+pure rules from the installed diagnostics package and the workspace's reviewed
 `.agents/leak-guard/allowlist.yaml`. It detects publication mistakes; it is not
 a public-redaction exporter. Knowledge contribution uses a package-prepared
 redacted copy.
@@ -51,6 +51,8 @@ exclusions. Allowances identify their path/category/value scope and explain why
 it is appropriate. Unknown settings, categories or malformed YAML fail clearly.
 PyYAML and the redaction rules come from the installed dependency environment;
 there is no second local YAML parser or reduced fallback scanner.
+The scanner and pre-commit hook do not prepare the optional knowledge runtime;
+`--help` remains available before dependencies are installed.
 
 Suppressed findings and unused allowance entries remain visible in the result.
 `--strict-allowlist` also rejects unused entries. No source comment can silently

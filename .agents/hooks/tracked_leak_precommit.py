@@ -10,12 +10,24 @@ thin client adapter for one host - here, Git's `pre-commit` event.
     python3 .agents/hooks/tracked_leak_precommit.py --uninstall
 
 The check itself fails closed: a policy error, a missing policy file, an
-unreadable staged diff, or a missing ``vaws-knowledge`` package blocks the
+unreadable staged diff, or a missing ``vaws-diagnostics`` package blocks the
 commit rather than passing it through. The remedy for the package gap is
 ``uv sync``.
 """
 
 from __future__ import annotations
+
+# Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
+if __name__ == "__main__":
+    import sys as _vaws_sys
+    from pathlib import Path as _VawsPath
+    _vaws_parents = _VawsPath(__file__).absolute().parents
+    _vaws_lib = _vaws_parents[1] / "lib" if len(_vaws_parents) > 1 else None
+    _vaws_entry = None
+    if _vaws_lib is not None and (_vaws_lib / "vaws_diagnostics_adapter.py").is_file():
+        _vaws_sys.path.insert(0, str(_vaws_lib))
+        from vaws_diagnostics_adapter import bootstrap as _vaws_bootstrap
+        _vaws_entry = _vaws_bootstrap(__file__)
 
 import argparse
 import json
@@ -29,7 +41,7 @@ LIB = ROOT / ".agents" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from vaws_venv import configure_windows_stdio, ensure_workspace_interpreter  # noqa: E402
+from vaws_venv import configure_windows_stdio  # noqa: E402
 from vaws_leak_guard import (  # noqa: E402
     DEFAULT_POLICY_PATH,
     LeakGuardError,
@@ -165,7 +177,6 @@ def status(repo_root: Path) -> dict:
 
 
 def check(repo_root: Path, *, policy_path: Path | None, show_matches: bool) -> dict:
-    ensure_workspace_interpreter(repo_root=ROOT, packages=("vaws_knowledge",))
     policy_path = resolve_policy_path(repo_root, policy_path)
     policy = load_policy(policy_path)
     result: ScanResult = scan_diff(staged_diff(repo_root), policy)
@@ -274,4 +285,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit((_vaws_entry.run(main) if _vaws_entry else main()))

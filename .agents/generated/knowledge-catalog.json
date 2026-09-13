@@ -2,11 +2,11 @@
   "schema_version": 1,
   "owner": {
     "name": "vaws-knowledge",
-    "version": "0.7.0",
+    "version": "0.7.1",
     "source": {
-      "git": "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=c57e7fb3322c8d83669e5c5f827446462892f113#c57e7fb3322c8d83669e5c5f827446462892f113"
+      "git": "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=0457d9d8cdb4d105d1d38820f9211fc0b73f42e7#0457d9d8cdb4d105d1d38820f9211fc0b73f42e7"
     },
-    "revision": "c57e7fb3322c8d83669e5c5f827446462892f113"
+    "revision": "0457d9d8cdb4d105d1d38820f9211fc0b73f42e7"
   },
   "tools": [
     {

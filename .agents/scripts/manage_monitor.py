@@ -4,13 +4,26 @@
 vaws-top is a published Python package. `uvx` fetches and caches the pinned
 GitHub Release wheel (the only artifact that contains the built frontend);
 this wrapper only launches `vaws-top serve` as a local background process,
-keeps a pidfile, and probes `/api/health`. There is no checkout, no pin file,
-no git, and no service manager.
+keeps a pidfile, and probes `/api/health`. The released wheel also pins the
+shared diagnostics dependency; uv resolves it during installation. This
+launcher does not maintain a source checkout or a service manager.
 
 The listener is always `127.0.0.1`. vaws-top observations are not allocation
 authority. Coordinator execution leases remain authoritative.
 """
 from __future__ import annotations
+
+# Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
+if __name__ == "__main__":
+    import sys as _vaws_sys
+    from pathlib import Path as _VawsPath
+    _vaws_parents = _VawsPath(__file__).absolute().parents
+    _vaws_lib = _vaws_parents[1] / "lib" if len(_vaws_parents) > 1 else None
+    _vaws_entry = None
+    if _vaws_lib is not None and (_vaws_lib / "vaws_diagnostics_adapter.py").is_file():
+        _vaws_sys.path.insert(0, str(_vaws_lib))
+        from vaws_diagnostics_adapter import bootstrap as _vaws_bootstrap
+        _vaws_entry = _vaws_bootstrap(__file__)
 
 import argparse
 import json
@@ -43,7 +56,7 @@ VAWS_TOP_REPO = "vllm-ascend-workspace/vaws-top"
 VAWS_TOP_SKILL_PATH = ".agents/skills/vaws-top/SKILL.md"
 # Single version constant: the release tag. The wheel filename below is derived
 # from it so the tag and the wheel version cannot drift apart.
-VAWS_TOP_REF = "v0.1.2"
+VAWS_TOP_REF = "v0.1.3"
 VAWS_TOP_VERSION = VAWS_TOP_REF.removeprefix("v")
 # The console script is named after the repository and the import package uses
 # underscores; derive both so the only literal naming the extracted project is
@@ -523,4 +536,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit((_vaws_entry.run(main) if _vaws_entry else main()))

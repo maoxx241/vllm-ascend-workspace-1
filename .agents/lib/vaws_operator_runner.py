@@ -1,6 +1,8 @@
 """Submit explicit operator callables through the existing coordinator owner."""
 from __future__ import annotations
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 import argparse
 import ast
 import base64
@@ -54,6 +56,7 @@ def ensure_operator_entry(root, entry_file):
     ensure_managed_entry(repo_root=root, entry_file=entry_file, local_options=("--output-dir",))
 
 
+@_diagnostic_measured('business.bundle_inputs')
 def bundle_inputs(kernel, reference, cases, **options):
     files, entries, origins = {}, {}, {}
     for role, text in (("kernel", kernel), ("reference", reference), ("cases", cases)):
@@ -73,12 +76,14 @@ def bundle_inputs(kernel, reference, cases, **options):
     return {"files": files, "entries": entries, **options}, origins
 
 
+@_diagnostic_measured('business.render')
 def render_script(payload):
     program = Path(__file__).with_name("vaws_operator_payload.py").read_text(encoding="utf-8")
     program += "\nraise SystemExit(run(json.loads(" + repr(json.dumps(payload, ensure_ascii=False)) + ")))\n"
     return 'set -euo pipefail\n"$VAWS_PYTHON" - <<\'VAWS_OPERATOR_PY\'\n' + program + '\nVAWS_OPERATOR_PY\n'
 
 
+@_diagnostic_measured('business.decode')
 def decode_business(reply):
     for line in reversed(str(reply.get("stdout") or reply.get("tail") or "").splitlines()):
         if line.startswith(MARKER):
@@ -94,6 +99,7 @@ def decode_business(reply):
     return None
 
 
+@_diagnostic_measured('business.submit_wait')
 def submit(payload, origins, *, client, output_dir, run_options):
     output_dir.mkdir(parents=True, exist_ok=False)
     script = output_dir / "operator-case.sh"

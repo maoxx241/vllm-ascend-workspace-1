@@ -95,20 +95,20 @@ class DetectionTests(unittest.TestCase):
             with self.subTest(category=category):
                 self.assertIn(category, found)
 
-    def test_missing_knowledge_package_refuses_to_scan(self) -> None:
-        saved = guard._knowledge_redact
-        guard._knowledge_redact = None
-        self.addCleanup(setattr, guard, "_knowledge_redact", saved)
+    def test_missing_pure_redactor_refuses_to_scan(self) -> None:
+        saved = guard._redactor
+        guard._redactor = None
+        self.addCleanup(setattr, guard, "_redactor", saved)
         with mock.patch.dict(
-            sys.modules, {"vaws_knowledge": None, "vaws_knowledge.redact": None}
+            sys.modules, {"vaws_diagnostics": None, "vaws_diagnostics.redact": None}
         ):
             with self.assertRaises(guard.LeakGuardError) as caught:
-                guard.require_knowledge_redact()
+                guard.require_redactor()
         message = str(caught.exception)
-        self.assertIn("vaws_knowledge", message)
-        self.assertIn("python .agents/scripts/vaws_deps.py sync", message)
+        self.assertIn("vaws-diagnostics", message)
+        self.assertIn("locked runtime", message)
         with mock.patch.dict(
-            sys.modules, {"vaws_knowledge": None, "vaws_knowledge.redact": None}
+            sys.modules, {"vaws_diagnostics": None, "vaws_diagnostics.redact": None}
         ):
             with self.assertRaises(guard.LeakGuardError):
                 guard.scan_line("token = hunter2", guard.default_policy())

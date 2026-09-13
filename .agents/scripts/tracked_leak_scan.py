@@ -14,6 +14,18 @@ Examples:
 
 from __future__ import annotations
 
+# Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
+if __name__ == "__main__":
+    import sys as _vaws_sys
+    from pathlib import Path as _VawsPath
+    _vaws_parents = _VawsPath(__file__).absolute().parents
+    _vaws_lib = _vaws_parents[1] / "lib" if len(_vaws_parents) > 1 else None
+    _vaws_entry = None
+    if _vaws_lib is not None and (_vaws_lib / "vaws_diagnostics_adapter.py").is_file():
+        _vaws_sys.path.insert(0, str(_vaws_lib))
+        from vaws_diagnostics_adapter import bootstrap as _vaws_bootstrap
+        _vaws_entry = _vaws_bootstrap(__file__)
+
 import argparse
 import json
 import sys
@@ -24,9 +36,9 @@ LIB = ROOT / ".agents" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from vaws_venv import ensure_workspace_interpreter  # noqa: E402
+from vaws_venv import configure_windows_stdio  # noqa: E402
 
-ensure_workspace_interpreter(repo_root=ROOT, packages=("vaws_knowledge",))
+configure_windows_stdio()
 
 from vaws_leak_guard import (  # noqa: E402
     CATEGORIES,
@@ -41,7 +53,7 @@ from vaws_leak_guard import (  # noqa: E402
     staged_diff,
     tracked_files,
     unused_entry_ids,
-    require_knowledge_redact,
+    require_redactor,
 )
 
 
@@ -121,7 +133,7 @@ def _filter(result: ScanResult, categories: list[str] | None) -> ScanResult:
 
 
 def run(args: argparse.Namespace) -> tuple[dict, int]:
-    require_knowledge_redact()
+    require_redactor()
     repo_root = args.repo_root.resolve()
     if args.no_allowlist:
         policy_path = None
@@ -209,4 +221,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit((_vaws_entry.run(main) if _vaws_entry else main()))

@@ -8,6 +8,8 @@ not construct SSH options; they call the helpers here.
 """
 from __future__ import annotations
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 import os
 import subprocess
 import sys
@@ -232,6 +234,7 @@ def ssh_argv(
     return list(api["ssh_base_cmd"](ep))
 
 
+@_diagnostic_measured('transport.command')
 def ssh_exec(
     endpoint: Any,
     script: str,
@@ -272,6 +275,7 @@ def ssh_exec(
     return result
 
 
+@_diagnostic_measured('transport.stream')
 def ssh_stream(
     endpoint: Any,
     script: str,
@@ -301,6 +305,7 @@ def ssh_stream(
     return int(completed.returncode)
 
 
+@_diagnostic_measured('transport.bytes')
 def ssh_run_bytes(
     endpoint: Any,
     remote_command: str,

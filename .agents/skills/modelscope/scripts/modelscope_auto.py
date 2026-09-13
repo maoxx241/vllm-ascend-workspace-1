@@ -3,6 +3,18 @@
 
 from __future__ import annotations
 
+# Observe the real CLI before optional runtime imports; copied remote helpers stay standalone.
+if __name__ == "__main__":
+    import sys as _vaws_sys
+    from pathlib import Path as _VawsPath
+    _vaws_parents = _VawsPath(__file__).absolute().parents
+    _vaws_lib = _vaws_parents[3] / "lib" if len(_vaws_parents) > 3 else None
+    _vaws_entry = None
+    if _vaws_lib is not None and (_vaws_lib / "vaws_diagnostics_adapter.py").is_file():
+        _vaws_sys.path.insert(0, str(_vaws_lib))
+        from vaws_diagnostics_adapter import bootstrap as _vaws_bootstrap
+        _vaws_entry = _vaws_bootstrap(__file__)
+
 import argparse
 from contextlib import contextmanager
 import json
@@ -55,6 +67,8 @@ PROXY_VARS = (
 )
 
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured
+
 @dataclass(frozen=True)
 class ModelSpec:
     model_id: str
@@ -83,6 +97,7 @@ def bytes_to_gib(value: int) -> str:
     return f"{value / (1024 ** 3):.2f} GiB"
 
 
+@_diagnostic_measured('model.metadata_request')
 def request_json(url: str, *, retries: int = 5, timeout: int = 60) -> dict[str, Any]:
     session = requests.Session()
     last_error: Exception | None = None
@@ -301,6 +316,7 @@ def _worker_process(cmd: list[str], *, env: dict[str, str], launch_log):
             raise
 
 
+@_diagnostic_measured('model.worker_launch')
 def launch_worker(
     spec: ModelSpec,
     args: argparse.Namespace,
@@ -334,25 +350,26 @@ def launch_worker(
     elif args.proxy:
         cmd.extend(["--proxy", args.proxy])
 
-    with (spec.local_dir / "download.launch.log").open("ab", buffering=0) as launch_log:
-        with _worker_process(cmd, env=build_worker_env(args), launch_log=launch_log) as proc:
-            identity = None
-            for attempt in range(3):
-                identity = process_identity(proc.pid)
-                if identity is not None:
-                    break
-                if attempt < 2:
-                    time.sleep(.05)
-            if identity is None:
-                raise RuntimeError("Cannot identify the new ModelScope worker; its process tree was not detached")
-            record = {"pid": proc.pid, "identity": identity}
-            (spec.local_dir / "download.pid").write_text(json.dumps(record) + "\n", encoding="utf-8")
-            return proc.pid
+    # The detached worker owns its diagnostics; no reader or file handle owned
+    # by this short-lived launcher is needed for progress or failure evidence.
+    from vaws_diagnostics_adapter import context_environment
+    with _worker_process(cmd, env=context_environment(build_worker_env(args)), launch_log=subprocess.DEVNULL) as proc:
+        identity = None
+        for attempt in range(3):
+            identity = process_identity(proc.pid)
+            if identity is not None:
+                break
+            if attempt < 2:
+                time.sleep(.05)
+        if identity is None:
+            raise RuntimeError("Cannot identify the new ModelScope worker; its process tree was not detached")
+        record = {"pid": proc.pid, "identity": identity}
+        (spec.local_dir / "download.pid").write_text(json.dumps(record) + "\n", encoding="utf-8")
+        return proc.pid
 
 
+@_diagnostic_measured('model.verify')
 def run_verify(spec: ModelSpec, revision: str) -> int:
-    verify_log = spec.local_dir / "verify.log"
-    verify_log.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         sys.executable,
         str(VERIFY_SCRIPT),
@@ -368,10 +385,15 @@ def run_verify(spec: ModelSpec, revision: str) -> int:
     ]
     for rel_path in sorted(DEFAULT_IGNORE_EXTRA):
         cmd.extend(["--ignore-extra", rel_path])
-    with verify_log.open("ab", buffering=0) as log:
-        return subprocess.call(cmd, stdout=log, stderr=subprocess.STDOUT)
+    from vaws_diagnostics_adapter import operation, captured_stderr, context_environment
+    with operation("model.verify_process") as observation, captured_stderr(observation) as log:
+        returncode = subprocess.call(cmd, stdout=log, stderr=subprocess.STDOUT, env=context_environment(os.environ))
+        if returncode:
+            observation.fail("verification", returncode=returncode)
+        return returncode
 
 
+@_diagnostic_measured('model.worker')
 def run_worker(args: argparse.Namespace) -> int:
     spec = args.model[0]
     env = build_worker_env(args)
@@ -391,7 +413,6 @@ def run_worker(args: argparse.Namespace) -> int:
             str(args.download_parallels),
             "--parallel-threshold-mb",
             str(args.parallel_threshold_mb),
-            "--log-in-local-dir",
         ]
         if args.max_workers is not None:
             download_cmd.extend(["--max-workers", str(args.max_workers)])
@@ -401,7 +422,11 @@ def run_worker(args: argparse.Namespace) -> int:
             download_cmd.append("--no-proxy")
         elif args.proxy:
             download_cmd.extend(["--proxy", args.proxy])
-        download_rc = subprocess.call(download_cmd, env=env)
+        from vaws_diagnostics_adapter import operation, captured_stderr, context_environment
+        with operation("model.download_process") as observation, captured_stderr(observation) as log:
+            download_rc = subprocess.call(download_cmd, env=context_environment(env), stdout=log, stderr=subprocess.STDOUT)
+            if download_rc:
+                observation.fail("download", returncode=download_rc)
         if download_rc != 0:
             return download_rc
     return run_verify(spec, args.revision)
@@ -528,4 +553,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit((_vaws_entry.run(main) if _vaws_entry else main()))

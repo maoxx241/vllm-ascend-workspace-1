@@ -6,6 +6,8 @@ No stash, reset, rebase, force push, service restart or MCP rewrite is performed
 """
 from __future__ import annotations
 
+from vaws_diagnostics_adapter import measured as _diagnostic_measured, wrap_context, phase, context_environment
+
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -32,13 +34,15 @@ class Deferred(RuntimeError):
 
 
 def redact(value: str) -> str:
-    value = re.sub(r"(https?://)[^\s/@]+:[^\s/@]+@", r"\1[redacted]@", value)
-    return re.sub(r"(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)", "[redacted]", value)
+    from vaws_diagnostics_adapter import redact as redact_text
+    # Historical CLI errors also hid shortened GitHub token-shaped fixtures.
+    value = re.sub(r"(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)", "[redacted]", value)
+    return redact_text(value)
 
 
 def run(argv: list[str], *, cwd: Path, timeout: int = 120, env=None, check=True):
     try:
-        result = subprocess.run(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+        result = subprocess.run(argv, cwd=cwd, env=context_environment(os.environ if env is None else env), stdin=subprocess.DEVNULL,
                                 capture_output=True, text=True, encoding="utf-8",
                                 errors="replace", timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
@@ -58,8 +62,11 @@ def run(argv: list[str], *, cwd: Path, timeout: int = 120, env=None, check=True)
 
 def git(root: Path, *args: str, check=True) -> str:
     environment = {**os.environ, "GIT_CEILING_DIRECTORIES": str(Path(root).resolve().parent)}
-    return run(["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []), *args],
-               cwd=root, env=environment, check=check).stdout.strip()
+    action = args[0] if args else "unknown"
+    measured = action in {"fetch", "clone", "checkout", "reset", "push", "ls-remote"}
+    with phase("source.git", action=action, level="INFO" if measured else "DEBUG"):
+        return run(["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []), *args],
+                   cwd=root, env=environment, check=check).stdout.strip()
 
 
 def repository_root(path: Path) -> Path:
@@ -132,29 +139,30 @@ def path_lock(path: Path, *, wait_seconds: float = 180):
                     handle.flush()
             started = time.monotonic()
             announced = False
-            while not acquired:
-                try:
-                    if os.name == "nt":
-                        handle.seek(0)
-                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            with phase("source.lock_wait"):
+                while not acquired:
+                    try:
+                        if os.name == "nt":
+                            handle.seek(0)
+                            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                        else:
+                            import fcntl
+                            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except OSError as exc:
+                        if os.name != "nt" and not isinstance(exc, BlockingIOError):
+                            raise
+                        elapsed = time.monotonic() - started
+                        if elapsed >= wait_seconds:
+                            detail = (f"workspace preparation is still running after {elapsed:.1f}s; "
+                                      f"lock: {path}") if wait_seconds else ""
+                            raise Deferred("updater_running", detail,
+                                           evidence={"lock": str(path), "waited_seconds": round(elapsed, 3)}) from exc
+                        if not announced:
+                            print("VAWS: waiting for another session's workspace preparation", file=sys.stderr, flush=True)
+                            announced = True
+                        time.sleep(min(0.2, wait_seconds - elapsed))
                     else:
-                        import fcntl
-                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except OSError as exc:
-                    if os.name != "nt" and not isinstance(exc, BlockingIOError):
-                        raise
-                    elapsed = time.monotonic() - started
-                    if elapsed >= wait_seconds:
-                        detail = (f"workspace preparation is still running after {elapsed:.1f}s; "
-                                  f"lock: {path}") if wait_seconds else ""
-                        raise Deferred("updater_running", detail,
-                                       evidence={"lock": str(path), "waited_seconds": round(elapsed, 3)}) from exc
-                    if not announced:
-                        print("VAWS: waiting for another session's workspace preparation", file=sys.stderr, flush=True)
-                        announced = True
-                    time.sleep(min(0.2, wait_seconds - elapsed))
-                else:
-                    acquired = True
+                        acquired = True
             yield
         finally:
             if acquired:
@@ -181,6 +189,7 @@ def verified_git_url(root: Path, url: str, repository: str) -> None:
         raise Deferred("git_url_rewrite", str(exc)) from exc
 
 
+@_diagnostic_measured('source.checkout_verify')
 def clean_checkout(root: Path, *, branch: str | None, expected: set[str] | None = None) -> dict:
     directory = Path(git(root, "rev-parse", "--absolute-git-dir"))
     for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer"):
@@ -254,11 +263,17 @@ class WorkspaceUpdater:
         reason = exc.reason if isinstance(exc, Deferred) else "operation_pending"
         evidence = getattr(exc, "evidence", None) or {"error_type": type(exc).__name__, "error": redact(str(exc))}
         log = self.base / "logs" / f"{time.time_ns()}.json"
-        write_json(log, evidence)
-        self.save(status=status, reason=reason, error_log=str(log))
+        try:
+            write_json(log, evidence)
+            self.save(status=status, reason=reason, error_log=str(log))
+        except OSError as diagnostic_error:
+            from vaws_diagnostics_adapter import report_failure
+            report_failure("updater.evidence_write_failed", diagnostic_error, original_error_type=type(exc).__name__)
+            log = None
         return {"status": status, "reason": reason, "detail": redact(str(exc))[-1500:],
-                "log": str(log), "phase": self.state.get("phase")}
+                "log": str(log) if log else None, "phase": self.state.get("phase")}
 
+    @_diagnostic_measured('source.upstream')
     def discover(self) -> dict:
         from vaws_github import (GitHubAPIError, GitHubClient, load_github_identity,
                                  validate_github_user, validate_personal_fork)
@@ -320,6 +335,7 @@ class WorkspaceUpdater:
             return available_sources(self.source_root)
         return {name: str(self.source_root / name) for name in self.source_names}
 
+    @_diagnostic_measured('source.local_selection')
     def local_prepare(self) -> tuple[dict, dict]:
         """Choose already accepted preparation or one local commit; no upstream work."""
         started = time.monotonic()
@@ -403,6 +419,7 @@ class WorkspaceUpdater:
                 return {"stage_ids": locations, "retained_failed_stage": str(previous)}
         return {}
 
+    @_diagnostic_measured('source.cache_verify')
     def validate_prepared(self, release: dict, prepared: dict, *, source_names=None) -> Path:
         stage = Path(prepared["stage"])
         sources = prepared["sources"]
@@ -432,6 +449,7 @@ class WorkspaceUpdater:
             raise Deferred("prepared_environment_unavailable")
         return stage
 
+    @_diagnostic_measured('source.prepare')
     def prepare(self, release: dict, active: dict[str, str]) -> dict:
         from vaws_native_workspace import prepare_source
         target = release["target"]
@@ -464,7 +482,7 @@ class WorkspaceUpdater:
                     clean_checkout(destination, branch=None, expected={spec["revision"]})
                 return name, str(destination), spec["revision"]
             with ThreadPoolExecutor(max_workers=min(2, len(active))) as pool:
-                for name, destination, revision in pool.map(prepare_child, active.items()):
+                for name, destination, revision in pool.map(wrap_context(prepare_child), active.items()):
                     sources[name] = destination
                     revisions[name] = revision
         environment = dict(os.environ)
@@ -492,6 +510,7 @@ class WorkspaceUpdater:
         self.validate_prepared(release, result)
         return result
 
+    @_diagnostic_measured('environment.activate')
     def activate_environment(self, prepared: dict) -> None:
         # Use the prepared revision's implementation, and publish only the next
         # client selection. Running native clients retain their explicit pin.
@@ -506,6 +525,7 @@ class WorkspaceUpdater:
              str(stage / ".agents/lib"), str(self.root), prepared["receipt"]["receipt"]],
             cwd=self.root, env=environment)
 
+    @_diagnostic_measured('source.activate')
     def activate(self) -> dict:
         if self.state.get("phase") not in ("ready", "local_updated"):
             return {"status": "pending", "reason": "no_prepared_update"}

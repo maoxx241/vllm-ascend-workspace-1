@@ -4235,22 +4235,29 @@ wheels = [
 
 [[package]]
 name = "vaws-coordinator"
-version = "0.5.0.dev1"
-source = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=5b83148ba9d10873dec3f5ecf09e71a8ce51d0d8#5b83148ba9d10873dec3f5ecf09e71a8ce51d0d8" }
+version = "0.5.0.dev2"
+source = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=92264a28fcda5b0b85f9c36f2907fa91948760f9#92264a28fcda5b0b85f9c36f2907fa91948760f9" }
 dependencies = [
     { name = "setuptools-scm" },
+    { name = "vaws-diagnostics" },
     { name = "vaws-remote-dev" },
 ]
 
 [[package]]
+name = "vaws-diagnostics"
+version = "0.1.1"
+source = { git = "https://github.com/vllm-ascend-workspace/vaws-diagnostics?rev=3595e4e5ae776a1728099f237792ffb022ae12c8#3595e4e5ae776a1728099f237792ffb022ae12c8" }
+
+[[package]]
 name = "vaws-knowledge"
-version = "0.7.0"
-source = { git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=c57e7fb3322c8d83669e5c5f827446462892f113#c57e7fb3322c8d83669e5c5f827446462892f113" }
+version = "0.7.1"
+source = { git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=0457d9d8cdb4d105d1d38820f9211fc0b73f42e7#0457d9d8cdb4d105d1d38820f9211fc0b73f42e7" }
 dependencies = [
     { name = "fastembed" },
     { name = "openviking" },
     { name = "openviking-sdk" },
     { name = "pyyaml" },
+    { name = "vaws-diagnostics" },
 ]
 
 [package.optional-dependencies]
@@ -4261,8 +4268,11 @@ code = [
 
 [[package]]
 name = "vaws-remote-dev"
-version = "0.8.0"
-source = { git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=a65362882a85b4d460be3e1d15e90de9fb507e70#a65362882a85b4d460be3e1d15e90de9fb507e70" }
+version = "0.9.0"
+source = { git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=8796b91e74f9968791176cd330fb110f269f0774#8796b91e74f9968791176cd330fb110f269f0774" }
+dependencies = [
+    { name = "vaws-diagnostics" },
+]
 
 [[package]]
 name = "vaws-workspace"
@@ -4274,6 +4284,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "vaws-coordinator" },
+    { name = "vaws-diagnostics" },
     { name = "vaws-knowledge", extra = ["code"] },
     { name = "vaws-remote-dev" },
 ]
@@ -4291,9 +4302,10 @@ requires-dist = [
     { name = "pillow", specifier = ">=11" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "requests", specifier = ">=2" },
-    { name = "vaws-coordinator", git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=5b83148ba9d10873dec3f5ecf09e71a8ce51d0d8" },
-    { name = "vaws-knowledge", extras = ["code"], git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=c57e7fb3322c8d83669e5c5f827446462892f113" },
-    { name = "vaws-remote-dev", git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=a65362882a85b4d460be3e1d15e90de9fb507e70" },
+    { name = "vaws-coordinator", git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=92264a28fcda5b0b85f9c36f2907fa91948760f9" },
+    { name = "vaws-diagnostics", git = "https://github.com/vllm-ascend-workspace/vaws-diagnostics?rev=3595e4e5ae776a1728099f237792ffb022ae12c8" },
+    { name = "vaws-knowledge", extras = ["code"], git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=0457d9d8cdb4d105d1d38820f9211fc0b73f42e7" },
+    { name = "vaws-remote-dev", git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=8796b91e74f9968791176cd330fb110f269f0774" },
 ]
 
 [package.metadata.requires-dev]

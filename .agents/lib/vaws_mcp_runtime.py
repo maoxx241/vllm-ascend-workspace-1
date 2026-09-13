@@ -32,19 +32,22 @@ class Selection:
 
 
 def caller_context(arguments: dict, metadata: dict | None, *, state_dir: str = "") -> dict | None:
+    supplied = arguments.get("context_file")
+    metadata = metadata or {}
+    if not supplied and not any(key in metadata for key in ("x-codex-turn-metadata", "kimi_code/session_id")):
+        return None
     from vaws_coordinator.agent_session import AgentSessions, load_context
 
-    supplied = arguments.get("context_file")
     context = None
-    store = AgentSessions(Path(state_dir) if state_dir else None)
-    metadata = metadata or {}
     if "x-codex-turn-metadata" in metadata:
+        store = AgentSessions(Path(state_dir) if state_dir else None)
         turn = metadata["x-codex-turn-metadata"]
         native = turn.get("thread_id") if isinstance(turn, dict) else None
         if not isinstance(native, str) or not native:
             raise ValueError("native Codex request has no thread_id")
         context = store.native_context("codex", native)
     elif "kimi_code/session_id" in metadata:
+        store = AgentSessions(Path(state_dir) if state_dir else None)
         native = metadata["kimi_code/session_id"]
         agent = metadata.get("kimi_code/agent_id", "")
         if not isinstance(native, str) or not native or not isinstance(agent, str):
@@ -57,7 +60,13 @@ def caller_context(arguments: dict, metadata: dict | None, *, state_dir: str = "
     return load_context(supplied, allow_native_context=False) if supplied else None
 
 
-def selection(root: Path, context: dict | None = None, *, catalog: bool = False) -> Selection:
+def selection(root: Path, context: dict | None = None, *, catalog: bool = False,
+              require_prepared: bool = True) -> Selection:
+    if context is None and not catalog:
+        # Direct capabilities use their configured workspace, without task or
+        # catalog discovery. No Git process is needed to read this selection.
+        receipt = saved_ready(root)
+        return Selection(root, receipt["receipt"], receipt["python"], receipt["key"])
     shared = shared_workspace_root(root)
     path = (task_dir(context["session"]["id"], shared) / "start.json" if context else
             shared / ".vaws-local/latest-runtime.json")
@@ -76,7 +85,8 @@ def selection(root: Path, context: dict | None = None, *, catalog: bool = False)
             target = Path(git(target, "rev-parse", "--show-toplevel")).resolve()
             actual_git = Path(git(target, "rev-parse", "--absolute-git-dir")).resolve()
             selected_file = target / ".vaws-local/environment-selection" / f"{sys.platform}.json"
-            if common_dir(target) != shared_git or actual_git == shared_git or not selected_file.is_file():
+            if (common_dir(target) != shared_git or not selected_file.is_file()
+                    or (require_prepared and actual_git == shared_git)):
                 raise ValueError("This new task has no prepared workspace. Run the project vaws_start.py entry once, then reuse its context.")
         receipt = saved_ready(target)
     return Selection(target, receipt["receipt"], receipt["python"], receipt["key"],
@@ -230,7 +240,7 @@ class Provider:
             schema = copy.deepcopy(item.inputSchema)
             schema.setdefault("properties", {}).setdefault("context_file", {
                 "type": "string", "description": "Existing VAWS context; native hooks normally supply it."})
-            if self.environment.get("VAWS_MCP_CLIENT") == "kimi":
+            if self.kind == "task" and self.environment.get("VAWS_MCP_CLIENT") == "kimi":
                 schema["properties"]["context_file"] = {
                     "type": "string", "description": "Copy context_file supplied by this session's native hook or vaws_start result."}
                 required = schema.setdefault("required", [])
@@ -242,9 +252,9 @@ class Provider:
 
     async def call_tool(self, name: str, arguments: dict, metadata: dict | None = None):
         context = caller_context(arguments, metadata, state_dir=self.environment.get("VAWS_AGENT_SESSIONS_DIR", ""))
-        if context is None:
+        if context is None and self.kind == "task":
             raise ValueError("No native task context was supplied. Pass the context_file from session startup; no workspace or runtime was guessed.")
-        selected = selection(self.root, context)
+        selected = selection(self.root, context, require_prepared=self.kind == "task")
         values = dict(arguments)
         if self.kind == "task" and context:
             values["context_file"] = context["context_file"]

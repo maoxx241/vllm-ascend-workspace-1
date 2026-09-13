@@ -74,7 +74,7 @@ def payload(client, event, native, cwd, **extra):
 def run_hook(root, client, event_payload, *, package=False):
     entry = (["-m", "vaws_coordinator.hooks.vaws_session"] if package else
              [str(ROOT / ".agents/hooks/vaws_session.py")])
-    return subprocess.run([sys.executable, *entry, "--client", client, "--project", str(root)],
+    return subprocess.run([sys.executable, "-X", "utf8", *entry, "--client", client, "--project", str(root)],
                           input=json.dumps(event_payload), capture_output=True, text=True,
                           encoding="utf-8", cwd=root, timeout=15, check=True)
 
@@ -83,7 +83,7 @@ def hint(client, event, raw):
     if client == "kimi" and event == "UserPromptSubmit":
         return raw
     output = json.loads(raw)
-    return output["additional_context"] if client == "cursor" else output["hookSpecificOutput"]["additionalContext"]
+    return output.get("additional_context", "") if client == "cursor" else output.get("hookSpecificOutput", {}).get("additionalContext", "")
 
 
 def task_record(root, context, target, receipt):
@@ -100,9 +100,9 @@ def test_real_hook_unprepared_then_repeated_prepared_resume(project, client):
     first = run_hook(root, client, payload(client, "SessionStart", native, root))
     context = store.native_context(client, native)
     message = hint(client, "SessionStart", first.stdout)
-    assert "NOT prepared" in message
-    assert "First repository action, before file reads" in message
-    assert "--client " + client in message and context["context_file"] in message
+    assert "NOT prepared" not in message
+    assert "First repository action" not in message
+    assert "vaws_start.py" not in message and context["context_file"] in message
     assert "Client startup owns" not in message
     assert not (root / ".vaws-local/tasks").exists()
 
@@ -112,8 +112,12 @@ def test_real_hook_unprepared_then_repeated_prepared_resume(project, client):
     for event in ("UserPromptSubmit", "SessionStart", "UserPromptSubmit"):
         result = run_hook(root, client, payload(client, event, native, root, source="resume"))
         message = hint(client, event, result.stdout)
-        assert "workspace is prepared: W=" + str(target) in message
-        assert receipt["key"] in message and receipt["python"] in message
+        if message:
+            assert "workspace is prepared: W=" + str(target) in message
+            assert receipt["key"] in message and receipt["python"] in message
+            assert context["context_file"] in message
+        else:
+            assert event == "UserPromptSubmit" and client != "kimi"
         assert "First repository action" not in message
         assert record.read_bytes() == original
         if client == "cursor":
@@ -135,7 +139,7 @@ def test_prepared_native_worktree_and_broken_selection(project):
     assert not (root / ".vaws-local/tasks").exists()
     selected = target / ".vaws-local/environment-selection" / f"{sys.platform}.json"
     selected.write_text("{broken")
-    result = run_hook(root, "claude", payload("claude", "UserPromptSubmit", native, nested))
+    result = run_hook(root, "claude", payload("claude", "SessionStart", native, nested, source="resume"))
     assert "workspace selection could not be read" in result.stdout
     assert "invalid environment selection" in result.stdout
     assert "First repository action" not in result.stdout
@@ -149,14 +153,42 @@ def test_broken_task_receipt_is_not_a_new_session(project):
     context = store.native_context("claude", native)
     record = task_record(root, context, target, receipt)
     Path(receipt["receipt"]).write_text("{}")
-    result = run_hook(root, "claude", payload("claude", "UserPromptSubmit", native, root))
+    result = run_hook(root, "claude", payload("claude", "SessionStart", native, root, source="resume"))
     assert "workspace selection could not be read" in result.stdout
     assert "incomplete ready receipt" in result.stdout
     assert "First repository action" not in result.stdout
     assert record.is_file()
 
 
-def test_missing_identity_does_not_claim_prepared(project, monkeypatch):
+@pytest.mark.parametrize("client", ["claude", "codex", "cursor", "grok", "kimi"])
+@pytest.mark.parametrize("confirmed_identity", [False, True])
+def test_ordinary_hooks_do_not_inject_preparation_or_identity_gate(project, monkeypatch, client, confirmed_identity):
+    root, _, store, _ = project
+    if not confirmed_identity:
+        identity = root / ".vaws-local/github.json"
+        identity.unlink()
+        monkeypatch.delenv("VAWS_GITHUB_IDENTITY_FILE")
+    native = "ordinary-" + client
+    for event in ("SessionStart", "UserPromptSubmit"):
+        event_payload = payload(client, event, native, root)
+        # Exercise the actual package event and project_output without the
+        # wrapper discovering this developer checkout's configured identity.
+        result = run_hook(root, client, event_payload, package=True)
+        assert result.stderr == ""
+        projected = hints.project_output(client, event_payload, result.stdout, root=root)
+        for instruction in ("First repository action", "vaws_start.py", "first-use setup",
+                            "ask once", "personal GitHub username", "NOT prepared"):
+            assert instruction not in projected
+        message = hint(client, event, projected)
+        if message:
+            assert store.native_context(client, native)["context_file"] in message
+            assert "workspace is prepared" not in message
+    context = store.native_context(client, native)
+    assert bool(context["session"].get("github_identity")) == confirmed_identity
+    assert not (root / ".vaws-local/tasks").exists()
+
+
+def test_prepared_facts_do_not_require_personal_identity(project, monkeypatch):
     root, target, store, receipt = project
     (root / ".vaws-local/github.json").unlink()
     monkeypatch.delenv("VAWS_GITHUB_IDENTITY_FILE")
@@ -166,9 +198,11 @@ def test_missing_identity_does_not_claim_prepared(project, monkeypatch):
     task_record(root, context, target, receipt)
     result = hints.project_output("claude", payload("claude", "SessionStart", "first-use", root),
                                   '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"native context"}}', root=root)
-    assert "first-use setup is incomplete" in result
-    assert "ask once" in result and "already supplied" in result
-    assert "workspace is prepared" not in result and "First repository action" not in result
+    assert "first-use setup" not in result and "ask once" not in result
+    message = hint("claude", "SessionStart", result)
+    assert "workspace is prepared: W=" + str(target) in message
+    assert receipt["key"] in message and "native context" in message
+    assert "First repository action" not in result
 
 
 @pytest.mark.parametrize("case", ["foreign", "outside", "missing-id", "pretool", "kimi-extension"])

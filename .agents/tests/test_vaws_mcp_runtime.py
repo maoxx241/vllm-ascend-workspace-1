@@ -101,7 +101,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_persistent_provider_uses_each_tasks_fixed_runtime(self):
         provider = runtime.Provider("knowledge", self.root)
         contexts = {"first": {"id": "old"}, "second": {"id": "new"}}
-        def choose(root, context=None, *, catalog=False):
+        def choose(root, context=None, *, catalog=False, require_prepared=True):
             return self.selections[context["id"] if context else "new"]
         try:
             with patch.object(runtime, "caller_context", side_effect=lambda args, meta, **kw: contexts[args["context_file"]]), \
@@ -139,8 +139,11 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             try:
                 with patch.object(runtime, "selection", return_value=self.selections["new"]):
                     tools = await provider.list_tools()
-                self.assertIn("context_file", tools[0].inputSchema["required"])
-                self.assertIn("native hook", tools[0].inputSchema["properties"]["context_file"]["description"])
+                if kind == "task":
+                    self.assertIn("context_file", tools[0].inputSchema["required"])
+                    self.assertIn("native hook", tools[0].inputSchema["properties"]["context_file"]["description"])
+                else:
+                    self.assertNotIn("context_file", tools[0].inputSchema.get("required", []))
             finally:
                 await provider.close()
 
@@ -156,13 +159,25 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await provider.close()
 
-    async def test_companion_without_context_does_not_start_mother_runtime(self):
-        for kind in ("knowledge", "remote", "task"):
+    async def test_task_without_context_does_not_start_a_runtime(self):
+        for kind in ("task",):
             provider = runtime.Provider(kind, self.root)
             with patch.object(runtime, "caller_context", return_value=None):
                 with self.assertRaisesRegex(ValueError, "No native task context"):
                     await provider.call_tool("unused", {})
             self.assertEqual(provider.backends, {})
+
+    async def test_explicit_companion_works_without_task_preparation(self):
+        for kind in ("knowledge", "remote"):
+            provider = runtime.Provider(kind, self.root)
+            try:
+                with patch.object(runtime, "caller_context", return_value=None), \
+                     patch.object(runtime, "selection", return_value=self.selections["new"]) as select:
+                    result = await provider.call_tool("read", {"host": "fixture", "container": "repro"})
+                select.assert_called_once_with(self.root, None, require_prepared=False)
+                self.assertEqual(result.structuredContent["arguments"], {"host": "fixture", "container": "repro"})
+            finally:
+                await provider.close()
 
     async def test_long_call_keeps_status_and_stop_concurrent_and_cancellation_reaches_exact_request(self):
         provider = runtime.Provider("remote", self.root)
@@ -259,6 +274,10 @@ class SelectionTests(unittest.TestCase):
             self.assertIsNone(runtime.caller_context({}, {}))
             load.assert_not_called()
 
+    def test_no_identity_does_not_open_registry(self):
+        with patch("vaws_coordinator.agent_session.AgentSessions", side_effect=AssertionError("registry opened")):
+            self.assertIsNone(runtime.caller_context({}, {}))
+
     def test_task_receipt_wins_over_latest_catalog(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -274,6 +293,20 @@ class SelectionTests(unittest.TestCase):
             with patch.object(runtime, "read_receipt", side_effect=lambda key: {"key": key, "python": sys.executable, "receipt": key}):
                 self.assertEqual(runtime.selection(root, context).workspace, old.resolve())
                 self.assertEqual(runtime.selection(root, catalog=True).workspace, new.resolve())
+
+    def test_direct_companion_uses_configured_selection_without_git_or_latest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            latest = root / ".vaws-local/latest-runtime.json"
+            latest.parent.mkdir()
+            latest.write_text("not a valid catalog")
+            saved = {"key": "configured", "python": sys.executable, "receipt": "configured-receipt"}
+            with patch.object(runtime, "saved_ready", return_value=saved) as ready, \
+                 patch.object(runtime, "shared_workspace_root", side_effect=AssertionError("unneeded Git discovery")):
+                selected = runtime.selection(root, require_prepared=False)
+            self.assertEqual(selected.workspace, root)
+            self.assertEqual(selected.key, "configured")
+            ready.assert_called_once_with(root)
 
     def test_only_prepared_linked_worktree_can_supply_a_missing_task_receipt(self):
         from vaws_workspace_update import git
@@ -294,6 +327,8 @@ class SelectionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "no prepared workspace"):
                     runtime.selection(root, context)
                 ready.assert_not_called()
+                self.assertEqual(runtime.selection(root, context, require_prepared=False).workspace, root.resolve())
+                ready.reset_mock()
                 context["attachment"]["cwd"] = str(worktree)
                 with self.assertRaisesRegex(ValueError, "no prepared workspace"):
                     runtime.selection(root, context)

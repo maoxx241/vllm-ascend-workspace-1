@@ -30,6 +30,8 @@ def test_all_clients_share_one_agents_block_and_resume_contract(tmp_path):
         assert text.endswith(original)
         assert text.count(BEGIN) == text.count(END) == 1
         assert "command checks saved initialization itself" in text
+        assert "For local PR review or an explicit remote endpoint" in text
+        assert "No startup command, identity setup or knowledge lookup is required" in text
         assert "no configuration inspection is needed beforehand" in text
         assert ".agents/scripts/vaws_start.py --client CLIENT" in text
         assert "--context-file PATH" in text

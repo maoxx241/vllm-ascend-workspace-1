@@ -405,3 +405,51 @@ def test_concurrent_first_policy_writes_share_one_workspace_identity(setup, monk
     assert enabled["workspace_id"] == disabled["workspace_id"]
     assert enabled["revision"] != disabled["revision"]
     assert community.read_choice(root) == disabled
+
+
+def test_delayed_disable_skips_a_newer_enabled_choice(setup):
+    root, *_ = setup
+    community.write_choice(root, "disabled")
+    community.write_choice(root, "enabled")
+    config = root / ".vaws-local/knowledge/service.json"
+    config.parent.mkdir()
+    config.write_text('{"publishing":{"enabled":true},"custom":"keep"}')
+    before = config.read_bytes()
+    assert community.disable_knowledge(root) == {"state": "unchanged", "reason": "community_enabled"}
+    assert config.read_bytes() == before
+
+
+def test_disable_config_write_cannot_complete_after_new_enabled_configuration(setup, monkeypatch):
+    import vaws_session_state
+    root, *_ = setup
+    community.write_choice(root, "disabled")
+    config = root / ".vaws-local/knowledge/service.json"
+    config.parent.mkdir()
+    config.write_text('{"publishing":{"enabled":true},"custom":"keep"}')
+    writing, release, enable_started = threading.Event(), threading.Event(), threading.Event()
+    original = vaws_session_state.write_json
+    def blocked_write(path, value):
+        if Path(path) == config and value["publishing"]["enabled"] is False:
+            writing.set()
+            assert release.wait(5)
+        return original(path, value)
+    def enable():
+        enable_started.set()
+        community.write_choice(root, "enabled")
+        original(config, {"publishing": {"enabled": True}, "custom": "keep"})
+    monkeypatch.setattr(vaws_session_state, "write_json", blocked_write)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        off = pool.submit(community.disable_knowledge, root)
+        try:
+            assert writing.wait(3)
+            on = pool.submit(enable)
+            assert enable_started.wait(3)
+            time.sleep(.1)
+            assert community.read_choice(root)["decision"] == "disabled"
+            assert not on.done(), "new enable bypassed the in-flight local config write"
+        finally:
+            release.set()
+        assert off.result(timeout=3)["state"] == "disabled"
+        on.result(timeout=3)
+    assert community.read_choice(root)["decision"] == "enabled"
+    assert json.loads(config.read_text()) == {"publishing": {"enabled": True}, "custom": "keep"}

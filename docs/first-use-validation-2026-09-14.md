@@ -165,6 +165,10 @@ revokes consent: the switch returns without waiting for installation, and the
 older initializer cannot restore enabled consent after it resumes. Concurrent
 first choices retain one workspace identity. A missing policy requires an
 explicit new choice instead of recovering authorization from setup history.
+The reverse interleaving is covered too: a delayed local disable cannot overwrite
+a newer enabled knowledge configuration or leave a false ready setup record.
+The local configuration update shares the short policy lock; no network work
+holds that lock. Upload checks still read the live consent independently.
 
 The final native fixture's copied Codex/GitHub authentication caches were removed,
 as were copies from both failed earlier candidates. All three owned test process

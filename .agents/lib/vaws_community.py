@@ -91,13 +91,21 @@ def community_environment(root: Path, base: dict | None = None) -> dict:
 def disable_knowledge(root: Path) -> dict:
     """Disable the selected workspace's publishing before optional setup work."""
     from vaws_session_state import write_json
-    path = policy_path(root).parent / "knowledge/service.json"
-    if not path.exists():
-        return {"state": "disabled", "configured": False}
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or not isinstance(payload.get("publishing", {}), dict):
-        raise ValueError("Knowledge configuration is invalid; repair its contribution configuration")
-    publishing = payload.setdefault("publishing", {})
-    publishing.update(enabled=False, consent_file=str(policy_path(root)))
-    write_json(path, payload)
-    return {"state": "disabled", "configured": True}
+    from vaws_workspace_update import path_lock
+    policy = policy_path(root)
+    # A delayed off operation cannot overwrite a newer enabled configuration.
+    # Hold only the local policy/config read and write, never owner setup.
+    with path_lock(policy.with_suffix(".lock"), wait_seconds=5):
+        choice = read_policy_file(policy)
+        if choice is not None and choice["decision"] == "enabled":
+            return {"state": "unchanged", "reason": "community_enabled"}
+        path = policy.parent / "knowledge/service.json"
+        if not path.exists():
+            return {"state": "disabled", "configured": False}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or not isinstance(payload.get("publishing", {}), dict):
+            raise ValueError("Knowledge configuration is invalid; repair its contribution configuration")
+        publishing = payload.setdefault("publishing", {})
+        publishing.update(enabled=False, consent_file=str(policy))
+        write_json(path, payload)
+        return {"state": "disabled", "configured": True}

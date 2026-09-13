@@ -213,6 +213,11 @@ def github_git_environment(environment: dict | None = None) -> dict:
     environment["GIT_TERMINAL_PROMPT"] = "0"
     if not any(environment.get(name) for name in ("GH_TOKEN", "GITHUB_TOKEN")):
         return environment
+    # Git tracing can dump arbitrary environment variables and bypass the
+    # product redactor. Explicit credentials must not enter those trace sinks.
+    for key in tuple(environment):
+        if key.upper().startswith("GIT_TRACE") or key.upper() == "GIT_CURL_VERBOSE":
+            environment.pop(key)
     try:
         count = int(environment.get("GIT_CONFIG_COUNT", "0"))
     except ValueError:

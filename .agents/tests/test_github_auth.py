@@ -226,3 +226,16 @@ def test_git_environment_preserves_existing_process_configuration_and_no_token_i
     assert result["GIT_CONFIG_COUNT"] == "3"
     assert result["GIT_CONFIG_KEY_0"] == "core.longpaths" and result["GIT_CONFIG_VALUE_0"] == "true"
     assert result["GIT_CONFIG_KEY_1"] == "credential.https://github.com.helper" and result["GIT_CONFIG_VALUE_1"] == ""
+
+
+def test_actual_git_cannot_dump_token_into_inherited_trace_sink(tmp_path, monkeypatch):
+    secret = "private-trace-regression-fixture"
+    trace = tmp_path / "trace.json"
+    monkeypatch.setenv("GH_TOKEN", secret)
+    monkeypatch.setenv("GIT_TRACE2_EVENT", str(trace))
+    monkeypatch.setenv("GIT_TRACE2_ENV_VARS", "GH_TOKEN")
+    monkeypatch.setenv("GIT_CURL_VERBOSE", "1")
+    result = github.git(tmp_path, "version")
+    assert result.returncode == 0
+    assert not trace.exists()
+    assert secret not in result.stdout + result.stderr

@@ -159,7 +159,7 @@ the old component and install the new version with fresh worker state. Enable th
 for the installation using the desired GitHub identity and explicit log roots:
 
 The owner supervises a user service on Linux (systemd), Windows (Task Scheduler)
-and macOS (launchd). `service status`, `start` and `remove` operate on the owned
+and macOS (launchd). `service status` and `remove` operate on the owned
 installation. Token authentication may be stored with `--save-token` in the
 owner's protected credential file; tokens never go in the service command.
 Normal onboarding installs only the local reporter. A maintainer may install a

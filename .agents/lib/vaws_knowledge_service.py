@@ -159,12 +159,12 @@ def _run_knowledge(repo_root: Path, arguments: Sequence[str], *, receipt: dict |
         command = [executable, *arguments]
         completed = subprocess.run(
             command, cwd=str(repo_root), env=environment,
-            stdout=subprocess.PIPE, stderr=sys.stderr, text=True, encoding="utf-8", check=False,
+            stdout=subprocess.PIPE, stderr=sys.stderr, text=True, encoding="utf-8", check=False, timeout=900,
         )
         payload = json.loads(completed.stdout)
         if not isinstance(payload, dict):
             raise ValueError("knowledge command returned no JSON object")
-    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+    except (OSError, ValueError, TypeError, RuntimeError, subprocess.TimeoutExpired) as exc:
         return 1, {"status": "pending", "ready": False, "reason": str(exc)}
     return completed.returncode, payload
 

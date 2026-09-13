@@ -73,11 +73,12 @@ def run_json(command: list[str], root: Path, environment: dict) -> dict:
 
 
 def configure_knowledge(root: Path, decision: str, login: str, *, receipt: dict | None = None) -> dict:
+    if decision == "disabled":
+        disable_knowledge(root)
+        return {"state": "disabled", "local_reference": True, "owner_prepared": False}
     from vaws_knowledge_service import knowledge_config_path, knowledge_owner_path, run_knowledge_cli, _run_knowledge
     command = ["publishing", "configure", "--config", knowledge_owner_path(root, knowledge_config_path(root)),
                "--consent-file", knowledge_owner_path(root, policy_path(root)), "--github-user", login]
-    if decision == "disabled":
-        command.append("--read-only")
     code, result = (_run_knowledge(root, ["-m", "vaws_knowledge", *command], receipt=receipt) if receipt else
                     run_knowledge_cli(root, command))
     if code:

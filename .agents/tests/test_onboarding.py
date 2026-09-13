@@ -208,3 +208,19 @@ def test_dependency_change_reconfigures_consumers_without_repeating_github_choic
     calls.clear()
     assert initialize(setup)["reused"] is True
     assert calls == []
+
+
+def test_disabled_knowledge_does_not_prepare_or_launch_an_owner(tmp_path, monkeypatch):
+    import vaws_local_state
+    import vaws_knowledge_service
+    monkeypatch.setattr(vaws_local_state, "shared_workspace_root", lambda root: Path(root))
+    monkeypatch.setattr(vaws_knowledge_service, "_run_knowledge", lambda *a, **k: pytest.fail("unneeded owner launch"))
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: pytest.fail("unneeded owner preparation"))
+    result = onboarding.configure_knowledge(tmp_path, "disabled", "alice")
+    assert result["owner_prepared"] is False
+    config = tmp_path / ".vaws-local/knowledge/service.json"
+    assert not config.exists()
+    config.parent.mkdir(parents=True)
+    config.write_text('{"publishing":{"enabled":true}}')
+    onboarding.configure_knowledge(tmp_path, "disabled", "alice")
+    assert json.loads(config.read_text())["publishing"]["enabled"] is False

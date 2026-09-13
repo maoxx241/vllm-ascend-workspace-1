@@ -12,7 +12,8 @@ General model, debugging and infrastructure notes belong to the canonical
 with their sources, conditions and uncertainty retained. Shared releases supply
 these references; the consumer keeps tool instructions, runtime contracts and
 engineering validation. `.agents/knowledge/` is an optional project-specific
-mount, not a second domain library. It may be absent or empty. Existing custom
+mount, not a second domain library. Its placeholder ignores local note content;
+it may be absent or empty. Existing custom
 mounts, intake output and candidate storage remain supported.
 
 ## Available capabilities

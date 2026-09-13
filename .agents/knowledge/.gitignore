@@ -1,0 +1,4 @@
+# Optional local project notes. Maintain reusable domain notes in
+# https://github.com/vllm-ascend-workspace/vaws-knowledge-corpus instead.
+*
+!.gitignore

@@ -35,10 +35,10 @@ The workspace owns project materials, client wiring and business skills. `remote
 
 ## Business skills
 
+First-use setup follows the one-time [repo-init reference](.agents/bootstrap/repo-init/SKILL.md); local monitor lifecycle uses [monitor commands](docs/npu-fleet-monitor.md). Neither participates in automatic business Skill discovery.
+
 | Skill                  | Purpose                                                                                      | When to use                                                |
 | ---------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **repo-init**          | Install GitHub CLI, authenticate, initialize submodules, install locked platform dependencies, configure forks and remote topology | After first clone                                          |
-| **npu-fleet-monitor**  | Start, inspect, or stop the local NPU dashboard using the published vaws-top package | When continuously monitoring fleet resources and history |
 | **modelscope**       | Download, resume, status-check, and SHA256-verify ModelScope model weights                  | When model weights need to be downloaded into an explicit local directory |
 | **vllm-ascend-serving** | Launch a vLLM Ascend inference service on a remote container, through coordinator-owned execution | When you need an inference service on a remote machine |
 | **vllm-ascend-benchmark** | Run `vllm bench serve` performance benchmarks on a remote container, with multi-run warmup and statistical aggregation | When measuring throughput/latency; use performance-regression for code comparisons |
@@ -47,7 +47,7 @@ The workspace owns project materials, client wiring and business skills. `remote
 | **ascend-profiling-analysis** | Analyze collected profiler roots/manifests and generate step/layer/operator/cross-rank reports | When you need to analyze profiling output |
 | **vllm-ascend-graph-debug** | Diagnose graph compile, capture, replay, and graph/eager correctness divergence | When graph mode fails or diverges from eager mode |
 | **vllm-ascend-correctness-validation** | Compare baseline/candidate, eager/graph, offline/online, and AISBench correctness | When validating accuracy or normalized outputs |
-| **vllm-ascend-change-validation** | Consolidate experimental validation evidence against a code diff | For experimental validation or formal reports; ordinary PR reading/review uses native tools |
+| **vllm-ascend-change-validation** | Consolidate experimental validation evidence against a code diff | When explicitly consolidating validation evidence or producing a formal report |
 | **vllm-ascend-performance-regression** | Run alternating A/B experiments and assess variance and regression thresholds | When deciding whether throughput or latency regressed |
 | **vllm-ascend-distributed-debug** | Diagnose topology, endpoint, collective, and per-rank distributed failures | When a failure depends on ranks, nodes, or parallel topology |
 | **ascend-tensor-dump** | Capture bounded intermediate tensor dumps and locate the first divergent stage, in eager or graph mode | When output is wrong or two configurations disagree and the divergence must be localized |
@@ -55,7 +55,7 @@ The workspace owns project materials, client wiring and business skills. `remote
 | **ascend-triton-operator-development** | Produce a first correct Ascend Triton candidate from PyTorch or GPU Triton semantics | When creating or migrating a Triton operator |
 | **ascend-triton-kernel-validation** | Detect PyTorch fallback and execute an explicit correctness matrix | When validating an Ascend Triton candidate |
 | **ascend-triton-kernel-optimization** | Optimize the selected kernel using correctness and profiler evidence | When tuning a correct Ascend Triton kernel |
-| **ascend-triton-workflow** | Orchestrate development, validation, optimization, and Run Manifest evidence | When delivering an end-to-end Triton operator workflow |
+| **ascend-triton-workflow** | Consolidate existing Triton stage evidence and check its associations | When a stage summary report is requested |
 | **vllm-ascend-pd-serving** | Start and observe one prefill/decode topology with HTTP smoke checks | When deploying disaggregated PD serving |
 
 Skill selection follows the task. Detailed inputs and procedures live beside the relevant `SKILL.md`; ordinary local files and Git use native tools. [AGENTS.md](AGENTS.md) is the client entry and [the documentation index](docs/README.md) separates current contracts from dated evidence.

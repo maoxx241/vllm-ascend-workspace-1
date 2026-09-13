@@ -168,7 +168,32 @@ def test_missing_identity_does_not_claim_prepared(project, monkeypatch):
                                   '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"native context"}}', root=root)
     assert "first-use setup is incomplete" in result
     assert "ask once" in result and "already supplied" in result
+    assert str(root / ".agents/bootstrap/repo-init/SKILL.md") in result
     assert "workspace is prepared" not in result and "First repository action" not in result
+
+
+def test_old_unbound_task_with_saved_identity_does_not_trigger_initialization(project):
+    root, _, store, _ = project
+    context = store.attach("claude", "pre-setup-task", str(root))
+    context["session"].pop("github_identity", None)
+    result = hints.preparation_hint(root, "claude", context)
+    assert context["context_file"] in result
+    assert "repository identity is configured" in result
+    assert "repo-init" not in result and "ask once" not in result
+    assert not (root / ".vaws-local/updates/onboarding-notice.json").exists()
+
+
+def test_missing_established_identity_in_linked_worktree_reports_existing_evidence(project):
+    root, target, store, _ = project
+    context = store.attach("claude", "established-task", str(target))
+    context["session"].pop("github_identity", None)
+    (root / ".vaws-local/github.json").unlink()
+    record = root / ".vaws-local/client-initialization.json"
+    record.write_text('{"clients":{}}')
+    result = hints.preparation_hint(target, "claude", context)
+    assert "identity_missing" in result and str(record) in result
+    assert "repo-init" not in result and "ask once" not in result
+    assert not (root / ".vaws-local/updates/onboarding-notice.json").exists()
 
 
 @pytest.mark.parametrize("case", ["foreign", "outside", "missing-id", "pretool", "kimi-extension"])

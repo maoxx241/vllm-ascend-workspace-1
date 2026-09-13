@@ -304,15 +304,17 @@ class ClientSetupTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def is_claude_session_command(self, command):
+        from vaws_local_state import shared_workspace_root
         return self.setup.hook_argv(command)[:3] == [
-            sys.executable, str(ROOT / ".agents/scripts/vaws_claude_entry.py"), "session",
+            sys.executable, str(shared_workspace_root(ROOT) / ".agents/scripts/vaws_claude_entry.py"), "session",
         ]
 
     def test_fresh_json_emits_both_launchers(self) -> None:
         files = self.setup.configuration("claude", self.project)
         servers = json.loads(files[self.project / ".mcp.json"])["mcpServers"]
         self.assertEqual(set(servers), {"remote-dev", "vaws-task", "vaws-knowledge"})
-        entry = str(ROOT / ".agents/scripts/vaws_claude_entry.py")
+        from vaws_local_state import shared_workspace_root
+        entry = str(shared_workspace_root(ROOT) / ".agents/scripts/vaws_claude_entry.py")
         self.assertEqual(servers["remote-dev"]["args"], [entry, "remote"])
         self.assertEqual(servers["vaws-task"]["args"], [entry, "task"])
         self.assertNotIn("VAWS_ENV_RECEIPT", servers["vaws-task"]["env"])
@@ -474,7 +476,7 @@ class ClientSetupTests(unittest.TestCase):
         self.assertEqual(data["mcp_servers"]["remote_dev"]["args"], ["user-argument"])
         self.assertEqual(data["mcp_servers"]["other"], {"command": "other-command"})
         self.assertEqual(data["mcp_servers"]["vaws_task"]["args"],
-                         [str(self.setup.ROOT / ".agents/scripts/vaws_native_mcp.py"), "task"])
+                         [str(self.setup.configuration_root(self.project) / ".agents/scripts/vaws_native_mcp.py"), "task"])
         config.write_text(files[config])
         self.assertNotIn(config, self.setup.configuration("codex", self.project))
 

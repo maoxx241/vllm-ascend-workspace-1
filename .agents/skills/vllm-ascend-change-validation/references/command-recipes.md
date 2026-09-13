@@ -1,4 +1,4 @@
-# Agent call
+# Report options
 
 From the repository root:
 
@@ -11,4 +11,6 @@ artifact availability and observed source matches. The Agent assesses whether
 that evidence covers the changed behavior; no automatic required test plan is generated.
 
 Use `--help` for argument details. Reports create their own identifiers and
-output directories; reuse existing observed inputs rather than creating task records.
+output directories; `--output-dir` selects a destination when needed. Summarize
+the supplied evidence without adding task records or new experiments solely to
+change the aggregate report status.

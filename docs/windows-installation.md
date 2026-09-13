@@ -67,7 +67,7 @@ copy a prepared virtual environment as the installation: recreate it from the lo
 bundle does not include model weights, remote containers, shared knowledge
 Release downloads or the separate vaws-top service. Those have their own
 preparation and storage requirements. Native client configuration belongs to
-the destination machine; see [repo-init](../.agents/skills/repo-init/SKILL.md).
+the destination machine; see [repo-init](../.agents/bootstrap/repo-init/SKILL.md).
 
 ## Recreate the environment offline
 

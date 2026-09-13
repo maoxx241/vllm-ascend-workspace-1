@@ -12,6 +12,8 @@ import shlex
 import subprocess
 
 from vaws_mcp_runtime import selection
+from vaws_local_state import shared_workspace_root
+from vaws_workspace_entry import FIRST_USE_REFERENCE, workspace_entry
 
 
 def hint_event(payload: object) -> bool:
@@ -42,10 +44,20 @@ def existing_context(client: str, payload: dict) -> dict:
 
 def preparation_hint(root: Path, client: str, context: dict) -> str:
     if not context["session"].get("github_identity"):
-        return ("VAWS first-use setup is incomplete: no confirmed GitHub identity is bound. "
-                "Follow AGENTS.md first-use setup: ask once for the personal GitHub username "
-                "unless it was already supplied, then reuse that answer. "
-                "No prepared editing workspace or component runtime is confirmed.")
+        owner = shared_workspace_root(root)
+        setup = workspace_entry(owner, announce=False)
+        if setup["state"] in {"identity_pending", "needs_github_user"}:
+            return ("VAWS first-use setup is incomplete: no confirmed GitHub identity is bound. "
+                    f"Read {owner / FIRST_USE_REFERENCE} for this repository's one-time initialization; "
+                    "ask once for the personal GitHub username unless it was already supplied, then reuse that answer. "
+                    "No prepared editing workspace or component runtime is confirmed.")
+        if setup["state"] in {"configured", "disabled"}:
+            return ("VAWS repository identity is configured, but this native task has no bound GitHub identity. "
+                    f"Context: {context['context_file']}. Start a new native session to bind the saved identity; "
+                    "do not rerun repository initialization. The existing task was left unchanged.")
+        return ("VAWS native task has no bound GitHub identity. "
+                f"Saved repository state: {json.dumps(setup, ensure_ascii=False)}. "
+                "Repair the reported state using the existing confirmation; do not restart first-use initialization.")
     try:
         selected = selection(root, context)
     except ValueError as exc:

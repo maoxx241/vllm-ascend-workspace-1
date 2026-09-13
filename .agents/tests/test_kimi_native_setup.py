@@ -92,7 +92,8 @@ def test_native_extension_requires_explicit_opt_in_on_each_configuration_run(tmp
     assert hooks[0]["event"] == "SessionSetup"
     assert hooks[0]["timeout"] <= 600
     expected = ["uv", "run", "--no-project", "python",
-                str(ROOT / ".agents/scripts/vaws_kimi_session_setup.py"), "--project", str(project)]
+                str(Path(extended["configuration_owner"]) / ".agents/scripts/vaws_kimi_session_setup.py"),
+                "--project", str(project)]
     assert all(client_setup.hook_argv(hook["command"]) == expected for hook in hooks)
     config.write_text(text)
     repaired = client_setup.build_plan("kimi", project, kimi_config=config, task_only=True)
@@ -101,7 +102,7 @@ def test_native_extension_requires_explicit_opt_in_on_each_configuration_run(tmp
     assert {hook["event"] for hook in repaired_hooks} == set(client_setup.EVENTS) - {"PreToolUse"}
     for hook in repaired_hooks:
         argv = client_setup.hook_argv(hook["command"])
-        assert Path(argv[1]) == ROOT / ".agents/hooks/vaws_session.py"
+        assert Path(argv[1]) == Path(repaired["configuration_owner"]) / ".agents/hooks/vaws_session.py"
         assert argv[argv.index("--client") + 1] == "kimi"
         assert argv[argv.index("--project") + 1] == str(project)
     assert client_setup.tomllib.loads(repaired["files"][config])["provider"] == {"name": "kept"}
@@ -111,7 +112,7 @@ def test_native_extension_requires_explicit_opt_in_on_each_configuration_run(tmp
     separate_hooks = client_setup.tomllib.loads(separate["files"][config])["hooks"]
     assert sum(hook["event"] == "SessionSetup" for hook in separate_hooks) == 1
     separate_argv = client_setup.hook_argv(separate_hooks[-1]["command"])
-    assert Path(separate_argv[1]) == ROOT / ".agents/hooks/vaws_session.py"
+    assert Path(separate_argv[1]) == Path(separate["configuration_owner"]) / ".agents/hooks/vaws_session.py"
     assert separate_argv[separate_argv.index("--project") + 1] == str(other)
     assert client_setup.tomllib.loads(separate["files"][config])["provider"] == {"name": "kept"}
     config.write_text(repaired["files"][config])
@@ -126,10 +127,11 @@ def test_native_extension_requires_explicit_opt_in_on_each_configuration_run(tmp
 def test_user_mcp_moves_only_managed_providers_and_keeps_user_configuration(tmp_path, monkeypatch, extended):
     receipt = selected_runtime(monkeypatch, client_setup, tmp_path)
     monkeypatch.setattr(vaws_kimi_config, "managed_receipt", lambda root: receipt)
-    managed_task = client_setup.desired_mcp_servers(task_only=True)["vaws-task"]
+    project = repo(tmp_path / "project")
+    with client_setup.configuration_owner(project):
+        managed_task = client_setup.desired_mcp_servers(task_only=True)["vaws-task"]
     monkeypatch.setattr(client_setup, "owned_environment_server",
                         lambda entry, project: entry.get("args") == managed_task["args"])
-    project = repo(tmp_path / "project")
     home = tmp_path / "home"
     home.mkdir()
     config = home / "config.toml"
@@ -139,7 +141,7 @@ def test_user_mcp_moves_only_managed_providers_and_keeps_user_configuration(tmp_
     value = json.loads(plan["files"][home / "mcp.json"])
     assert value["custom"] == "keep"
     assert value["mcpServers"]["another"] == original["mcpServers"]["another"]
-    assert value["mcpServers"]["vaws-task"]["args"] == [str(ROOT / ".agents/scripts/vaws_native_mcp.py"), "task"]
+    assert value["mcpServers"]["vaws-task"]["args"] == managed_task["args"]
     assert provider.PIN_ENV not in value["mcpServers"]["vaws-task"]["env"]
     assert "vaws-task" not in json.loads(plan["files"][project / ".kimi-code/mcp.json"])["mcpServers"]
     custom = {"mcpServers": {"vaws-task": {"command": "my-own-server", "custom": True}}}

@@ -1,4 +1,4 @@
-# Agent call
+# Optional report inputs
 
 From the repository root:
 
@@ -6,7 +6,13 @@ From the repository root:
 uv run --no-project python .agents/skills/ascend-triton-workflow/scripts/triton_workflow.py --config operator.json --development development/manifest.json --validation validation/manifest.json --optimization optimization/manifest.json
 ```
 
-The config contains op_name, source, target, cases and required_stages. One report call verifies stage scope, actual artifacts, passing cases and kernel identity. Missing or unrelated evidence cannot complete the workflow. Stage identifiers and linking are internal.
+Supply the manifests relevant to the configured report scope using
+`--development`, `--validation` and `--optimization`. The config's
+`required_stages` determines which missing inputs are reported; an optimization
+report scope also includes validation so measurements can be related to
+correctness evidence. Reuse that existing evidence. The tool checks scope,
+available artifacts, passing cases and kernel identity without launching stages.
 
 Use `--help` for argument details. Reports create their own identifiers and
-output directories; reuse existing observed inputs rather than creating task records.
+output directories; `--output-dir` selects a destination when needed. Existing
+observed inputs are sufficient; no parent task association is required.

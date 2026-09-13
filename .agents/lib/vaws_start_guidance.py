@@ -14,24 +14,23 @@ END = "<!-- END VAWS session-start -->"
 
 def guidance(client: str | None = None) -> str:
     name = client or "CLIENT"
-    selection = (" Replace CLIENT with your native client: codex, cursor, claude, grok or kimi."
+    selection = (" CLIENT is codex, cursor, claude, grok or kimi."
                  if client is None else "")
+    kimi = (
+        " Official Kimi also passes `context_file` to the task, remote-dev and knowledge MCP tools."
+        if client in (None, "kimi") else ""
+    )
     return (
-        "For a new native session, make the first repository action "
+        "Reuse a prepared workspace W and environment supplied by the native hook. "
+        "Otherwise, make a new session's first repository action "
         f"`uv run --no-project python .agents/scripts/vaws_start.py --client {name}`."
-        + selection + " Add `--context-file PATH` when the native hook supplied that context "
-        "and the command cannot obtain it from the client environment (official Kimi needs it). "
-        "The command checks saved initialization itself and reports missing first-use setup; "
-        "no configuration inspection is needed beforehand. If the native hook explicitly "
-        "reports a prepared workspace W and selected environment, use them directly.\n\n"
-        "Use the returned `workspace` as W: shell tools use W as cwd (or `cd W && ...`), "
-        "and file, search and patch tools use absolute paths under W. Sources and the selected "
-        "environment are already bound; do not repeat session setup. Official Kimi calls to "
-        "the task, remote-dev and knowledge MCP providers also carry the returned `context_file`. "
-        "Other clients receive context through hooks; if a tool reports missing context, pass "
-        "the existing `context_file`. Use configured knowledge tools when useful.\n\n"
-        "Resume keeps the earlier W, task and environment; do not prepare, update or create "
-        "another directory. Client UI/default cwd can remain at the original project.\n"
+        + selection + " It checks initialization; follow its result without a separate probe. "
+        "Pass `--context-file PATH` when the hook supplies context outside the client environment.\n\n"
+        "Use the returned `workspace` as W for every shell call and absolute paths under W "
+        "for file, search and patch tools, even if the client UI shows the original project. "
+        "Sources and environment are already bound. If a tool needs context, pass the existing "
+        "`context_file`." + kimi + "\n\n"
+        "Resume reuses the earlier W, task and environment without preparation or updates.\n"
     )
 
 

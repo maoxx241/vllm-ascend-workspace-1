@@ -1,5 +1,4 @@
 interface:
-  display_name: Ascend Triton Workflow
-  short_description: Orchestrate traceable Ascend Triton operator development
-  default_prompt: Use $ascend-triton-workflow to carry an operator through development,
-    validation and optimization when the request spans those stages.
+  display_name: "Ascend Triton Evidence Report"
+  short_description: "Summarize existing Triton stage evidence"
+  default_prompt: "Use $ascend-triton-workflow to consolidate the supplied operator stage evidence into a report and explain its coverage."

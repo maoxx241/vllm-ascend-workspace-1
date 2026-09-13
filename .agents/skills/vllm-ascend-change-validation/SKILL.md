@@ -1,19 +1,18 @@
 ---
 name: vllm-ascend-change-validation
-description: Consolidate executed vLLM or vllm-ascend change validation into a report tied to an accessible diff and Run Manifest evidence. Use when asked to validate a change experimentally or produce a formal validation report. Ordinary PR reading, code review, diff explanation, and test suggestions use native code and Git tools.
+description: Produce a vLLM or vllm-ascend validation report from an accessible diff and existing experiment evidence when asked to consolidate results or document their coverage. Ordinary code review, test selection and experimental validation do not require this report.
 ---
 
-# vllm-ascend-change-validation
+# Change validation evidence report
 
-Assess the changed behavior and affected callers, then summarize the evidence
-needed for a reviewable validation conclusion.
+Summarize how supplied validation evidence relates to a code change. The diff
+defines the changed behavior; run manifests identify observed revisions,
+outcomes and artifacts.
 
-Use this workflow when the requested result needs experiment evidence or a
-formal validation report. A request to read or review a PR, explain a change,
-or suggest tests can be completed directly without this workflow. A report
-alone requires no runtime, task allocation or new experiment.
-
-Read the changed behavior and affected callers before choosing tests. Build, numerical, graph, distributed and performance evidence cover different failure modes. Existing evidence is reusable when its observed code states and scope match the diff.
+Build, numerical, graph, distributed and performance evidence cover different
+failure modes. Describe coverage using the observed code states and actual test
+scope, retaining uncertainties that matter to the requested conclusion.
+Producing a report requires no runtime, task allocation or new experiment.
 
 ## Agent entry
 
@@ -35,6 +34,6 @@ evidence covers the actual changed behavior. Missing or unrelated evidence is
 reported as a limitation, without discarding usable artifacts or requiring a
 new parent task association.
 
-Execute missing checks with the owning validation, benchmark, profiling or debug skill; this report does not run an NPU experiment.
-
-Read the relevant detail only when needed:
+An uncovered behavior is a report limitation. Whether it needs another check
+depends on the user's actual objective, not the aggregate status alone.
+See [report options](references/command-recipes.md) for captured diffs and outputs.

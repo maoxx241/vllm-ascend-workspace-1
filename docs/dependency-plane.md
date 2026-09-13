@@ -91,7 +91,7 @@ not a package and is not part of `status` or its exit code.
 stderr. Doctor defaults to a compact projection with a reference to its complete
 Result Envelope v1; `--full` returns the full record. A missing `uvx` degrades
 `fleet_observation`; the remedy is
-`uv run --no-project python .agents/skills/npu-fleet-monitor/scripts/manage_monitor.py deploy`.
+`uv run --no-project python .agents/scripts/manage_monitor.py deploy`.
 
 `sync` is the bootstrap and works before packages are installed. It accepts
 `--locked`, groups/extras, `--python`, cache placement, link mode and offline

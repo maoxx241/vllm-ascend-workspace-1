@@ -140,7 +140,7 @@ class ResolverDegradationTests(unittest.TestCase):
         self.assertEqual(cap["degradation"][0]["remedy"], FLEET_REMEDY)
         self.assertEqual(
             FLEET_REMEDY,
-            "uv run --no-project python .agents/skills/npu-fleet-monitor/scripts/manage_monitor.py deploy",
+            "uv run --no-project python .agents/scripts/manage_monitor.py deploy",
         )
 
     def test_acknowledged_drift_is_empty(self) -> None:

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from contextlib import contextmanager
 import hashlib
 import json
 import ntpath
@@ -45,15 +46,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
 from vaws_venv import ensure_workspace_interpreter
 
-ensure_workspace_interpreter(repo_root=ROOT, use_saved=False)
-
 import tomllib  # noqa: E402
 
 from vaws_coordinator_launch import coordinator_environment
 from vaws_knowledge_service import knowledge_owner_env, knowledge_owner_path, knowledge_owner_python
 from vaws_local_owner import managed_path as _managed_path, managed_python as _managed_python, managed_receipt, windows_interop_env, windows_mounted_workspace, accessible_windows_path
 from vaws_environment import PIN_ENV, native_ready, windows_ready, read_receipt
-from vaws_local_state import agent_sessions_root
+from vaws_local_state import agent_sessions_root, shared_workspace_root
 from vaws_native_task_env import user_task_env
 from vaws_claude_config import provider_kind, wrapped_hook_kind
 from vaws_remote_dev import state_dir
@@ -70,6 +69,31 @@ LEGACY_CONTEXT_MATCHERS = frozenset({TASK_TOOL_MATCHER, r"(?:^|:|__)vaws_(sessio
 COMPANION_TOOL_MATCHER = r"^(?:MCP:)?(?:mcp__)?(?:vaws[-_]knowledge__knowledge_(?:query|explain|capture)|remote[-_]dev__remote_[a-z_]+)$"
 CONTEXT_TOOL_MATCHER = "(?:" + TASK_TOOL_MATCHER + "|" + COMPANION_TOOL_MATCHER + ")"
 CURSOR_CONTEXT_TOOL_MATCHER = "(?:" + CONTEXT_TOOL_MATCHER + r"|^MCP:(?:knowledge_(?:query|explain|capture)|remote_[a-z_]+)$)"
+
+
+def configuration_root(project):
+    """Use the target Git family's stable source, independent of this script copy.
+
+    Other projects can still receive scoped wiring from the installed VAWS
+    source. Git worktrees share their primary checkout's backend entry points.
+    """
+    owner = shared_workspace_root(project)
+    if (owner / ".agents/scripts/vaws_native_mcp.py").is_file():
+        return owner
+    return shared_workspace_root(ROOT)
+
+
+@contextmanager
+def configuration_owner(project):
+    """Bind one owner while the existing synchronous configuration helpers run."""
+    global ROOT, OWNED_HOOK_SCRIPT
+    previous = ROOT, OWNED_HOOK_SCRIPT
+    ROOT = configuration_root(project)
+    OWNED_HOOK_SCRIPT = ROOT / ".agents/hooks/vaws_session.py"
+    try:
+        yield ROOT
+    finally:
+        ROOT, OWNED_HOOK_SCRIPT = previous
 
 
 def remote_dev_server_args():
@@ -98,7 +122,7 @@ def remote_dev_env():
     """Environment the remote-dev MCP server needs; the launcher fills the same defaults."""
     return {
         "REMOTE_DEV_DEFAULT_USER": "root",
-        "REMOTE_DEV_STATE_DIR": str(state_dir()),
+        "REMOTE_DEV_STATE_DIR": str(state_dir(ROOT)),
         PIN_ENV: native_ready(ROOT)["receipt"],
     }
 
@@ -119,7 +143,7 @@ def managed_path(value):
 
 def task_server_env():
     """Environment the task server needs so it shares this workspace's registry."""
-    env = coordinator_environment()
+    env = coordinator_environment(repo_root=ROOT)
     keys = (
         "VAWS_AGENT_SESSIONS_DIR",
         "VAWS_COORDINATOR_STATE_DIR",
@@ -161,7 +185,8 @@ def existing_task_env(client, project, *, kimi_config=None):
 
 def launch_env(client, project, *, kimi_config=None):
     """Setup defaults with existing provider env taking precedence."""
-    return {**task_server_env(), **existing_task_env(client, project, kimi_config=kimi_config)}
+    with configuration_owner(project):
+        return {**task_server_env(), **existing_task_env(client, project, kimi_config=kimi_config)}
 
 
 def desired_mcp_servers(*, task_only=False):
@@ -357,7 +382,16 @@ def owned_hook_script(path, expected=None):
         allowed = {hook_path_identity(OWNED_HOOK_SCRIPT), hook_path_identity(ROOT / ".agents/hooks/knowledge_summary.py")}
         if hook_path_identity(wanted) not in allowed:
             return False
-        return hook_path_identity(path) == hook_path_identity(wanted)
+        if hook_path_identity(path) == hook_path_identity(wanted):
+            return True
+        # A setup run from a linked worktree may have emitted its own source
+        # path earlier. Replace that generated hook instead of adding a second
+        # callback; same-named scripts from another Git family remain untouched.
+        from vaws_claude_config import same_repository
+        candidate = Path(accessible_windows_path(path))
+        return (candidate.name == Path(wanted).name and candidate.parent.name == "hooks"
+                and candidate.parent.parent.name == ".agents"
+                and same_repository(candidate.parents[2], ROOT))
     except OSError:
         return False
 
@@ -378,7 +412,7 @@ def owned_hook_command(command, client, project, expected=None):
 
     Old generated commands (client/project only) and new ones (explicit
     root/registry flags) both match. A same-basename script in another path
-    or worktree does not.
+    repository does not; generated entries from this Git family do.
     """
     try:
         argv = hook_argv(command)
@@ -770,6 +804,14 @@ def configuration(client, project, *, kimi_config=None, task_only=False):
 def build_plan(client, project, *, kimi_config=None, task_only=False, kimi_session_setup=False,
                cursor_global_mcp=False, codex_global_hooks=False):
     project = project.expanduser().resolve(strict=True)
+    with configuration_owner(project):
+        return _build_plan(client, project, kimi_config=kimi_config, task_only=task_only,
+                           kimi_session_setup=kimi_session_setup, cursor_global_mcp=cursor_global_mcp,
+                           codex_global_hooks=codex_global_hooks)
+
+
+def _build_plan(client, project, *, kimi_config=None, task_only=False, kimi_session_setup=False,
+                cursor_global_mcp=False, codex_global_hooks=False):
     env = launch_env(client, project, kimi_config=kimi_config)
     groups = hook_groups(client, project, env)
     # Kimi's adapter reads only the known session's final completed wire step.
@@ -899,7 +941,9 @@ def build_plan(client, project, *, kimi_config=None, task_only=False, kimi_sessi
         "executable_files": executable_files,
         "mcp_servers": {name: entry["args"] for name, entry in servers.items()},
         "notes": notes,
-        "task_registry": str(agent_sessions_root()),
+        "configuration_owner": str(ROOT),
+        "backup_dir": str(ROOT / ".vaws-local/client-setup-backups"),
+        "task_registry": str(agent_sessions_root(ROOT)),
         "launch_argv": kimi_launch_arguments(project, config=kimi_config) if client == "kimi" else None,
         "launch_cwd": str(project),
     }
@@ -920,6 +964,7 @@ def managed_toml_text(original, name, text):
 def apply_plan(plan):
     """Write a reviewed/generated native configuration, retaining private backups."""
     changed = []
+    backup_dir = Path(plan.get("backup_dir", BACKUP_DIR))
     for path, content in plan["files"].items():
         mode = 0o700 if path in plan.get("executable_files", []) else 0o600
         payload = content.encode("utf-8")
@@ -931,8 +976,8 @@ def apply_plan(plan):
         item = {"path": str(path), "sha256": hashlib.sha256(payload).hexdigest()}
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
-            BACKUP_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-            backup = BACKUP_DIR / (hashlib.sha256(str(path).encode()).hexdigest()[:16] + "-" + str(time.time_ns()))
+            backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            backup = backup_dir / (hashlib.sha256(str(path).encode()).hexdigest()[:16] + "-" + str(time.time_ns()))
             backup.write_bytes(path.read_bytes())
             backup.chmod(0o600)
             item["backup"] = str(backup)
@@ -967,8 +1012,10 @@ def setup_installed_clients(args):
             row["notes"] = plan["notes"]
             add_native_mode(plan["files"], plan["notes"], client, args.project)
             if client == "grok":
-                add_grok_import_dedup(plan["files"], plan["notes"], args.project, ROOT,
-                                      owned_server=owned_environment_server)
+                with configuration_owner(args.project):
+                    add_grok_import_dedup(plan["files"], plan["notes"], args.project, ROOT,
+                                          owned_server=owned_environment_server)
+            row["configuration_owner"] = plan.get("configuration_owner", str(configuration_root(args.project)))
             row["mcp_servers"] = plan["mcp_servers"]
             row["launch_argv"], row["launch_cwd"] = plan["launch_argv"], plan["launch_cwd"]
             phase = "apply" if args.apply else "preview"
@@ -1032,6 +1079,9 @@ def main(argv=None):
     )
     parser.add_argument("--apply", action="store_true", help="Write with private backups; default is preview")
     args = parser.parse_args(argv)
+    # Parse the actual configuration target before selecting an interpreter.
+    # Importing the planner must not re-exec a caller in this script's checkout.
+    ensure_workspace_interpreter(repo_root=configuration_root(args.project), use_saved=False)
     if args.client == "all":
         result = setup_installed_clients(args)
         print(json.dumps(result, ensure_ascii=False))
@@ -1051,6 +1101,7 @@ def main(argv=None):
         "notes": plan["notes"],
         "launch_argv": plan["launch_argv"],
         "launch_cwd": plan["launch_cwd"],
+        "configuration_owner": plan.get("configuration_owner", str(configuration_root(args.project))),
         "preserved_servers": [
             note for note in plan["notes"] if note.get("reason") == "existing-named-server"
         ],

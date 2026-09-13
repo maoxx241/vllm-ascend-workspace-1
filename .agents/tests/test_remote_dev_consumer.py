@@ -26,6 +26,7 @@ if str(LIB) not in sys.path:
 
 import vaws_remote_dev as remote_dev  # noqa: E402
 from client_setup_fixtures import selected_runtime
+from vaws_local_state import shared_workspace_root
 
 requires_package = unittest.skipUnless(
     importlib.util.find_spec("remote_dev") is not None,
@@ -99,13 +100,13 @@ class ClientConfigurationTests(unittest.TestCase):
                         entry, task = servers["remote-dev"], servers["vaws-task"]
                     self.assertEqual(entry["command"], sys.executable)
                     if client == "claude":
-                        adapter = str(ROOT / ".agents/scripts/vaws_claude_entry.py")
+                        adapter = str(shared_workspace_root(ROOT) / ".agents/scripts/vaws_claude_entry.py")
                         self.assertEqual(entry["args"], [adapter, "remote"])
                         self.assertEqual(task["args"], [adapter, "task"])
                         self.assertNotIn("VAWS_ENV_RECEIPT", entry["env"])
                         self.assertNotIn("VAWS_ENV_RECEIPT", task["env"])
                     else:
-                        gateway = str(ROOT / ".agents/scripts/vaws_native_mcp.py")
+                        gateway = str(shared_workspace_root(ROOT) / ".agents/scripts/vaws_native_mcp.py")
                         self.assertEqual(entry["args"], [gateway, "remote"])
                         self.assertEqual(task["args"], [gateway, "task"])
                         self.assertEqual(entry["env"]["VAWS_ENV_RECEIPT"], receipt["receipt"])
@@ -123,7 +124,7 @@ class ClientConfigurationTests(unittest.TestCase):
                         self.assertIn("--agent-sessions-dir", arguments)
                         self.assertNotIn("--environment-receipt", arguments)
                     else:
-                        self.assertEqual(Path(arguments[1]), ROOT / ".agents/hooks/vaws_session.py")
+                        self.assertEqual(Path(arguments[1]), shared_workspace_root(ROOT) / ".agents/hooks/vaws_session.py")
                         self.assertEqual(arguments[arguments.index("--client") + 1], client)
                         self.assertEqual(arguments[arguments.index("--environment-receipt") + 1], receipt["receipt"])
 
@@ -136,16 +137,16 @@ class ClientConfigurationTests(unittest.TestCase):
             servers = json.loads(files[project / ".mcp.json"])["mcpServers"]
             mcp = servers["remote-dev"]
             self.assertEqual(set(servers), {"remote-dev", "vaws-task", "vaws-knowledge"})
-            adapter = str(ROOT / ".agents/scripts/vaws_claude_entry.py")
+            adapter = str(shared_workspace_root(ROOT) / ".agents/scripts/vaws_claude_entry.py")
             self.assertEqual(mcp["args"], [adapter, "remote"])
             self.assertEqual(servers["vaws-task"]["args"], [adapter, "task"])
             for key in self.REQUIRED_ENV:
                 self.assertIn(key, mcp["env"])
             codex = tomllib.loads(setup.configuration("codex", project)[project / ".codex/config.toml"])
             self.assertEqual(codex["mcp_servers"]["remote_dev"]["args"],
-                             [str(ROOT / ".agents/scripts/vaws_native_mcp.py"), "remote"])
+                             [str(shared_workspace_root(ROOT) / ".agents/scripts/vaws_native_mcp.py"), "remote"])
             self.assertEqual(codex["mcp_servers"]["vaws_task"]["args"],
-                             [str(ROOT / ".agents/scripts/vaws_native_mcp.py"), "task"])
+                             [str(shared_workspace_root(ROOT) / ".agents/scripts/vaws_native_mcp.py"), "task"])
             self.assertNotIn("REMOTE_DEV_RESOLVERS", codex["mcp_servers"]["remote_dev"]["env"])
         self.assertFalse(str(setup.BACKUP_DIR).startswith(str(ROOT / ".remote-dev")))
         self.assertTrue(str(setup.BACKUP_DIR).startswith(str(ROOT / ".vaws-local")))

@@ -29,16 +29,11 @@ def test_all_clients_share_one_agents_block_and_resume_contract(tmp_path):
         rendered.append(text)
         assert text.endswith(original)
         assert text.count(BEGIN) == text.count(END) == 1
-        assert "command checks saved initialization itself" in text
-        assert "no configuration inspection is needed beforehand" in text
         assert ".agents/scripts/vaws_start.py --client CLIENT" in text
         assert "--context-file PATH" in text
         assert all(name in text for name in CLIENTS)
         assert "Skill" not in text
-        assert "Resume keeps the earlier W, task and environment" in text
-        assert "do not prepare, update or create another directory" in text
         assert "absolute paths under W" in text
-        assert "do not repeat session setup" in text
         assert notes[-1]["skill_required"] is False
         assert notes[-1]["resume"] == "reuse-existing-workspace"
         repeated, _ = plan(tmp_path, client, dict(files))
@@ -75,7 +70,6 @@ def test_cursor_generated_rule_is_always_applied_and_names_cursor(tmp_path):
     assert "\nalwaysApply: true\n" in rule.split("---", 2)[1]
     assert "vaws_start.py --client cursor" in rule
     assert "--client CLIENT" not in rule
-    assert "command checks saved initialization itself" in rule
     assert rule.count(BEGIN) == rule.count(END) == 1
 
 

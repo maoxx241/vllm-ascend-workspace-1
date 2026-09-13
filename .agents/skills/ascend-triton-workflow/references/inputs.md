@@ -1,8 +1,10 @@
-# Business input example
+# Report input example
 
 This is an illustrative configuration shape. Select cases and values for the
-actual task. The tool generates report metadata internally; observed output
-files are produced by the relevant execution or measurement harness.
+requested report. `required_stages` names the coverage to summarize; it does
+not schedule work or impose stages on development. The tool generates report
+metadata internally; observed output files come from the existing execution
+or measurement harness.
 
 ```json
 {

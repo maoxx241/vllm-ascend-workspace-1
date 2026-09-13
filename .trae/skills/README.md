@@ -1,7 +1,7 @@
 # Trae skill entry points
 
-The retained repo-init and serving stubs read their canonical packages under
-`.agents/skills/`. ModelScope is a generated projection of its canonical skill.
+The serving stub reads its canonical package under `.agents/skills/`.
+First-use setup is linked from AGENTS, outside automatic Skill discovery. ModelScope is a generated projection of its canonical skill.
 Use `uv run --no-project python .agents/scripts/sync_claude_skills.py` after editing ModelScope.
 
 Task binding and managed execution use coordinator tools directly. For explicit

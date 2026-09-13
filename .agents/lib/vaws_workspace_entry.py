@@ -11,6 +11,9 @@ from pathlib import Path
 import subprocess
 import time
 
+FIRST_USE_REFERENCE = ".agents/bootstrap/repo-init/SKILL.md"
+MAINTENANCE_REFERENCE = "docs/forks-and-updates.md#显式维护与证据"
+
 
 def copy_workspace_identity(source: Path, target: Path) -> None:
     """Copy a non-secret setup snapshot; never copy task identity or replace it."""
@@ -32,27 +35,37 @@ def workspace_entry(root: Path, *, announce: bool = True) -> dict:
     root = root.resolve()
     state = root / ".vaws-local/updates"
     try:
-        state.mkdir(parents=True, exist_ok=True)
         identity_path = root / ".vaws-local/github.json"
         if not identity_path.is_file():
+            initialized = root / ".vaws-local/client-initialization.json"
+            if initialized.is_file():
+                return {"state": "identity_missing", "path": str(identity_path),
+                        "evidence": str(initialized), "reference": MAINTENANCE_REFERENCE,
+                        "message": "Saved GitHub identity is missing from an initialized repository. "
+                                   "Restore its prior snapshot or inspect workspace_forks.py's plan using "
+                                   "the already confirmed username; do not restart first-use setup."}
             if not announce or os.environ.get("VAWS_RELEASE_LAUNCH") == "1":
                 # Successful GUI hook stderr may be invisible. Do not consume
                 # the first visible prompt merely because a hook fired.
-                return {"state": "identity_pending"}
+                return {"state": "identity_pending", "reference": FIRST_USE_REFERENCE}
             notice = state / "onboarding-notice.json"
+            state.mkdir(parents=True, exist_ok=True)
             try:
                 with notice.open("x", encoding="utf-8") as stream:
                     json.dump({"offered_at": time.time()}, stream)
             except FileExistsError:
-                return {"state": "identity_pending"}
+                return {"state": "identity_pending", "reference": FIRST_USE_REFERENCE}
             return {"state": "needs_github_user", "message":
                     "First use: provide your personal GitHub username to configure personal forks and upstream updates. "
-                    "The Agent can run workspace_forks.py; a repo-init skill is not required. "
-                    "Local work remains available."}
+                    f"Read {FIRST_USE_REFERENCE} for this repository's one-time initialization. "
+                    "Local work remains available.", "reference": FIRST_USE_REFERENCE}
         identity = json.loads(identity_path.read_text(encoding="utf-8"))
         if (not isinstance(identity, dict) or identity.get("schema") != "vaws.github.v1"
                 or not isinstance(identity.get("login"), str) or not identity["login"].strip()):
-            return {"state": "identity_invalid", "message": "Saved GitHub identity has no login; rerun workspace_forks.py."}
+            return {"state": "identity_invalid", "path": str(identity_path),
+                    "reference": MAINTENANCE_REFERENCE,
+                    "message": "Saved GitHub identity has no login. Restore its prior snapshot or inspect "
+                               "workspace_forks.py's plan using the already confirmed username."}
         config_path = state / "config.json"
         config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.is_file() else {}
         if not isinstance(config, dict):

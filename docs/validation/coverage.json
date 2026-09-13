@@ -1,7 +1,7 @@
 {
   "status": "dated engineering evidence index, 2026-09-13; not domain knowledge or a task gate",
-  "workspace_audit_revision": "d14f5af40bcf1b9fd02906be08fb29ea211db60d",
-  "previous_audit_revision": "7f2ebb8d2be4c0774f9663b1cfcef43dc3a714dd",
+  "workspace_audit_revision": "75a886eb145d2f624f9c9b15748a892a8c317210",
+  "previous_audit_revision": "d14f5af40bcf1b9fd02906be08fb29ea211db60d",
   "evidence": [
     {
       "id": "windows-20260911",
@@ -115,13 +115,44 @@
       },
       "scope": "Knowledge 0.6.0 adoption: optional three-tool contract, RRF, lexical evidence and bounded maintenance worklist.",
       "limits": "Earlier implementation evidence; new catalog/curation/import/media acceptance is owned by the current knowledge task and must be appended at its actual final revision."
+    },
+    {
+      "id": "source-workspace-final-20260913",
+      "record": "docs/validation/README.md#final-source-workspace-evidence",
+      "version": {
+        "report_merge": "71cd235560c59ea1f82936de11e9a42e666c9ca4",
+        "pr_head": "697f597e2f108b2d7f23521d71a0b1087c2bf28a",
+        "ci_checkout": "3c72182e3811c0dceee6cb8ce09905d685a6fcbc",
+        "ci_run": "34744558304",
+        "installed_coordinator": "9f94f27964437f962e6037529ccf2f0b1c709ede",
+        "remote_dev": "a65362882a85b4d460be3e1d15e90de9fb507e70",
+        "four_machine_consumer": "4b11ae543ac4b9862fe6be9a4a82d14e55ecd9d8"
+      },
+      "scope": "PR168 final published source-workspace record: installed four-machine 28 core checks, actual startup/resume with fixed prior inputs, automatic PR167 lock merge and no-change run. PR168 merge-test checkout CI succeeded on Ubuntu, Windows and macOS.",
+      "limits": "Runtime facts are attributed to the pinned published report; its private artifacts were unavailable at the supplied local location and were not newly audited. PR/CI state and checkout logs were reread. Original Kimi environment, first-run UTF-8 audit failure, timing and no-GUI/no-NPU limits remain; no post-squash rerun claim."
+    },
+    {
+      "id": "knowledge-component-20260913",
+      "record": "docs/validation/knowledge-component-2026-09-13.md",
+      "version": {
+        "canonical_0_7_0": "24b652de235bae9ecfd08bbc29048cf7b59b4e90",
+        "pr30_head": "b91a63fa9f44b5bd0a6618a2bc774921082fa504",
+        "pr30_ci_checkout": "956578fec736c0ea35370b3d8ac0cfb4c1c704b0",
+        "pr30_merge": "4bdc37571e0ddb9c7312aabf64eaa22aabea2b9d",
+        "pr31_head": "cc91e1eb573f503f864633402781117d6f11dbc3",
+        "pr31_ci_checkout": "0623dc174e5479e2c1cd001942c8fa13526ef0a8",
+        "local_catalog_snapshot": "7105a2cc8b488948a14475891f25cbfacd85cdd3",
+        "local_curation_snapshot": "95185f3cf71984a39c22f18d1caf14d56f1edc18"
+      },
+      "scope": "Merged PR30/31 package and native Windows/macOS CI with actual merge-test checkout/counts. Retained local JUnit verified: catalog455 and curation517 entries including subtests,4 skips each,no failures/errors; source/test/pyproject snapshots match108/127 committed blobs. Native retained XML has2 passing lifecycle cases.",
+      "limits": "CI merge-test refs differ from branch heads and squash commits. Retained XML has no runtime-dependency snapshot; current native XML does not retain the earlier36-test result. PR32, public feed deployment, final consumer pin and their affected acceptance remain separate; no new NPU or final-performance claim."
     }
   ],
   "gaps": [
     {
       "id": "G1",
       "scope": "final integrated revisions",
-      "required": "PR166 source-workspace exact-head CI is retained. After final knowledge integration, run only affected consumer/owner checks and retain its exact-head CI. Do not relabel historical raw runs as final-pin execution or source declarations as NPU compatibility."
+      "required": "PR166/168 source-workspace and merged knowledge PR30/31 CI are retained at their actual checkout revisions. Later PR32 and final consumer integration need their own affected checks and CI; do not relabel historical raw runs as final-pin execution or source declarations as NPU compatibility."
     },
     {
       "id": "G2",
@@ -146,7 +177,7 @@
     {
       "id": "G6",
       "scope": "knowledge platform",
-      "required": "Current knowledge owner completes catalog/context/selection/relations/curation/release and media retrieval at the final pin. Maintain engineering validation outside the vLLM/Ascend/NPU/AI/Infra domain knowledge corpus."
+      "required": "Merged catalog/context/shared-reference and curation/public-export component PR30/31 evidence is recorded separately. Later PR32/feed deployment and final consumer pin still need their actual owner acceptance. Keep engineering validation outside the vLLM/Ascend/NPU/AI/Infra domain corpus."
     },
     {
       "id": "G7",
@@ -243,6 +274,7 @@
         ".agents/tests/test_knowledge_summary_hook.py"
       ],
       "evidence": [
+        "knowledge-component-20260913",
         "knowledge-20260913",
         "existing-container-20260913",
         "windows-20260911"
@@ -300,7 +332,8 @@
       "evidence": [
         "source-workspace-20260913",
         "windows-20260911",
-        "local-suites-20260913"
+        "local-suites-20260913",
+        "source-workspace-final-20260913"
       ],
       "gaps": [
         "G1",
@@ -335,7 +368,8 @@
       ],
       "evidence": [
         "source-workspace-20260913",
-        "local-suites-20260913"
+        "local-suites-20260913",
+        "source-workspace-final-20260913"
       ],
       "gaps": [
         "G1",
@@ -369,7 +403,8 @@
       "evidence": [
         "existing-container-20260913",
         "source-workspace-20260913",
-        "local-suites-20260913"
+        "local-suites-20260913",
+        "source-workspace-final-20260913"
       ],
       "gaps": [
         "G1",
@@ -776,5 +811,6 @@
         "G7"
       ]
     }
-  ]
+  ],
+  "initial_audit_revision": "7f2ebb8d2be4c0774f9663b1cfcef43dc3a714dd"
 }

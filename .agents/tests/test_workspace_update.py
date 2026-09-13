@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from unittest.mock import Mock
 
 import pytest
 
@@ -429,7 +430,10 @@ def test_new_session_waits_for_another_preparation_then_continues(fixture, monke
         except Exception as exc:
             errors.append(exc)
 
-    monkeypatch.setattr(updates.time, "sleep", observe_wait)
+    # Git subprocess waits also use time.sleep; only observe the lock's waits.
+    local_time = Mock(wraps=time)
+    local_time.sleep = observe_wait
+    monkeypatch.setattr(updates, "time", local_time)
     with updates.update_lock(fixture["root"]):
         worker = threading.Thread(target=next_session)
         worker.start()

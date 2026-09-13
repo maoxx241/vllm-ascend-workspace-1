@@ -240,8 +240,12 @@ is required for this server-local reuse.
 
 `pyproject.toml` declares dependencies and `uv.lock` fixes their source.
 Normal clients select an immutable bundle of a small runtime environment and an
-independent knowledge environment. Each component key covers its locked dependency
-closure; a knowledge-only update can reuse the runtime. Existing single-environment
+independent knowledge environment. Normal preparation installs only the runtime;
+the first valid knowledge operation prepares its fixed optional dependency closure.
+Tool discovery reads the generated catalog frozen with that bundle and installs
+nothing. Explicit `vaws_deps.py sync --capability knowledge` can prepare it ahead of
+use. Each component key covers its locked dependency closure; a knowledge-only
+update can reuse the runtime. Existing single-environment
 receipts and resumed tasks retain their exact selections. Explicit `--group dev`
 prepares a complete environment for tests that import all components together.
 Doctor reports installed and loaded runtime identities separately. Pin drift
@@ -305,7 +309,8 @@ indexing and model lifecycle. Supported hooks reuse the normal task summary,
 and manual capture can reuse useful existing text without an extra summary or
 publishing follow-up.
 
-Dependency sync installs or reuses packages without knowledge preparation.
+Normal dependency sync installs or reuses runtime packages without installing the
+optional knowledge environment or preparing its model and index.
 Explicit knowledge setup can ask the package to prepare its model and index.
 An unused knowledge MCP connection performs no backend startup, maintenance,
 model verification, index reconciliation or shared-release network request;

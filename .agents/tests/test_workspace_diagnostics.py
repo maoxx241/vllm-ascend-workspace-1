@@ -151,6 +151,29 @@ def test_bootstrap_before_dependency_import_keeps_one_safe_failure_record(tmp_pa
     assert ingest(root, queue)["enqueued"] == 0
 
 
+@pytest.mark.parametrize(("classification", "error_code"), [("caller", -32602), ("unknown", 503)])
+def test_public_bundle_cli_preserves_failure_classification_and_numeric_code(observed, classification, error_code):
+    with diagnostics.operation("fixture.public_bundle") as operation:
+        operation.fail("tool_result", classification=classification, error_code=error_code,
+                       preview="private-business-detail")
+    output = observed.parent / "support.json"
+    result = subprocess.run([
+        sys.executable, "-I", str(ROOT / ".agents/scripts/vaws_diagnose.py"),
+        "bundle", "--root", str(observed), "--operation-id", operation.summary()["operation_id"],
+        "--output", str(output),
+    ], capture_output=True, encoding="utf-8", env=dict(os.environ), timeout=10)
+    assert result.returncode == 0, result.stderr
+    returned = json.loads(result.stdout)
+    written = json.loads(output.read_text(encoding="utf-8"))
+    assert returned == written
+    failures = [row for row in returned["events"]
+                if row["event"] == "operation.end" and row["status"] == "error"]
+    assert len(failures) == 1
+    assert failures[0]["attributes"]["classification"] == classification
+    assert failures[0]["attributes"]["error_code"] == error_code
+    assert "private-business-detail" not in result.stdout + output.read_text(encoding="utf-8")
+
+
 def test_leak_help_needs_no_knowledge_or_diagnostics_install(tmp_path):
     root = tmp_path / "diagnostics"
     result = subprocess.run([sys.executable, "-I", str(ROOT / ".agents/scripts/tracked_leak_scan.py"), "--help"],

@@ -63,6 +63,17 @@ The first consumer CI exposed three outdated test assumptions: parser errors wer
 
 ## Failure and safety evidence
 
+The final consumer dependency check unified manual support export and the worker on diagnostics 0.1.3. Updating only the worker was insufficient: an actual workspace CLI regression reproduced missing classification fields with the earlier installed 0.1.1 library. The final installed closure is:
+
+| Package | Version | Fixed revision |
+| --- | --- | --- |
+| Diagnostics | 0.1.3 | `a9135c13bcd3ec88dd3a7c2f454a57f9bee9be14` |
+| remote-dev | 0.9.1 | `a2c69432fa39d54cdfc0f7a9f8842258d7efd697` |
+| Coordinator | 0.5.0.dev3 | `6209646a439b59a26b7a4becdd8994fe75c66f7e` |
+| Knowledge | 0.7.3 | `927b3774d6ab3809af5bdaec734b427253e0d4dc` |
+
+Official locked sync created a separate immutable developer environment, with no source overlay. Installed commit identities, doctor, lock and catalog checks passed. The workspace's real public bundle CLI preserved `caller` with numeric code `-32602` and `unknown` with code `503`, in both stdout and the written file, while excluding private preview text. Those cases failed against 0.1.1 and passed against 0.1.3. The affected diagnostics/dependency/catalog/monitor checks passed 80 tests and 14 subtests, with three platform skips. Following the mainline merge and removal of six unused envelope helpers, the affected parser/MCP/envelope files passed 98 tests and 51 subtests. These are overlapping local runs, not another full device or workspace test matrix.
+
 - A missing diagnostics package produces a bounded, static bootstrap failure event. The actual core collector and ingester accepted it, and repeated ingestion did not create another incident. Help and successful interpreter handoff did not generate false failure records.
 - Unwritable diagnostic storage preserved business return values and original exceptions. Real workspace FD-capture tests wrote 1 MiB through a child with failed storage; both normal and failed-storage cases passed on Windows and WSL without a blocked pipe, recursive warnings or a replacement traceback.
 - Collectors buffer complete lines before redaction. Split secret tokens, oversized lines and unfinished fragments have regression coverage; omitted content is recorded as a gap rather than saved as supposedly safe fragments. Rotation and a detached worker continuing after its launcher exits were exercised.
@@ -98,12 +109,12 @@ Early test attempts using an older developer environment failed on stale runtime
 
 ## Released and supervised worker acceptance
 
-The independently installed worker is diagnostics **0.1.2**, built from
+The first healthy independently installed worker was diagnostics **0.1.2**, built from
 `ad90ac4edfb7294e65ecd1890b7e8c2b3cd2fdd7`. Its released wheel was downloaded,
 SHA256 verified (`0771e915341a4cfa47deaabf816226f1d3fbdac5b35d52df7df86b90ebe4c176`)
 and installed into a permanent non-editable WSL virtual environment. The
-component libraries retain diagnostics **0.1.1** at their exact compatible pin;
-0.1.2 corrects service installation and recovery without changing logging APIs.
+component libraries then retained diagnostics **0.1.1** at their exact compatible pin;
+0.1.2 corrected service installation and recovery without changing logging APIs.
 The core release head passed all seven CI jobs, covering Python 3.11/3.13 on
 Linux, Windows and macOS plus installed-wheel checks. The final local core suite
 passed 102 tests with five POSIX skips on Windows, and 107 tests on WSL.
@@ -181,6 +192,16 @@ the installed index and its referenced JavaScript/CSS assets were present.
 Console help, offline bundle generation and dependency consistency checks
 passed. This establishes the released artifact, without claiming that an
 existing fleet service or every preserved task environment was restarted.
+
+The final launcher selects the subsequently released fleet-monitor **0.1.4**
+wheel, independently checked against SHA256
+`71b8e0ee387c8619bbeff69616e6edbe0621d46dff90dda8b0a993db859c6261`.
+A fresh environment contained top 0.1.4 and its exact diagnostics 0.1.3
+dependency. Dependency consistency, the three installed static-file hashes and
+the HTML's JavaScript/CSS references passed. Six actual console checks passed,
+including offline export and preservation of caller, unknown and cancelled
+classifications with integer codes `-32602`, `503` and `-32800`. This acceptance
+did not start a fleet service, model or NPU workload.
 
 Final cross-component review found that the public schema dropped an owner's
 explicit `classification=caller` and numeric HTTP/JSON-RPC error codes. Worker

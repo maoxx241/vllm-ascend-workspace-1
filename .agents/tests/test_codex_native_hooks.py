@@ -291,7 +291,7 @@ def test_real_unrelated_adapter_does_not_import_workspace_runtime(tmp_path):
     # Check the actual bootstrap in a fresh process, where imports are uncached.
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    diagnostics = tmp_path / "diagnostics"
+    diagnostics = (tmp_path / "diagnostics").resolve()
     code = """import io,json,runpy,sys
 class DenyRuntime:
     def find_spec(self, fullname, path=None, target=None):

@@ -155,8 +155,9 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_backend_returns_failure_without_hidden_fallback(self):
         from vaws_diagnostics import configure
-        with patch.dict("os.environ", {"VAWS_DIAGNOSTICS_ROOT": str(self.root / "diagnostics"), "VAWS_LOG_LEVEL": "INFO"}):
-            recorder = configure("vaws-workspace", root=str(self.root / "diagnostics"))
+        diagnostics_root = (self.root / "diagnostics").resolve()
+        with patch.dict("os.environ", {"VAWS_DIAGNOSTICS_ROOT": str(diagnostics_root), "VAWS_LOG_LEVEL": "INFO"}):
+            recorder = configure("vaws-workspace", root=str(diagnostics_root))
             provider = runtime.Provider("task", self.root)
             try:
                 with patch.object(runtime, "provider_command", return_value=([sys.executable, str(self.root / "missing.py")], {})):

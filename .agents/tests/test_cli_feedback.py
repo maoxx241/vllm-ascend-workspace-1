@@ -31,7 +31,7 @@ def audit(event, args):
 sys.addaudithook(audit)
 '''
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()  # macOS temporary directories may use /var's symlink.
             (root / "sitecustomize.py").write_text(guard, encoding="utf-8")
             home = root / "home"
             home.mkdir()

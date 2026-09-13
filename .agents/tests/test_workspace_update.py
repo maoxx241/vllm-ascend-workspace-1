@@ -240,7 +240,7 @@ def test_prepared_activation_is_offline(fixture):
     assert updater(fixture).step(apply=True, activate=False)["status"] == "ready"
     fixture["calls"].clear()
     fixture["api"].api = lambda *_: pytest.fail("activation made a GitHub request")
-    assert updates.activate_prepared(fixture["root"])["status"] == "applied"
+    assert updater(fixture).activate()["status"] == "applied"
     assert not any(call[1] in ("fetch", "push", "clone") for call in fixture["calls"])
 
 
@@ -377,7 +377,11 @@ def test_edit_during_preparation_defers_activation_and_push(fixture, monkeypatch
 def test_activation_waits_if_user_edited_after_prepare(fixture):
     assert updater(fixture).step(apply=True, activate=False)["status"] == "ready"
     (fixture["root"] / "README").write_text("user editing", encoding="utf-8")
-    assert updates.activate_prepared(fixture["root"])["reason"] == "dirty_checkout"
+    with pytest.raises(updates.Deferred) as error:
+        updater(fixture).activate()
+    assert error.value.reason == "dirty_checkout"
+    assert (fixture["root"] / "README").read_text(encoding="utf-8") == "user editing"
+    assert git(fixture["root"], "rev-parse", "HEAD") == fixture["old"]
     assert not fixture["activated"]
 
 
@@ -513,7 +517,7 @@ def test_interrupted_submodule_activation_can_resume(subfixture, monkeypatch):
     state["phase"] = "local_updated"
     updates.write_json(state_path, state)
     subfixture["api"].api = lambda *_: pytest.fail("offline resume queried GitHub")
-    assert updates.activate_prepared(root)["status"] == "applied"
+    assert updater(subfixture).activate()["status"] == "applied"
     assert git(root / "vllm", "rev-parse", "HEAD") == subfixture["module_new"]
 
 

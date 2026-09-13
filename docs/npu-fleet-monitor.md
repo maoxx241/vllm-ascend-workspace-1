@@ -31,6 +31,6 @@ preserves the record; it does not claim success or force-kill an unverified grou
 
 ## Configuration
 
-The listener stays on `127.0.0.1`; `--port` changes its port. `--help` describes install-source, port and inventory overrides. Inventory and host-pool inputs use explicit flags, then caller environment, then existing shared workspace defaults. Host-key bootstrap is explicitly configured with `--bootstrap-command` or `NFM_BOOTSTRAP_COMMAND`.
+The listener stays on `127.0.0.1`; `--port` changes its port. `--help` describes install-source, port and inventory overrides. Inventory and host-pool inputs use explicit flags, then caller environment, then existing shared workspace defaults. An explicit empty flag clears the corresponding inherited setting. Host-key bootstrap is explicitly configured with `--bootstrap-command` or `NFM_BOOTSTRAP_COMMAND`.
 
 Remote container provisioning and its user identity belong to coordinator's provision interface. Monitor observations carry `allocation_authority: false`; a managed execution does not require a monitor query first.

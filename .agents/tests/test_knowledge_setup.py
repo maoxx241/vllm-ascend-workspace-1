@@ -2,6 +2,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -77,3 +78,53 @@ def test_explicit_read_only_is_configured_before_any_maintenance(tmp_path, monke
     assert setup.main(["--read-only"]) == 0
     assert "--read-only" in operations[0]
     assert operations[1] == "prepare"
+
+
+@pytest.mark.parametrize("arguments,enabled", [
+    (["--repository", "example/new"], True),
+    (["--read-only"], False),
+    (["--contribute"], True),
+])
+def test_linked_worktree_configures_the_shared_runtime_configuration(tmp_path, monkeypatch, capsys, arguments, enabled):
+    from vaws_knowledge_service import knowledge_server_env, shared_project_config
+
+    primary = (tmp_path / "primary").resolve()
+    linked = (tmp_path / "task").resolve()
+    subprocess.run(["git", "init", "-q", str(primary)], check=True)
+    subprocess.run(["git", "-C", str(primary), "-c", "user.name=fixture", "-c",
+                    "user.email=fixture@example.com", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+    subprocess.run(["git", "-C", str(primary), "worktree", "add", "-q", "--detach", str(linked)], check=True)
+    path = primary / ".vaws-local/knowledge/service.json"
+    path.parent.mkdir(parents=True)
+    original = {"publishing": {"enabled": "--contribute" not in arguments, "fork": "alice/references"},
+                "shared_sync": {"repository": "example/references"}, "custom": "preserve"}
+    path.write_text(json.dumps(original), encoding="utf-8")
+    monkeypatch.setattr(setup, "ROOT", linked)
+    calls = []
+
+    def configure(root, command):
+        calls.append(command)
+        assert root == linked
+        assert Path(command[command.index("--config") + 1]) == path
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["publishing"]["enabled"] = "--read-only" not in command
+        payload["shared_sync"]["repository"] = command[command.index("--repository") + 1]
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return 0, {"status": "configured"}
+
+    def prepare(root):
+        assert calls, "configuration must finish before maintenance"
+        assert shared_project_config(root) == path
+        active = Path(knowledge_server_env(root)["VAWS_KNOWLEDGE_CONFIG"])
+        return {"ready": True, "config": str(active), "active": json.loads(active.read_text(encoding="utf-8"))}
+
+    monkeypatch.setattr(setup, "run_knowledge_cli", configure)
+    monkeypatch.setattr(setup, "prepare_knowledge", prepare)
+    assert setup.main(arguments) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["config"] == str(path)
+    assert result["active"]["publishing"]["enabled"] is enabled
+    assert result["active"]["publishing"]["fork"] == "alice/references"
+    assert result["active"]["shared_sync"]["repository"] == ("example/new" if "--repository" in arguments else "example/references")
+    assert result["active"]["custom"] == "preserve"
+    assert not (linked / ".vaws-local/knowledge/service.json").exists()

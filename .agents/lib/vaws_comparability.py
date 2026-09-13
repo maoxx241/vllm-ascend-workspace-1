@@ -383,13 +383,6 @@ def _matches_prefix(key: str, prefix: str) -> bool:
     return key == prefix or key.startswith(prefix + ".")
 
 
-def _group_of(key: str) -> str | None:
-    for group in IDENTITY_GROUPS:
-        if _matches_prefix(key, group):
-            return group
-    return None
-
-
 def _side_payload(identity: RunIdentity) -> dict[str, Any]:
     mismatches = _normalize_declaration_mismatches(
         identity.declaration_mismatches, source=f"{identity.run_id} side"
@@ -640,11 +633,3 @@ def consume_certificate(certificate: Mapping[str, Any]) -> dict[str, Any]:
             certificate=rebuilt,
         )
     return rebuilt
-
-
-def format_undeclared_fields(certificate: Mapping[str, Any]) -> str:
-    """Stable clause used by correctness when confounders are execution keys."""
-    keys = [row["key"] for row in certificate.get("confounders", [])]
-    if not keys:
-        return ""
-    return "undeclared fields: " + ", ".join(keys)

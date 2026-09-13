@@ -174,3 +174,46 @@ def test_claude_custom_wrapper_scope_is_preserved(configured_project):
     groups = json.loads(setup.build_plan("claude", project)["files"][path])["hooks"][event]
     assert len(groups) == 1
     assert groups[0]["matcher"] == "Bash"
+
+
+@pytest.mark.parametrize("client", ["claude", "cursor", "grok", "codex"])
+@pytest.mark.parametrize("distinct_field", ["matcher", "if"])
+def test_distinct_context_hook_scopes_survive_repeated_setup(client, distinct_field, configured_project):
+    project, _, _ = configured_project
+    event, first = old_context_hook(client, project, wrapped=client == "claude")
+    _, second = old_context_hook(client, project, wrapped=client == "claude")
+    first["matcher"] = "mcp__vaws_task__vaws_run"
+    second["matcher"] = "mcp__vaws_task__vaws_execution" if distinct_field == "matcher" else first["matcher"]
+    if distinct_field == "if":
+        first["if"], second["if"] = "first-native-condition", "second-native-condition"
+    relative = {"claude": ".claude/settings.local.json", "cursor": ".cursor/hooks.json",
+                "grok": ".grok/hooks/vaws-session.json", "codex": ".codex/hooks.json"}[client]
+    path = project / relative
+    path.parent.mkdir(parents=True)
+    # A repeated copy within one scope is redundant; another matcher is not.
+    path.write_text(json.dumps({"hooks": {event: [first, first, second]}}))
+    plan = setup.build_plan(client, project)
+    groups = json.loads(plan["files"][path])["hooks"][event]
+    assert [group["matcher"] for group in groups] == [first["matcher"], second["matcher"]]
+    assert [group[distinct_field] for group in groups] == [first[distinct_field], second[distinct_field]]
+    assert all(len(group.get("hooks", [group])) == 1 for group in groups)
+    setup.apply_plan(plan)
+    assert setup.apply_plan(setup.build_plan(client, project)) == []
+
+
+def test_claude_legacy_matcher_expansion_retains_other_group_conditions(configured_project):
+    project, _, _ = configured_project
+    event, old = old_context_hook("claude", project, wrapped=True)
+    old["if"] = "native-condition"
+    user = {"type": "command", "command": "user-audit-hook", "timeout": 37}
+    old["hooks"].append(user)
+    path = project / ".claude/settings.local.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"hooks": {event: [old]}}))
+    plan = setup.build_plan("claude", project)
+    groups = json.loads(plan["files"][path])["hooks"][event]
+    assert groups[0] == {**old, "hooks": [user]}
+    assert groups[1]["if"] == old["if"]
+    assert re.search(groups[1]["matcher"], "mcp__vaws-knowledge__knowledge_capture")
+    setup.apply_plan(plan)
+    assert setup.apply_plan(setup.build_plan("claude", project)) == []

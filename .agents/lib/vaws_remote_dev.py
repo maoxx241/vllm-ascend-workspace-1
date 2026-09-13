@@ -110,7 +110,6 @@ def require_transport(repo_root: Path = ROOT):
             run_stream,
             ssh_base_cmd,
             ssh_command,
-            stream_ssh_command,
         )
     except ImportError as exc:
         raise RemoteDevUnavailable(
@@ -129,7 +128,6 @@ def require_transport(repo_root: Path = ROOT):
         "run_stream": run_stream,
         "ssh_base_cmd": ssh_base_cmd,
         "ssh_command": ssh_command,
-        "stream_ssh_command": stream_ssh_command,
     }
 
 
@@ -232,20 +230,6 @@ def ssh_argv(
         ssh_mux=ssh_mux,
     )
     return list(api["ssh_base_cmd"](ep))
-
-
-def stream_argv(
-    endpoint: Any,
-    script: str,
-    *,
-    timeout: float | None = None,
-    connect_timeout_s: int | None = 15,
-) -> list[str]:
-    """Argv for an attached stream. Refuses a multiplexed endpoint."""
-    api = require_transport()
-    ep = endpoint_from(endpoint, long_stream=True, connect_timeout_s=connect_timeout_s)
-    timeout_ms = None if timeout is None else int(timeout * 1000)
-    return list(api["stream_ssh_command"](ep, script, timeout_ms=timeout_ms))
 
 
 def ssh_exec(
@@ -400,11 +384,3 @@ def run_interactive(
     api = require_transport()
     ep = endpoint_from(endpoint, ssh_mux=False, connect_timeout_s=connect_timeout_s)
     return int(api["run_interactive"](ep, remote_command, env=env))
-
-
-def run_cli_tool(tool: str, argv: list[str] | None = None) -> int:
-    """Invoke a remote-dev CLI tool after injecting scaffold environment."""
-    require_transport()
-    from remote_dev.cli import run_tool_main
-
-    return run_tool_main(tool, argv)

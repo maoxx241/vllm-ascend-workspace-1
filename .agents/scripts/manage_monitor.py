@@ -128,7 +128,10 @@ def consumer_env(
 
 def serve_env(args: argparse.Namespace, port: int, state_dir: Path) -> dict[str, str]:
     env = dict(os.environ)
-    env.update(consumer_env(args))
+    selected = consumer_env(args, inherited=env)
+    for key in CONSUMER_ENV_KEYS:
+        env.pop(key, None)
+    env.update(selected)
     env["NFM_BIND"] = BIND
     env["NFM_PORT"] = str(port)
     env["NFM_STATE_DIR"] = str(state_dir)
@@ -143,8 +146,10 @@ def resolve_spec(explicit: str | None = None, inherited: dict[str, str] | None =
         if candidate is None:
             continue
         candidate = candidate.strip()
-        if not candidate or any(char.isspace() for char in candidate):
+        if not candidate or "\n" in candidate or "\r" in candidate:
             raise MonitorError(f"invalid monitor install spec: {candidate!r}")
+        # uvx parses the source specification as one argv element; local paths
+        # and requirement specifications may contain spaces.
         return candidate
     return DEFAULT_VAWS_TOP_SPEC
 

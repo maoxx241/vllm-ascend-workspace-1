@@ -465,19 +465,6 @@ class WorkspaceUpdater:
             return self.failure(exc)
 
 
-def activate_prepared(root: Path) -> dict:
-    """Bounded offline activation before a new native client starts."""
-    updater = None
-    try:
-        with update_lock(root):
-            updater = WorkspaceUpdater(root)
-            return updater.activate()
-    except Deferred as exc:
-        return updater.failure(exc) if updater else {"status": exc.status, "reason": exc.reason}
-    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-        return updater.failure(exc) if updater else {"status": "deferred", "reason": "activation_pending", "error_type": type(exc).__name__}
-
-
 def prepared_source(root: Path) -> Path | None:
     """Read a prepared revision for a new editing copy; never modify this root.
 

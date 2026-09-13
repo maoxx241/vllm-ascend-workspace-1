@@ -66,6 +66,31 @@ class CollectionLifecycleTests(unittest.TestCase):
                 "--speculative-config", '{"method": "mtp"}', "--enable-expert-parallel"]):
             return mem_collect.parse_args()
 
+    def test_attach_health_timeout_retains_collected_logs_and_original_failure(self):
+        for log_text in ("ordinary startup log", ""):
+            with self.subTest(log=log_text), tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
+                run_dir = Path(tmp)
+                client = mock.Mock()
+                client.observe.return_value = {"stdout": log_text}
+                target = {"task_id": "task-1", "execution_id": "exec-1", "endpoint": EP,
+                          "record": {"alias": "fixture"}, "python": "/env/python", "client": client}
+                state = {"status": "ready", "model": "/weights/fixture", "port": 8000}
+                stack.enter_context(mock.patch.object(sys, "argv", ["mem_collect.py", "--attach", "--execution-id", "exec-1"]))
+                stack.enter_context(mock.patch.object(mem_collect, "resolve_execution_target", return_value=target))
+                stack.enter_context(mock.patch.object(mem_collect, "_resolve_attach_state", return_value=state))
+                stack.enter_context(mock.patch.object(mem_collect, "ensure_run_dir", return_value=run_dir))
+                stack.enter_context(mock.patch.object(mem_collect, "wait_for_health", side_effect=TimeoutError("fixture timeout")))
+                stack.enter_context(mock.patch.object(mem_collect, "ssh_exec", side_effect=AssertionError("unexpected remote call")))
+                stack.enter_context(mock.patch.object(mem_collect, "progress"))
+                with self.assertRaisesRegex(SystemExit, "not responding to /health"):
+                    mem_collect.main()
+                client.observe.assert_called_once_with("exec-1", "tail")
+                log_path = run_dir / "vllm_serve.log"
+                if log_text:
+                    self.assertIn(log_text, log_path.read_text(encoding="utf-8"))
+                else:
+                    self.assertFalse(log_path.exists())
+
     def test_standalone_carries_wrapper_and_real_config_and_requires_csv_evidence(self):
         for csvs, code in (({"memory.csv": "msprof_csvs/memory.csv"}, 0), ({"__prof_device_map__": {}}, 1)):
             with self.subTest(csvs=csvs), tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:

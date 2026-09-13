@@ -257,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
                 })
                 return 1
             endpoint = ssh_endpoint_from_mapping(target.get("endpoint"))
-            served_model = args.served_model_name or Path(args.model).name
+            served_model = config.served_model_name or Path(config.model).name
             readiness = _wait_for_ready(
                 endpoint,
                 int(port),

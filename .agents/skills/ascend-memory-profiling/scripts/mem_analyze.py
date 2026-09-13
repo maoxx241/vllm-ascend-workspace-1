@@ -161,24 +161,6 @@ def parse_npu_module_mem_csv(csv_path: Path) -> dict[str, float]:
     return components
 
 
-def parse_npu_mem_csv(csv_path: Path) -> dict[str, list[dict]]:
-    """Parse npu_mem CSV, return {event: [{timestamp, hbm_kb}]}."""
-    events: dict[str, list[dict]] = {}
-    with open(csv_path, encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            event = row.get("event", "").strip()
-            hbm = row.get("hbm(KB)", "0").strip()
-            ts = row.get("timestamp(us)", "0").strip()
-            try:
-                hbm_val = float(hbm)
-                ts_val = float(ts)
-            except ValueError:
-                continue
-            events.setdefault(event, []).append({"timestamp_us": ts_val, "hbm_kb": hbm_val})
-    return events
-
-
 # ---------------------------------------------------------------------------
 # Safetensors-based precise weight analysis
 # ---------------------------------------------------------------------------
@@ -831,17 +813,6 @@ def format_report_text(
         lines.append("=" * 70)
 
     return "\n".join(lines)
-
-
-def find_msprof_csv(run_dir: Path, pattern: str) -> Path | None:
-    """Find a msprof CSV file matching a pattern (returns first match)."""
-    csv_dir = run_dir / "msprof_csvs"
-    if not csv_dir.exists():
-        return None
-    for f in csv_dir.iterdir():
-        if pattern in f.name and f.suffix == ".csv":
-            return f
-    return None
 
 
 def find_all_msprof_csvs(run_dir: Path, pattern: str) -> list[Path]:

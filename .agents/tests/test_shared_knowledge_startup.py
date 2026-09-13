@@ -98,7 +98,7 @@ def test_cli_drops_inherited_location_and_uses_selected_runtime(family, monkeypa
     _, a, _, path = family
     for key in knowledge.LOCATION_ENV:
         monkeypatch.setenv(key, "/obsolete-parent-location")
-    monkeypatch.setattr(knowledge, "knowledge_owner_python", lambda root: sys.executable)
+    monkeypatch.setattr(knowledge, "knowledge_owner_python", lambda root, **kw: sys.executable)
     monkeypatch.setattr(knowledge, "managed_receipt", lambda root: {"receipt": "/old-environment"})
     calls = []
     original_run = knowledge.subprocess.run

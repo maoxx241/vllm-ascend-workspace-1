@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,10 +22,19 @@ from vaws_task_target import resolve_context_file
 from vaws_venv import configure_windows_stdio, ensure_workspace_interpreter
 from vaws_workspace_entry import (FIRST_USE_REFERENCE, MAINTENANCE_REFERENCE, copy_workspace_identity,
                                   prepared_sources, read_preparation, workspace_entry, write_preparation)
-from vaws_workspace_update import WorkspaceUpdater, git, path_lock, redact, update_lock
+from vaws_workspace_update import WorkspaceUpdater, available_sources, git, path_lock, redact, update_lock
 from vaws_worktree_setup import configure_target, unpinned_environment
 
 CLIENTS = ("codex", "cursor", "claude", "grok", "kimi")
+
+
+def native_source_preference(cwd: str, sources: dict) -> str | None:
+    actual = Path(cwd).resolve()
+    for name, path in sources.items():
+        root = Path(path).resolve()
+        if name != "workspace" and (actual == root or root in actual.parents):
+            return name
+    return None
 
 
 def native_prepared(context: dict, project: Path) -> tuple[Path, dict] | None:
@@ -36,10 +46,15 @@ def native_prepared(context: dict, project: Path) -> tuple[Path, dict] | None:
     return selected, saved_ready(selected)
 
 
-def prepare_latest(project: Path, source_channel: str = "development") -> tuple[Path, dict, dict]:
-    """Prepare canonical HEAD without activating or inspecting the editing branch."""
+def prepare_latest(project: Path, source_channel: str = "development", *, sources=None, latest=False) -> tuple[Path, dict, dict]:
+    """Select locally by default; contact upstream only for an explicit latest request."""
+    waiting = time.monotonic()
     with update_lock(project, wait_seconds=180):
-        updater = WorkspaceUpdater(project, source_channel=source_channel)
+        lock_seconds = time.monotonic()-waiting
+        updater = WorkspaceUpdater(project, source_channel=source_channel, source_names=sources)
+        if not latest:
+            update, prepared = updater.local_prepare()
+            return Path(prepared["stage"]), prepared, {**update, "lock_wait_seconds": lock_seconds}
         update = updater.step(apply=True, activate=False)
         if update.get("status") not in {"ready", "current"}:
             previous = updater.state
@@ -49,9 +64,16 @@ def prepare_latest(project: Path, source_channel: str = "development") -> tuple[
                 except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
                     pass
                 else:
-                    return stage, previous["prepared"], {
+                    selected = previous["prepared"]
+                    if sources is not None:
+                        if not set(sources) <= selected["sources"].keys():
+                            raise RuntimeError("cached preparation does not contain the requested sources")
+                        selected = {**selected, "sources": {name: selected["sources"][name] for name in sources},
+                                    "revisions": {name: selected["revisions"][name] for name in ("workspace", *sources)}}
+                    return stage, selected, {
                         "status": "cached", "target": previous["target"],
-                        "upstream_check": update,
+                        "upstream_check": update, "upstream_checked": True,
+                        "lock_wait_seconds": lock_seconds,
                     }
             error = RuntimeError(update.get("detail") or update.get("reason") or "upstream preparation failed")
             error.evidence = update
@@ -61,15 +83,16 @@ def prepare_latest(project: Path, source_channel: str = "development") -> tuple[
             prepared = updater.prepare(update, updater.preparation_inputs(update))
             updater.save(**{key: value for key, value in update.items() if key != "status"},
                          prepared=prepared, phase="ready", status="ready")
-        stage = updater.validate_prepared(update, prepared)
-        return stage, prepared, update
+        # step/prepare has already validated this invocation's completed plan.
+        return Path(prepared["stage"]), prepared, {**update, "upstream_checked": True,
+                                                  "lock_wait_seconds": lock_seconds}
 
 
 def selected_result(workspace: Path, receipt: dict, context: dict, *, status: str, evidence: Path,
-                    **facts) -> dict:
+                    head: str | None = None, **facts) -> dict:
     config = knowledge_config_path(workspace)
     editor = workspace / ".vaws-local/vaws.code-workspace"
-    return {"status": status, "workspace": str(workspace), "head": git(workspace, "rev-parse", "HEAD"),
+    return {"status": status, "workspace": str(workspace), "head": head or git(workspace, "rev-parse", "HEAD"),
             "editor_workspace": str(editor) if editor.is_file() else None,
             "environment": {key: receipt[key] for key in ("key", "python", "receipt")},
             "context_file": context["context_file"], "native_cwd": context["attachment"]["cwd"],
@@ -79,6 +102,7 @@ def selected_result(workspace: Path, receipt: dict, context: dict, *, status: st
 
 def reuse(record: Path) -> dict:
     """Resume a completed selection without shared locks, Git or preparation."""
+    from vaws_source_view import recorded_focus
     previous = json.loads(record.read_text(encoding="utf-8"))
     workspace = Path(previous["workspace"])
     if not workspace.is_dir() or not (workspace / ".git").exists():
@@ -89,14 +113,18 @@ def reuse(record: Path) -> dict:
     receipt = read_receipt(previous["environment"]["receipt"])
     if receipt["key"] != previous["environment"]["key"]:
         raise ValueError("selected task environment receipt changed")
+    recorded_focus(workspace, previous.get("sources", {}), previous)
     return {**previous, "status": "reused"}
 
 
 def start(client: str, project: Path = ROOT, context_file: str | None = None,
-          *, source_channel: str = "development") -> dict:
+          *, source_channel: str = "development", sources=None, latest=False, preferred=None) -> dict:
     from vaws_coordinator.agent_session import AgentSessions, load_context
+    from vaws_source_view import native_focus, source_focus, write_source_view
 
     phase, context, record, workspace = "context", None, None, None
+    begun = time.monotonic()
+    timings = {}
     try:
         context = load_context(resolve_context_file(context_file))
         if context["attachment"]["client"] != client:
@@ -104,26 +132,39 @@ def start(client: str, project: Path = ROOT, context_file: str | None = None,
         project = shared_workspace_root(project.resolve())
         record = task_dir(context["session"]["id"], project) / "start.json"
         phase = "reuse"
+        if set(sources or ()) - {"vllm", "vllm-ascend"}:
+            raise ValueError("sources must be vllm or vllm-ascend")
         if record.is_file():
-            return reuse(record)
+            previous = reuse(record)
+            return {**previous, "startup_timings": {"total_seconds": time.monotonic()-begun},
+                    "selection": "existing_task"}
         phase = "preparation_lock"
         # Only callers for this native task wait for its copy and client wiring.
         # The project lock is confined to preparing the shared immutable stage.
+        waiting = time.monotonic()
         with path_lock(record.with_name("start.lock"), wait_seconds=180):
+            timings["task_lock_wait_seconds"] = time.monotonic()-waiting
             phase = "reuse"
             if record.is_file():
-                return reuse(record)
+                return {**reuse(record), "startup_timings": {**timings, "total_seconds": time.monotonic()-begun},
+                        "selection": "existing_task"}
             prepared_native = native_prepared(context, project)
             update = {}
+            selected_head = None
             if prepared_native:
                 workspace, receipt = prepared_native
                 preparation = "native"
                 sources = prepared_sources(workspace)
-                source_channel = read_preparation(workspace)["source_channel"]
+                native_record = read_preparation(workspace)
+                source_channel = native_record["source_channel"]
+                focus = native_focus(workspace, sources, native_record,
+                                     cwd=context["attachment"]["cwd"], preferred=preferred)
             else:
-                phase = "upstream"
-                print("VAWS: preparing the canonical workspace and its locked components", file=sys.stderr, flush=True)
-                stage, prepared, update = prepare_latest(project, source_channel)
+                phase = "upstream" if latest else "local_preparation"
+                print("VAWS: selecting fixed workspace inputs and required packages", file=sys.stderr, flush=True)
+                mark = time.monotonic()
+                stage, prepared, update = prepare_latest(project, source_channel, sources=sources, latest=latest)
+                timings["preparation_seconds"] = time.monotonic()-mark
                 workspace = project.parent / (project.name + "-" + context["session"]["id"])
                 if workspace.exists():
                     # An interrupted copy may contain edits made during repair.
@@ -131,28 +172,45 @@ def start(client: str, project: Path = ROOT, context_file: str | None = None,
                     workspace = workspace.with_name(workspace.name + "-" + uuid.uuid4().hex[:8])
                 phase = "workspace_copy"
                 print(f"VAWS: creating {workspace}", file=sys.stderr, flush=True)
+                mark = time.monotonic()
                 copied = create_prepared_workspace(prepared, workspace)
+                selected_head = copied["head"]
+                timings["copy_seconds"] = time.monotonic()-mark
+                timings["repositories"] = copied.get("copy_seconds", {})
                 sources = copied["sources"]
+                if preferred is None:
+                    cwd = Path(context["attachment"]["cwd"]).resolve()
+                    # An explicit native business cwd is evidence, unlike a
+                    # prompt or another task's recently selected repository.
+                    preferred = native_source_preference(str(cwd), available_sources(project) if cwd != project else {})
+                focus = source_focus(workspace, sources, preferred=preferred)
                 copy_workspace_identity(project, workspace)
                 phase = "environment"
                 environment = unpinned_environment()
                 # The updater prepared this exact committed stage. Do not let
                 # the caller's old VAWS_ENV_RECEIPT select the new task runtime.
                 receipt = prepared["receipt"]
+                mark = time.monotonic()
                 configure_target(client, workspace, receipt, environment, owner_project=project)
                 select_environment(workspace, receipt)
                 write_preparation(workspace, project_root=project,
                                   native_workspace=Path(context["attachment"]["cwd"]), workspace=workspace,
-                                  sources=sources, source_channel=source_channel, environment=receipt)
+                                  sources=sources, source_channel=source_channel, environment=receipt,
+                                  preferred=focus["repository"])
+                timings["configuration_seconds"] = time.monotonic()-mark
                 preparation = "created"
             phase = "sources"
             store = AgentSessions(Path(context["state_dir"]))
             # Defaults belong to this attachment. Explicit user sources, including
             # an empty map, retain precedence in the coordinator.
             context = store.bind_native_sources(context, sources=sources)
+            editor = write_source_view(workspace, sources, preferred=focus["repository"],
+                                       task_id=context["session"]["id"])
             result = selected_result(workspace, receipt, context, status="ready", evidence=record,
                                      preparation=preparation, update=update, sources=sources,
-                                     source_channel=source_channel)
+                                     source_channel=source_channel, head=selected_head,
+                                     editor_workspace=str(editor), **focus)
+            result["startup_timings"] = {**timings, "total_seconds": time.monotonic()-begun}
             write_json(record, result)
             if preparation == "created":
                 write_json(project / ".vaws-local/latest-runtime.json",
@@ -160,7 +218,8 @@ def start(client: str, project: Path = ROOT, context_file: str | None = None,
             return result
     except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as exc:
         result = {"status": "failed", "phase": phase, "error": redact(str(exc)),
-                  "error_type": type(exc).__name__}
+                  "error_type": type(exc).__name__,
+                  "startup_timings": {**timings, "total_seconds": time.monotonic()-begun}}
         if context:
             result["context_file"] = context["context_file"]
         if workspace:
@@ -179,6 +238,10 @@ def main(argv=None) -> int:
     parser.add_argument("--context-file", help="existing native context, when the shell cannot provide it")
     parser.add_argument("--source-channel", choices=("development", "release"), default="development",
                         help="vLLM baseline paired with the selected Ascend commit; existing tasks keep their selection")
+    parser.add_argument("--sources", nargs="*", choices=("vllm", "vllm-ascend"),
+                        help="select business roots for a new task; existing tasks retain their source selection")
+    parser.add_argument("--latest", action="store_true", help="explicitly check upstream for a new task; resumed tasks keep their version")
+    parser.add_argument("--repo", choices=("workspace", "vllm", "vllm-ascend"), help="explicit editing repository for a new task")
     args = parser.parse_args(argv)
     setup = workspace_entry(shared_workspace_root(ROOT), announce=False)
     if setup["state"] != "configured":
@@ -193,7 +256,8 @@ def main(argv=None) -> int:
                           "setup": setup, "reference": reference, "next": next_step}, ensure_ascii=False))
         return 1
     ensure_workspace_interpreter(repo_root=ROOT)
-    result = start(args.client, ROOT, args.context_file, source_channel=args.source_channel)
+    result = start(args.client, ROOT, args.context_file, source_channel=args.source_channel,
+                   sources=None if args.sources is None else tuple(args.sources), latest=args.latest, preferred=args.repo)
     print(json.dumps(result, ensure_ascii=False), flush=True)
     return 1 if result["status"] == "failed" else 0
 

@@ -5,8 +5,10 @@ does not walk checkout trees. Status is one of ``missing``, ``off_spec``, or
 ``ready``.
 
 ``off_spec`` warns but does not block execution. ``missing`` makes capabilities
-that depend on the package unavailable. The remedy for every package gap is
-``uv run --no-project python .agents/scripts/vaws_deps.py sync``. CI uses ``uv lock --check`` to keep the lockfile aligned with
+that depend on the package unavailable. Core package gaps use
+``uv run --no-project python .agents/scripts/vaws_deps.py sync``; optional
+knowledge is prepared by actual use or ``sync --capability knowledge``.
+CI uses ``uv lock --check`` to keep the lockfile aligned with
 ``pyproject.toml``.
 """
 from __future__ import annotations
@@ -168,6 +170,10 @@ def installed_spec(name: str) -> dict[str, Any] | None:
         dist = metadata.distribution(name)
     except metadata.PackageNotFoundError:
         return None
+    return _distribution_spec(name, dist)
+
+
+def _distribution_spec(name: str, dist: metadata.Distribution) -> dict[str, Any]:
     commit = None
     url = None
     requested = None
@@ -186,6 +192,28 @@ def installed_spec(name: str) -> dict[str, Any] | None:
         "url": url,
         "requested_revision": requested,
     }
+
+
+def capability_distribution(name: str, repo_root: Path = ROOT):
+    """Return (split selection, distribution) using metadata, never imports."""
+    try:
+        from vaws_environment import native_ready, capability_receipt
+        selected = native_ready(repo_root, use_saved=True)
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+        return False, None
+    if selected.get("schema_version") != 2:
+        return False, None
+    try:
+        owner = capability_receipt(selected, "knowledge" if name == "vaws-knowledge" else "runtime")
+        directory = Path(owner["root"])
+        version = ".".join(owner["python_version"].split(".")[:2])
+        site = directory / ("Lib/site-packages" if owner["platform"] == "win32" else f"lib/python{version}/site-packages")
+        return True, next((item for item in metadata.distributions(path=[str(site)])
+                           if _norm_name(item.metadata["Name"]) == name), None)
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+        # A selected but unprepared optional owner is missing. An unrelated
+        # package in this process must not make it appear ready.
+        return True, None
 
 
 def _payload(
@@ -210,7 +238,7 @@ def _payload(
         "installed_version": installed_version,
         "installed_commit": installed_commit,
         "problems": problems,
-        "remedy": REMEDY,
+        "remedy": REMEDY + (" --capability knowledge" if name == "vaws-knowledge" else ""),
     }
 
 
@@ -255,6 +283,11 @@ def inspect(name: str, repo_root: Path = ROOT) -> dict[str, Any]:
     if locked is None and not problems:
         problems.append(f"{key} is not in uv.lock; run `{REMEDY}`")
     installed = installed_spec(key)
+    # Optional owners live in separate immutable environments. Read their
+    # distribution metadata directly; status must not import or launch them.
+    split, dist = capability_distribution(key, repo_root)
+    if split:
+        installed = _distribution_spec(key, dist) if dist else None
     if installed is None:
         problems.append(f"{key} is not installed in {sys.executable}; run `{REMEDY}`")
         return _payload(

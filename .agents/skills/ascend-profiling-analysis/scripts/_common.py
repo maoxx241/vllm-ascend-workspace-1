@@ -492,6 +492,17 @@ def load_collection_manifest(manifest_path: Path) -> dict[str, Any]:
     except json.JSONDecodeError as e:
         raise RuntimeError(f"manifest is not valid JSON: {manifest_path} ({e})") from e
 
+    if isinstance(data, dict) and data.get("schema_version") == "vaws.profile-collection.receipt.v1":
+        reference = data.get("manifest_ref")
+        if not isinstance(reference, str) or not reference:
+            raise RuntimeError("collection receipt has no manifest_ref")
+        target = Path(reference).expanduser()
+        if not target.is_absolute():
+            target = manifest_path.parent / target
+        # Follow a single recorded artifact, never a chain or a new collection.
+        data = json.loads(target.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError("collection manifest must be a JSON object")
     status = data.get("analysis_status")
     if status != "ok":
         raise RuntimeError(

@@ -28,7 +28,7 @@ guidance in `AGENTS.md`, with a Claude reference and an always-applied Cursor ru
 No Skill or personal client extension is required for this entry.
 Codex local-environment setup and Cursor worktree setup run after
 the client creates the new directory and before the Agent operates in it. The
-callback checks upstream once, advances an eligible new checkout and fixes its
+callback selects the local fixed commit or its matching prepared cache and fixes its
 dependency environment and MCP/hook wiring. SessionStart attaches the native
 identity and actual cwd to VAWS automatically. Cursor preToolUse injects context
 internally and can establish that same attachment if it runs first.
@@ -41,8 +41,8 @@ A new session reuses an independent native worktree with a selected environment.
 Otherwise its first repository operation is
 `uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT`
 (`codex`, `cursor`, `claude`, `grok` or `kimi`), adding `--context-file PATH` when
-the native context is unavailable to the shell. This entry prepares the canonical
-default branch and its locked components, creates an independent worktree, binds
+the native context is unavailable to the shell. This entry prepares the local
+fixed commit and its locked components, creates an independent worktree, binds
 explicit sources and saves the task's selection in the shared primary worktree's
 `.vaws-local/tasks/<task-id>/start.json`.
 

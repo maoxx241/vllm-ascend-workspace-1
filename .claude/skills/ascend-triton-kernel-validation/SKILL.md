@@ -1,6 +1,6 @@
 ---
 name: "ascend-triton-kernel-validation"
-description: "Validate one Ascend Triton kernel against a trusted reference across an explicit shape, dtype, layout, stride, scalar-option, and execution-mode case matrix, using actual candidate execution evidence, numerical comparisons and optional source lint. Use before any performance claim, after migration or implementation changes, or for shape-dependent compile/runtime/numerical failures in a Triton candidate. Do not use to generate the kernel, optimize an already-correct kernel, diagnose a non-Triton torch_npu or ACLNN call, or localize a whole-model graph failure."
+description: "Run an explicit Ascend Triton wrapper against a reference over real shape, dtype, layout and stride cases, or assess existing validation evidence. Use after migration or implementation changes, before performance claims, or for shape-dependent failures in a Triton candidate. Do not use to generate or optimize the kernel, diagnose a non-Triton operator, or localize a whole-model graph failure."
 ---
 
 <!-- Generated from .agents/skills/ascend-triton-kernel-validation/SKILL.md. Do not edit. -->

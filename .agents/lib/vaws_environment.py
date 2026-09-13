@@ -1,8 +1,9 @@
 """Publish immutable control-plane environments and look up their ready receipts.
 
-Only explicit dependency sync constructs environments. Each install happens at
+Dependency sync constructs core environments; actual optional capability use
+can prepare its fixed child from saved lock inputs. Each install happens at
 its permanent content address while holding an OS lock; the receipt is published
-last. Launchers only read receipts. A project selection is setup configuration,
+last. Core launchers only read receipts. A project selection is setup configuration,
 not a process lease, and an explicit receipt pins an already running client.
 """
 from __future__ import annotations
@@ -116,6 +117,8 @@ def _inputs(repo_root: Path) -> tuple[bytes, bytes, dict, str, str]:
     projection = {"project": {key: value for key, value in document.get("project", {}).items() if key in project_fields}}
     projection.update({key: document[key] for key in ("dependency-groups", "build-system") if key in document})
     projection["uv"] = uv
+    if environment := document.get("tool", {}).get("vaws", {}).get("environment"):
+        projection["environment"] = environment
     lock_sha = hashlib.sha256(lock).hexdigest()
     return project, lock, document, _digest({"project": projection, "lock_sha256": lock_sha}), lock_sha
 
@@ -187,22 +190,50 @@ def _access_path(value: str | Path) -> Path:
     return Path(value)
 
 
-def read_receipt(path: str | Path, *, expected_platform: str | None = None) -> dict:
+def read_receipt(path: str | Path, *, expected_platform: str | None = None, _allow_bundle=True) -> dict:
     actual = _access_path(path)
     try:
         value = json.loads(actual.read_text(encoding="utf-8"))
         required = ("key", "root", "python", "base_python", "platform", "arch", "abi", "python_version", "python_identity", "input_id", "lock_sha256", "selection", "store", "receipt")
-        if value.get("schema_version") != 1 or value.get("recipe_version") != RECIPE_VERSION or any(name not in value for name in required):
+        if value.get("schema_version") not in (1, 2) or value.get("recipe_version") != RECIPE_VERSION or any(name not in value for name in required):
             raise ValueError("incomplete ready receipt")
+        if value["schema_version"] == 2 and not _allow_bundle:
+            raise ValueError("nested capability selection")
         if expected_platform and value["platform"] != expected_platform:
             raise ValueError(f"ready receipt belongs to {value['platform']}, expected {expected_platform}")
         if value["key"] != _key(value["python_identity"], value["input_id"], value["selection"]):
             raise ValueError("ready receipt content does not match its key")
         root = _access_path(value["root"])
-        if root.name != value["key"] or actual.resolve() != (root / READY_NAME).resolve():
+        manifest_root = _access_path(value["store"]) / value["key"] if value["schema_version"] == 2 else root
+        if manifest_root.name != value["key"] or actual.resolve() != (manifest_root / READY_NAME).resolve():
             raise ValueError("ready receipt does not belong to its content-addressed root")
-        if _access_path(value["receipt"]).resolve() != actual.resolve() or root.parent.resolve() != _access_path(value["store"]).resolve():
+        if _access_path(value["receipt"]).resolve() != actual.resolve() or manifest_root.parent.resolve() != _access_path(value["store"]).resolve():
             raise ValueError("ready receipt paths do not agree")
+        if value["schema_version"] == 2:
+            component_keys = value["selection"]["components"]
+            if set(component_keys) != {"runtime", "knowledge"} or set(value["components"]) != set(component_keys):
+                raise ValueError("incomplete capability selection")
+            for name, path in value["components"].items():
+                key = component_keys[name]
+                if not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key):
+                    raise ValueError("invalid fixed capability key")
+                expected = _access_path(value["store"]) / key / READY_NAME
+                if _access_path(path).absolute() != expected.absolute():
+                    raise ValueError("capability receipt path differs from its fixed selection")
+            child = _read_capability(value, "runtime")
+            if any(child[key] != value[key] for key in ("root", "python", "base_python")):
+                raise ValueError("runtime interpreter differs from the selection")
+            # Optional knowledge is fixed, but not required for core readiness.
+            # Its complete input bytes are checked only if preparation is needed.
+            if "frozen_inputs" in value:
+                frozen = value["frozen_inputs"]
+                if (not isinstance(frozen, dict) or set(frozen) != {"pyproject.toml", "uv.lock"}
+                        or any(not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha) for sha in frozen.values())):
+                    raise ValueError("invalid frozen capability input descriptor")
+            if "knowledge_catalog_sha256" in value:
+                if ("frozen_inputs" not in value or not isinstance(value["knowledge_catalog_sha256"], str)
+                        or not re.fullmatch(r"[0-9a-f]{64}", value["knowledge_catalog_sha256"])):
+                    raise ValueError("invalid frozen knowledge catalog descriptor")
         python = _access_path(value["python"])
         expected = root / ("Scripts/python.exe" if value["platform"] == "win32" else "bin/python")
         if python != expected or not python.is_file():
@@ -232,7 +263,7 @@ def _configured(repo_root: Path, target_platform: str) -> dict | None:
 
 def _lookup(repo_root: Path, target_platform: str, *, require_configuration=False) -> dict:
     configuration = _configured(repo_root, target_platform)
-    _, _, document, input_id, _ = _inputs(repo_root)
+    _, lock, document, input_id, _ = _inputs(repo_root)
     if configuration:
         identity, selection = configuration["python_identity"], configuration["selection"]
         store = _access_path(configuration["store"])
@@ -242,6 +273,9 @@ def _lookup(repo_root: Path, target_platform: str, *, require_configuration=Fals
         identity = _identity()
         selection = _selection(document)[0]
         store = _store()
+    from vaws_environment_capabilities import bundle_selection, enabled
+    if enabled(document, selection):
+        selection = bundle_selection(document, lock, selection, identity)
     return read_receipt(store / _key(identity, input_id, selection) / READY_NAME, expected_platform=target_platform)
 
 
@@ -302,6 +336,63 @@ def select_environment(repo_root: Path, receipt: dict) -> None:
     _atomic_json(_selection_path(Path(repo_root), value["platform"]), value)
 
 
+def _read_capability(receipt: dict, name: str) -> dict:
+    child = read_receipt(receipt["components"][name], expected_platform=receipt["platform"], _allow_bundle=False)
+    if child["key"] != receipt["selection"]["components"][name]:
+        raise EnvironmentError("capability receipt differs from its fixed selection")
+    if child["python_identity"] != receipt["python_identity"]:
+        raise EnvironmentError("capability interpreter identity differs")
+    return child
+
+
+def capability_receipt(receipt: dict, capability: str = "runtime", *, prepare_missing=False, timings=None) -> dict:
+    """Read one fixed owner; actual knowledge use may prepare only that child."""
+    if receipt.get("schema_version") != 2:
+        return receipt
+    name = "knowledge" if capability == "knowledge" else "runtime"
+    path = _access_path(receipt["components"][name])
+    if path.exists() or name == "runtime":
+        return _read_capability(receipt, name)
+    if not prepare_missing:
+        raise EnvironmentError("knowledge is not prepared for this fixed selection; actual knowledge use prepares it, "
+                               "or explicitly prewarm with `vaws_deps.py sync --capability knowledge`")
+    from vaws_environment_capabilities import frozen_bundle_inputs
+    directory, frozen = frozen_bundle_inputs(receipt)
+    from vaws_knowledge_catalog import frozen_catalog
+    frozen_catalog(receipt)
+    if receipt["platform"] != sys.platform:
+        _prepare_windows_capability(receipt)
+        return _read_capability(receipt, name)
+    prepare_environment(directory, groups=receipt["selection"]["groups"], extras=receipt["selection"]["extras"],
+                        python=receipt["base_python"], _component="knowledge", _frozen=frozen,
+                        _store_path=_access_path(receipt["store"]),
+                        _expected_key=receipt["selection"]["components"]["knowledge"], timings=timings)
+    return _read_capability(receipt, name)
+
+
+def _prepare_windows_capability(receipt: dict) -> None:
+    """WSL hands off only installation to this bundle's native runtime owner."""
+    from vaws_local_owner import accessible_windows_path, managed_path, windows_interop_env
+    if receipt["platform"] != "win32" or not os.environ.get("WSL_DISTRO_NAME"):
+        raise EnvironmentError("prepare this fixed knowledge selection through its native runtime owner")
+    runtime = _read_capability(receipt, "runtime")
+    code = ("import sys;sys.path.insert(0,sys.argv[1]);"
+            "from vaws_environment import read_receipt,capability_receipt;"
+            "capability_receipt(read_receipt(sys.argv[2]),'knowledge',prepare_missing=True)")
+    command = [accessible_windows_path(runtime["python"]), "-I", "-X", "utf8", "-c", code,
+               managed_path(Path(__file__).resolve().parent, windows=True), receipt["receipt"]]
+    environment = dict(os.environ)
+    environment[PIN_ENV] = receipt["receipt"]
+    for name in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", MANAGED_PIN_ENV):
+        environment.pop(name, None)
+    # Windows retains its own PATH; only the fixed pin crosses the OS boundary.
+    forwarding = windows_interop_env({PIN_ENV: receipt["receipt"], "WSLENV": environment.get("WSLENV", "")})
+    environment["WSLENV"] = forwarding["WSLENV"]
+    result = subprocess.run(command, env=environment, stdout=sys.stderr, stderr=sys.stderr, check=False)
+    if result.returncode:
+        raise EnvironmentError(f"fixed Windows knowledge preparation failed with exit code {result.returncode}")
+
+
 @contextmanager
 def _key_lock(store: Path, key: str):
     locks = store / ".locks"
@@ -355,27 +446,69 @@ def _install(command: list[str], environment: dict, lock_fd: int) -> None:
         raise EnvironmentError(f"locked dependency installation failed with exit code {code}")
 
 
-def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None, install_options=()) -> dict:
+def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None, install_options=(),
+                        timings: dict | None = None, _component: str | None = None, _frozen=None,
+                        _store_path=None, _expected_key=None) -> dict:
     """Construct once at the final address, publish ready last, and select it."""
     repo_root = Path(repo_root)
-    project, lock, document, input_id, lock_sha = _inputs(repo_root)
+    timings = timings if timings is not None else {}
+    started = time.monotonic()
+    frozen_inputs = _frozen or _inputs(repo_root)
+    project, lock, document, input_id, lock_sha = frozen_inputs
     selection, selected_python, transport = _selection(document, groups, extras, install_options)
     executable, identity = _python_identity(python or selected_python)
-    store = _store()
+    from vaws_environment_capabilities import bundle_selection, enabled, plans
+    split = enabled(document, selection)
+    exclude = []
+    if _component:
+        plan = plans(document, lock, selection)[_component]
+        input_id, lock_sha, selection, exclude = (plan[key] for key in ("input_id", "lock_sha256", "selection", "exclude"))
+    elif split:
+        selection = bundle_selection(document, lock, selection, identity)
+    timings["selection_seconds"] = time.monotonic() - started
+    store = Path(_store_path) if _store_path is not None else _store()
     # Packaged desktop apps can virtualize LocalAppData writes. Resolve only
     # after explicit creation, so every receipt records the physical directory
     # seen by external Windows processes and WSL, not this app's virtual view.
     store.mkdir(parents=True, exist_ok=True)
     store = store.resolve(strict=True)
     key = _key(identity, input_id, selection)
+    if _expected_key is not None and key != _expected_key:
+        raise EnvironmentError("capability inputs or interpreter differ from the task's fixed selection")
     root = store / key
     receipt_path = root / READY_NAME
     if receipt_path.exists():
         receipt = read_receipt(receipt_path, expected_platform=sys.platform)
-        select_environment(repo_root, receipt)
+        if not _component:
+            select_environment(repo_root, receipt)
+        timings.update(reused=True, total_seconds=time.monotonic() - started)
         return receipt
+    waiting = time.monotonic()
     with _key_lock(store, key) as lock_fd:
+        timings["lock_wait_seconds"] = time.monotonic() - waiting
         if receipt_path.exists():
+            receipt = read_receipt(receipt_path, expected_platform=sys.platform)
+        elif split and not _component:
+            from vaws_knowledge_catalog import RELATIVE_PATH, validate_catalog
+            try:
+                catalog = (repo_root / RELATIVE_PATH).read_bytes()
+                validate_catalog(catalog, lock)
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                raise EnvironmentError("cannot freeze locked knowledge catalog: " + str(exc)) from exc
+            timings["components"] = {"runtime": {}}
+            runtime = prepare_environment(repo_root, groups=groups, extras=extras,
+                          python=executable, install_options=install_options, _component="runtime",
+                          _frozen=frozen_inputs, _store_path=store,
+                          _expected_key=selection["components"]["runtime"], timings=timings["components"]["runtime"])
+            from vaws_environment_capabilities import save_bundle_inputs
+            frozen_descriptor = save_bundle_inputs(root, project, lock, catalog)
+            catalog_sha = frozen_descriptor.pop("knowledge-catalog.json")
+            receipt = {**runtime, "schema_version": 2, "key": key, "input_id": input_id,
+                       "lock_sha256": lock_sha, "selection": selection, "receipt": str(receipt_path),
+                       "components": {name: str(store / child_key / READY_NAME)
+                                      for name, child_key in selection["components"].items()},
+                       "frozen_inputs": frozen_descriptor, "knowledge_catalog_sha256": catalog_sha}
+            _atomic_json(receipt_path, receipt)
             receipt = read_receipt(receipt_path, expected_platform=sys.platform)
         else:
             # An unpublished failed attempt may be retried. Published roots are
@@ -394,12 +527,17 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
                     command.extend(("--group" if selection["project"] else "--only-group", group))
                 for extra in selection["extras"]:
                     command.extend(("--extra", extra))
+                for name in exclude:
+                    command.extend(("--no-install-package", name))
                 command.extend(transport)
                 environment = {name: value for name, value in os.environ.items()
                                if not name.startswith("UV_") and name not in ("VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", PIN_ENV)}
                 environment["UV_PROJECT_ENVIRONMENT"] = str(root)
+                installing = time.monotonic()
                 _install(command, environment, lock_fd)
+                timings["install_seconds"] = time.monotonic() - installing
             environment_python = root / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+            verifying = time.monotonic()
             verification = subprocess.run([str(environment_python), "-I", "-X", "utf8", "-c",
                                           "import importlib.metadata,sys,json;list(importlib.metadata.distributions());print(json.dumps({'prefix':sys.prefix,'base':sys._base_executable}))"],
                                          capture_output=True, encoding="utf-8", check=False)
@@ -407,6 +545,7 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
             if (verification.returncode or Path(facts["prefix"]).resolve() != root.resolve()
                     or Path(facts["base"]).resolve() != Path(executable)):
                 raise EnvironmentError("installed interpreter failed its permanent-path verification")
+            timings["verification_seconds"] = time.monotonic() - verifying
             receipt = {"schema_version": 1, "recipe_version": RECIPE_VERSION, "key": key, "root": str(root), "python": str(environment_python),
                        "platform": identity["platform"], "arch": identity["arch"], "abi": identity["abi"],
                        "python_version": identity["python_version"], "python_identity": identity, "input_id": input_id,
@@ -414,5 +553,8 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
                        "base_python": executable}
             _atomic_json(receipt_path, receipt)
             receipt = read_receipt(receipt_path, expected_platform=sys.platform)
-    select_environment(repo_root, receipt)
+    if not _component:
+        select_environment(repo_root, receipt)
+    timings.update(reused="install_seconds" not in timings and "components" not in timings,
+                   total_seconds=time.monotonic() - started)
     return receipt

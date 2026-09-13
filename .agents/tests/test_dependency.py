@@ -40,7 +40,7 @@ class SpecLockTests(unittest.TestCase):
 
     def test_pyproject_requires_the_three_packages(self) -> None:
         versions = deps.required_versions()
-        self.assertEqual(set(versions), {"vaws-remote-dev", "vaws-coordinator", "vaws-knowledge", "pillow", "mcp"})
+        self.assertEqual(set(versions), {"vaws-remote-dev", "vaws-coordinator", "vaws-knowledge", "pillow", "mcp", "pyyaml", "requests"})
         self.assertNotIn(deps.VAWS_TOP_NAME, versions)
 
     def test_status_tracks_only_the_three_packages(self) -> None:
@@ -77,7 +77,8 @@ class SpecLockTests(unittest.TestCase):
             if info["state"] == "ready":
                 self.assertEqual(info["installed_version"], deps.locked_packages()[name]["version"])
                 self.assertEqual(info["installed_commit"], deps.locked_packages()[name]["commit"])
-                self.assertEqual(info["remedy"], "uv run --no-project python .agents/scripts/vaws_deps.py sync")
+                self.assertEqual(info["remedy"], "uv run --no-project python .agents/scripts/vaws_deps.py sync"
+                                 + (" --capability knowledge" if name == "vaws-knowledge" else ""))
 
     def test_missing_pyproject_is_missing_not_an_execution_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

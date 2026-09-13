@@ -23,10 +23,11 @@ def prepared_sources(root: Path) -> dict[str, str] | None:
 
 def write_preparation(root: Path, *, project_root: Path, native_workspace: Path,
                       workspace: Path, sources: dict, source_channel: str = "development",
+                      preferred: str | None = None,
                       **facts) -> dict:
     """Publish caller-validated preparation using the existing local receipt."""
     from vaws_session_state import write_json
-    from vaws_source_view import write_source_view
+    from vaws_source_view import source_focus, write_source_view
 
     root = Path(root).resolve()
     record = {**facts, "state": "ready", "project_root": str(Path(project_root).resolve()),
@@ -49,8 +50,13 @@ def write_preparation(root: Path, *, project_root: Path, native_workspace: Path,
             raise ValueError("prepared source must belong to the editing workspace")
         if not target.is_dir() or not (target / ".git").exists():
             raise ValueError(f"prepared source is not a populated repository: {target}")
+    focus = source_focus(Path(record["workspace"]), record["sources"], preferred=preferred)
+    for key, value in focus.items():
+        if key in facts and facts[key] != value:
+            raise ValueError(f"preparation {key} conflicts with the selected editing repository")
+    record.update(focus)
     if root == Path(record["workspace"]):
-        record["editor_workspace"] = str(write_source_view(root, record["sources"]))
+        record["editor_workspace"] = str(write_source_view(root, record["sources"], preferred=focus["repository"]))
     write_json(root / ".vaws-local/native-workspace.json", record)
     return record
 

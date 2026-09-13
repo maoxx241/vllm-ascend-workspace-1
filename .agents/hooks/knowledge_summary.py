@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import io
 import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,7 +51,9 @@ def main() -> int:
     try:
         # This optional hook must not interrupt a completed response when the
         # package or workspace environment is unavailable.
-        with contextlib.redirect_stderr(io.StringIO()):
+        # Lazy owner preparation/re-exec launches real child processes, which
+        # need a file descriptor even though optional hook errors stay quiet.
+        with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors, contextlib.redirect_stderr(errors):
             ensure_workspace_interpreter(repo_root=ROOT, packages=("vaws_knowledge",))
     except SystemExit as exc:
         if exc.code:

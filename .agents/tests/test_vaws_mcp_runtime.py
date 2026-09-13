@@ -73,6 +73,11 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                                             str(self.root / (selected.key + ".jsonl")), str(self.init_gate or "-")], dict(env)))
         self.command_patch.start()
         self.addCleanup(self.command_patch.stop)
+        # These subprocess protocol fixtures represent legacy complete owners;
+        # lazy split-owner/catalog behavior has its own real install tests.
+        receipt_patch = patch.object(runtime, "read_receipt", return_value={"schema_version": 1})
+        receipt_patch.start()
+        self.addCleanup(receipt_patch.stop)
         from mcp.client import stdio
         launch = stdio._create_platform_compatible_process
         self.processes = []
@@ -100,7 +105,8 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_persistent_provider_uses_each_tasks_fixed_runtime(self):
         provider = runtime.Provider("knowledge", self.root)
-        contexts = {"first": {"id": "old"}, "second": {"id": "new"}}
+        contexts = {"first": {"id": "old", "context_file": "first"},
+                    "second": {"id": "new", "context_file": "second"}}
         def choose(root, context=None, *, catalog=False, require_prepared=True):
             return self.selections[context["id"] if context else "new"]
         try:
@@ -173,9 +179,10 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             try:
                 with patch.object(runtime, "caller_context", return_value=None), \
                      patch.object(runtime, "selection", return_value=self.selections["new"]) as select:
-                    result = await provider.call_tool("read", {"host": "fixture", "container": "repro"})
+                    arguments = {"text": "fixture"} if kind == "knowledge" else {"host": "fixture", "container": "repro"}
+                    result = await provider.call_tool("knowledge_query" if kind == "knowledge" else "read", arguments)
                 select.assert_called_once_with(self.root, None, require_prepared=False)
-                self.assertEqual(result.structuredContent["arguments"], {"host": "fixture", "container": "repro"})
+                self.assertEqual(result.structuredContent["arguments"], arguments)
             finally:
                 await provider.close()
 
@@ -247,6 +254,76 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             await provider.close()
         self.assertEqual([process.returncode for process in self.processes], [7])
 
+    async def test_dead_backend_recovers_only_for_a_new_call_without_replaying_exit(self):
+        provider = runtime.Provider("remote", self.root)
+        selected = self.selections["old"]
+        backend = provider.backend(selected)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "evidence:"):
+                await asyncio.wait_for(backend.request("call_tool", name="exit", arguments={}), 3)
+            await asyncio.wait_for(backend.closed.wait(), 3)
+            recovered = provider.backend(selected)
+            self.assertIsNot(recovered, backend)
+            self.assertEqual(recovered.selected, selected)
+            self.assertEqual((await recovered.request("list_tools")).tools[0].name, "knowledge_query")
+            messages = [json.loads(line) for line in (self.root / "old.jsonl").read_text().splitlines()]
+            self.assertEqual(sum(row.get("params", {}).get("name") == "exit" for row in messages), 1)
+            self.assertEqual(sum(row.get("method") == "initialize" for row in messages), 2)
+        finally:
+            await provider.close()
+        self.assertTrue(all(process.returncode is not None for process in self.processes))
+
+    async def test_failed_start_can_recover_on_the_same_fixed_selection(self):
+        provider = runtime.Provider("remote", self.root)
+        selected = self.selections["old"]
+        try:
+            with patch.object(runtime, "provider_command", return_value=([sys.executable, str(self.root / "missing.py")], {})):
+                failed = provider.backend(selected)
+                with self.assertRaises(RuntimeError):
+                    await asyncio.wait_for(failed.request("list_tools"), 3)
+                await asyncio.wait_for(asyncio.shield(failed.worker), 3)
+            recovered = provider.backend(selected)
+            self.assertIsNot(recovered, failed)
+            self.assertEqual((await recovered.request("list_tools")).tools[0].name, "knowledge_query")
+        finally:
+            await provider.close()
+
+    async def test_new_catalog_arguments_never_reach_incompatible_old_backend(self):
+        provider = runtime.Provider("knowledge", self.root)
+        try:
+            with patch.object(runtime, "selection", return_value=self.selections["new"]):
+                await provider.list_tools()
+            with patch.object(runtime, "caller_context", return_value={"context_file": "old"}), \
+                 patch.object(runtime, "selection", return_value=self.selections["old"]):
+                result = await provider.call_tool("knowledge_query", {"text": "query", "future_option": True})
+                missing = await provider.call_tool("new_mutation", {})
+                accepted = await provider.call_tool("knowledge_query", {"text": "compatible"})
+            self.assertTrue(result.isError)
+            self.assertFalse(result.structuredContent["submitted"])
+            self.assertEqual(result.structuredContent["environment"], "old")
+            self.assertIn("input_schema", result.structuredContent)
+            self.assertTrue(missing.isError)
+            self.assertEqual(accepted.structuredContent["runtime"], "old")
+            messages = [json.loads(line) for line in (self.root / "old.jsonl").read_text().splitlines()]
+            self.assertEqual(sum(row.get("method") == "tools/call" for row in messages), 1)
+            self.assertEqual(sum(row.get("method") == "tools/list" for row in messages), 1)
+        finally:
+            await provider.close()
+
+    async def test_scoped_catalog_uses_native_tasks_fixed_environment(self):
+        provider = runtime.Provider("task", self.root)
+        context = {"context_file": "old"}
+        metadata = {"x-codex-turn-metadata": {"thread_id": "old-thread"}}
+        try:
+            with patch.object(runtime, "caller_context", return_value=context), \
+                 patch.object(runtime, "selection", return_value=self.selections["old"]) as choose:
+                await provider.list_tools(metadata)
+            choose.assert_called_once_with(self.root, context, catalog=False, require_prepared=False)
+            self.assertEqual(provider.scoped_catalogs, {"old": "old"})
+            self.assertIsNone(provider.catalog_selection)
+        finally:
+            await provider.close()
+
     async def test_evidence_directory_failure_finishes_startup_with_a_locatable_error(self):
         provider = runtime.Provider("remote", self.root)
         backend = provider.backend(self.selections["new"])
@@ -261,6 +338,80 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SelectionTests(unittest.TestCase):
+    def prepared_focus(self, base, preferred="vllm-ascend"):
+        from vaws_workspace_entry import write_preparation
+
+        # Match shared_workspace_root's physical owner path. macOS temporary
+        # directories may be spelled /var while their real root is /private/var.
+        base = base.resolve()
+        project, workspace = base / "project", base / "bundle"
+        project.mkdir()
+        sources = {"workspace": workspace, "vllm": workspace / "vllm",
+                   "vllm-ascend": workspace / "vllm-ascend"}
+        for path in sources.values():
+            (path / ".git").mkdir(parents=True)
+        record = write_preparation(workspace, project_root=project, native_workspace=workspace,
+                                   workspace=workspace, sources=sources, preferred=preferred)
+        context = {"session": {"id": "vaws-" + "a" * 32}, "context_file": "known",
+                   "attachment": {"cwd": str(workspace)}}
+        saved = {"key": "prepared", "python": sys.executable, "receipt": "fixed-receipt"}
+        protected = [workspace / ".vaws-local/native-workspace.json", Path(record["editor_workspace"])]
+        return project, workspace, sources, context, saved, protected
+
+    def test_prepared_child_cwd_selects_its_repository_without_start_or_shared_writes(self):
+        for suffix in ("vllm", "vllm/src"):
+            with self.subTest(cwd=suffix), tempfile.TemporaryDirectory() as tmp:
+                project, workspace, sources, context, saved, protected = self.prepared_focus(Path(tmp))
+                child = workspace / suffix
+                child.mkdir(parents=True, exist_ok=True)
+                context["attachment"]["cwd"] = str(child)
+                before = {path: path.read_bytes() for path in protected}
+                files = set((workspace / ".vaws-local").rglob("*"))
+                with patch.object(runtime, "shared_workspace_root", return_value=project), \
+                     patch.object(runtime, "saved_ready", return_value=saved), \
+                     patch("vaws_workspace_update.git", side_effect=AssertionError("unneeded Git discovery")):
+                    selected = runtime.selection(project, context)
+                self.assertEqual(selected.workspace, workspace)
+                self.assertEqual(selected.repository, "vllm")
+                self.assertEqual(selected.cwd, sources["vllm"])
+                self.assertEqual(selected.key, saved["key"])
+                self.assertFalse((runtime.task_dir(context["session"]["id"], project) / "start.json").exists())
+                self.assertEqual({path: path.read_bytes() for path in protected}, before)
+                self.assertEqual(set((workspace / ".vaws-local").rglob("*")), files)
+
+    def test_prepared_root_cwd_keeps_explicit_receipt_focus_without_shared_writes(self):
+        for preferred in ("workspace", "vllm"):
+            with self.subTest(repository=preferred), tempfile.TemporaryDirectory() as tmp:
+                project, workspace, sources, context, saved, protected = self.prepared_focus(Path(tmp), preferred)
+                before = {path: path.read_bytes() for path in protected}
+                with patch.object(runtime, "shared_workspace_root", return_value=project), \
+                     patch.object(runtime, "saved_ready", return_value=saved):
+                    selected = runtime.selection(project, context)
+                self.assertEqual(selected.repository, preferred)
+                self.assertEqual(selected.cwd, sources[preferred])
+                self.assertEqual({path: path.read_bytes() for path in protected}, before)
+                self.assertFalse((runtime.task_dir(context["session"]["id"], project) / "start.json").exists())
+
+    def test_existing_start_focus_wins_over_native_child_and_shared_preparation(self):
+        for preferred in ("workspace", "vllm"):
+            with self.subTest(repository=preferred), tempfile.TemporaryDirectory() as tmp:
+                project, workspace, sources, context, saved, protected = self.prepared_focus(Path(tmp))
+                context["attachment"]["cwd"] = str(sources["vllm-ascend"])
+                path = runtime.task_dir(context["session"]["id"], project) / "start.json"
+                path.parent.mkdir(parents=True)
+                path.write_text(json.dumps({"workspace": str(workspace), "sources": {
+                    name: str(root) for name, root in sources.items()}, "environment": saved,
+                    "repository": preferred, "cwd": str(sources[preferred])}), encoding="utf-8")
+                protected.append(path)
+                before = {item: item.read_bytes() for item in protected}
+                with patch.object(runtime, "shared_workspace_root", return_value=project), \
+                     patch.object(runtime, "read_receipt", return_value=saved), \
+                     patch.object(runtime, "saved_ready", side_effect=AssertionError("reselected prepared runtime")):
+                    selected = runtime.selection(project, context)
+                self.assertEqual(selected.repository, preferred)
+                self.assertEqual(selected.cwd, sources[preferred])
+                self.assertEqual({item: item.read_bytes() for item in protected}, before)
+
     def test_metadata_cannot_override_an_explicit_different_native_context(self):
         with patch("vaws_coordinator.agent_session.AgentSessions") as store:
             store.return_value.native_context.return_value = {"context_file": "native-context"}

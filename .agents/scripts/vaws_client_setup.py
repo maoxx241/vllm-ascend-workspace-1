@@ -221,7 +221,9 @@ def desired_mcp_servers(*, task_only=False):
     }
     if not task_only:
         servers[KNOWLEDGE_SERVER_NAME] = {
-            "command": knowledge_owner_python(ROOT),
+            # The gateway routes native task context in the small runtime;
+            # only its knowledge worker uses the optional owner interpreter.
+            "command": managed_python(),
             "args": [knowledge_owner_path(ROOT, ROOT / ".agents/scripts/vaws_native_mcp.py"), "knowledge"],
             "type": "stdio",
             "timeout": 600000,
@@ -878,7 +880,7 @@ def _build_plan(client, project, *, kimi_config=None, task_only=False, kimi_sess
     # Kimi's adapter reads only the known session's final completed wire step.
     if not task_only:
         summary_command = local_hook_command([
-            knowledge_owner_python(ROOT), knowledge_owner_path(ROOT, ROOT / ".agents/hooks/knowledge_summary.py"),
+            managed_python(), knowledge_owner_path(ROOT, ROOT / ".agents/hooks/knowledge_summary.py"),
             "--client", client, "--project", knowledge_owner_path(ROOT, project),
             "--environment-receipt", managed_receipt(ROOT)["receipt"],
         ])

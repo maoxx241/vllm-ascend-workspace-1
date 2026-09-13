@@ -23,6 +23,12 @@ uv run --no-project python .agents/skills/ascend-profiling-collection/scripts/co
 
 The workflow starts or observes the managed service, controls /start_profile and /stop_profile, runs analyse(), verifies expected rank outputs and records workload success. DB export is the default. Large traces stay near the data; the resulting manifest can be passed directly to analysis.
 
+Stdout is a compact receipt: workload/rank status, owned execution reference and
+`manifest_ref`. Per-request responses and detailed rank outputs remain in that
+complete local manifest. Pass its path to analysis, or save the receipt itself
+and pass that file; analysis resolves the recorded manifest without recollecting.
+`VAWS_FULL_ENVELOPE=1` retains the earlier full JSON stdout when needed.
+
 Use profiling-analysis for existing traces, memory-profiling for HBM attribution, and benchmark for throughput measurements without tracing.
 
 Read the relevant detail only when needed:

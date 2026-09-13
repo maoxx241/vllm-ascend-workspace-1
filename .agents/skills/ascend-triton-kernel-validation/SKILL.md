@@ -1,6 +1,6 @@
 ---
 name: ascend-triton-kernel-validation
-description: Validate one Ascend Triton kernel against a trusted reference across an explicit shape, dtype, layout, stride, scalar-option, and execution-mode case matrix, using actual candidate execution evidence, numerical comparisons and optional source lint. Use before any performance claim, after migration or implementation changes, or for shape-dependent compile/runtime/numerical failures in a Triton candidate. Do not use to generate the kernel, optimize an already-correct kernel, diagnose a non-Triton torch_npu or ACLNN call, or localize a whole-model graph failure.
+description: Run an explicit Ascend Triton wrapper against a reference over real shape, dtype, layout and stride cases, or assess existing validation evidence. Use after migration or implementation changes, before performance claims, or for shape-dependent failures in a Triton candidate. Do not use to generate or optimize the kernel, diagnose a non-Triton operator, or localize a whole-model graph failure.
 ---
 
 # ascend-triton-kernel-validation
@@ -14,13 +14,19 @@ Select shapes, dtype, layout, strides, scalar options and execution modes from t
 Run from the repository root. The entry reuses the installed platform environment.
 
 ```text
-uv run --no-project python .agents/skills/ascend-triton-kernel-validation/scripts/triton_validation.py --config validation.json --kernel kernel.py --results case-results.json
+uv run --no-project python .agents/skills/ascend-triton-kernel-validation/scripts/triton_validation.py run --kernel kernel.py:run --reference reference.py:run --cases cases.py:cases
 ```
 
-The config contains op_name, reference, target, cases and tolerances. The report
-combines supplied case results and emits coverage, analysis and a manifest. Its
-source lint understands only the ModelNew.forward wrapper convention and is
-advisory; ordinary functions and imported wrappers remain valid inputs.
+The small runner fixes the three Python files into one owned script and invokes
+their named callables. The case factory constructs actual tensor shapes, strides
+and scalar arguments; the wrapper supplies the Triton launch and any requested
+compile/graph semantics. It does not infer a kernel signature or adapt ModelNew.
+See [callable inputs and execution scope](../ascend-operator-debug/references/callable-runner.md).
+
+Existing runner/profiler evidence can be assessed directly. Optional report mode
+keeps `--config validation.json --kernel kernel.py --results case-results.json`.
+That report combines supplied results; source lint is advisory and understands
+only the ModelNew.forward convention.
 
 The report separates `numerical_status` from `candidate_execution`. Case status
 and source lint alone do not prove actual candidate NPU execution, so the tool

@@ -50,10 +50,21 @@ def preparation_hint(root: Path, context: dict) -> str:
         # A native attachment does not select workspace preparation. Review and
         # explicit endpoint work need neither preparation nor personal identity.
         return ""
+    cwd = Path(getattr(selected, "cwd", None) or selected.workspace).resolve()
+    workspace = Path(selected.workspace).resolve()
+    if cwd != workspace and workspace not in cwd.parents:
+        raise ValueError("selected editing cwd is outside its prepared workspace")
+    repository = getattr(selected, "repository", None)
+    editing = f"Default shell and file directory: {cwd}"
+    if repository:
+        editing += f" (Git repository: {repository})"
     return (f"VAWS task workspace is prepared: W={selected.workspace}\n"
+            f"{editing}\n"
             f"Selected environment: {selected.key}\nSelected Python: {selected.python}\n"
-            "Use W for file tools and `cd W` for shell commands. Reuse this task's existing "
-            "workspace and environment; startup preparation need not be repeated.")
+            "Use this default directory for shell commands and absolute file paths there. "
+            "VAWS scripts and skills remain under W; use their absolute paths. "
+            "An explicitly requested repository or endpoint takes precedence. "
+            "Reuse this task's workspace and environment without repeating preparation.")
 
 
 def project_output(client: str, payload: dict, raw: str, *, root: Path) -> str:

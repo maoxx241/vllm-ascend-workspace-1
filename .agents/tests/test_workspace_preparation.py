@@ -80,6 +80,39 @@ def test_failed_source_validation_publishes_no_ready(tmp_path):
     assert read_preparation(workspace) is None
 
 
+def test_new_preparation_publishes_ascend_focus_and_explicit_override(prepared):
+    project, native, workspace, sources = prepared
+    record = read_preparation(workspace)
+    assert record["repository"] == "vllm-ascend"
+    assert record["cwd"] == sources["vllm-ascend"]
+    changed = write_preparation(workspace, project_root=project, native_workspace=native,
+                                workspace=workspace, sources=sources, preferred="vllm")
+    assert changed["repository"] == "vllm" and changed["cwd"] == sources["vllm"]
+    assert changed["sources"] == sources
+
+
+def test_invalid_focus_does_not_replace_existing_preparation(prepared):
+    project, native, workspace, sources = prepared
+    receipt = workspace / ".vaws-local/native-workspace.json"
+    view = workspace / ".vaws-local/vaws.code-workspace"
+    before = (receipt.read_bytes(), view.read_bytes())
+    with pytest.raises(ValueError, match="was not selected"):
+        write_preparation(workspace, project_root=project, native_workspace=native,
+                          workspace=workspace, sources=sources, preferred="unselected")
+    assert (receipt.read_bytes(), view.read_bytes()) == before
+
+
+def test_conflicting_focus_is_not_published(prepared):
+    project, native, workspace, sources = prepared
+    path = workspace / ".vaws-local/native-workspace.json"
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="conflicts"):
+        write_preparation(workspace, project_root=project, native_workspace=native,
+                          workspace=workspace, sources=sources, preferred="workspace",
+                          cwd=sources["vllm-ascend"])
+    assert path.read_bytes() == before
+
+
 def test_runtime_routes_prepared_independent_clone_and_child_with_fixed_receipt(prepared):
     import vaws_mcp_runtime as runtime
     project, native, workspace, _ = prepared

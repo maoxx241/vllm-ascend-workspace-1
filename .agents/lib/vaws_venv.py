@@ -11,7 +11,7 @@ import os
 import sys
 from pathlib import Path
 
-from vaws_environment import EnvironmentError, PIN_ENV, native_ready
+from vaws_environment import EnvironmentError, PIN_ENV, native_ready, capability_receipt
 
 REEXEC_ENV = "VAWS_VENV_REEXEC"
 SKIP_ENV = "VAWS_SKIP_VENV_REEXEC"
@@ -37,7 +37,9 @@ def ensure_workspace_interpreter(
     try:
         # Native GUI shells need not inherit the hook/MCP process's pin. Their
         # worktree selection remains valid while the Agent edits dependencies.
-        receipt = native_ready(repo_root, use_saved=use_saved)
+        selected = native_ready(repo_root, use_saved=use_saved)
+        knowledge = packages == ("vaws_knowledge",)
+        receipt = capability_receipt(selected, "knowledge" if knowledge else "runtime", prepare_missing=knowledge)
     except EnvironmentError as exc:
         sys.stderr.write(f"{exc}; run `{REMEDY}` before starting a new client.\n")
         raise SystemExit(2) from exc
@@ -47,7 +49,7 @@ def ensure_workspace_interpreter(
     # executables alone would falsely accept an unrelated base environment.
     same_environment = Path(sys.prefix).resolve() == Path(receipt["root"]).resolve()
     if same_environment and not needs_utf8:
-        os.environ[PIN_ENV] = receipt["receipt"]
+        os.environ[PIN_ENV] = selected["receipt"]
         os.environ.pop(REEXEC_ENV, None)
         return
     if not same_environment and os.environ.get(REEXEC_ENV) == receipt["key"]:
@@ -56,7 +58,7 @@ def ensure_workspace_interpreter(
     if venv_python.is_file():
         env = os.environ.copy()
         env[REEXEC_ENV] = receipt["key"]
-        env[PIN_ENV] = receipt["receipt"]
+        env[PIN_ENV] = selected["receipt"]
         env.pop("PYTHONHOME", None)
         env.pop("VIRTUAL_ENV", None)
         executable = os.fsdecode(venv_python)

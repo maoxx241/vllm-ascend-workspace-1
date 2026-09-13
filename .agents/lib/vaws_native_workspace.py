@@ -5,6 +5,7 @@ it does not allocate tasks, infer session identity, or manage workspace leases.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -12,6 +13,7 @@ import re
 import shutil
 import stat
 import subprocess
+import time
 import uuid
 from pathlib import Path
 
@@ -68,8 +70,8 @@ def _file_state(path: Path):
     return ["file", stat.S_IMODE(info.st_mode), info.st_size, digest.hexdigest()]
 
 
-def _configuration_entries(source: Path) -> list[tuple[str, str]]:
-    return [tuple(entry.split("\n", 1)) for entry in git(source, "config", "--null", "--list").decode("utf-8").split("\0")
+def _configuration_entries(source: Path, *, local=False) -> list[tuple[str, str]]:
+    return [tuple(entry.split("\n", 1)) for entry in git(source, "config", *(["--local"] if local else []), "--null", "--list").decode("utf-8").split("\0")
             if "\n" in entry]
 
 
@@ -82,6 +84,12 @@ def _checkout_configuration(entries: list[tuple[str, str]]) -> dict[str, str]:
     if policy["core.eol"] == "native":
         policy["core.eol"] = "crlf" if os.name == "nt" else "lf"
     return policy
+
+
+def _branch_configuration(source: Path) -> list[tuple[str, str]]:
+    fields = iter(git(source, "config", "--show-scope", "--null", "--list").decode("utf-8").split("\0"))
+    return [tuple(entry.split("\n", 1)) for scope, entry in zip(fields, fields)
+            if scope in {"local", "worktree"} and entry.startswith("branch.") and "\n" in entry]
 
 
 def _capture(source: Path) -> dict:
@@ -126,12 +134,21 @@ def _capture(source: Path) -> dict:
             children[name] = {"uninitialized": True, "directory": path.is_dir()}
         else:
             children[name] = _capture(path)
-    configuration = _checkout_configuration(_configuration_entries(source))
+    entries = _configuration_entries(source)
+    configuration = _checkout_configuration(entries)
+    refs = git(source, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)").decode("utf-8").splitlines()
+    symbolic_head = git(source, "rev-parse", "--symbolic-full-name", "HEAD").decode("utf-8").strip()
+    stash_path = Path(os.fsdecode(git(source, "rev-parse", "--git-path", "logs/refs/stash").strip()))
+    if not stash_path.is_absolute():
+        stash_path = source / stash_path
     status = git(source, "status", "--porcelain=v1", "-z", "--untracked-files=all")
     status = b"\0".join(row for row in status.split(b"\0")
                          if not (row.startswith(b"?? ") and _private(os.fsdecode(row[3:]))))
     return {"head": head, "tree": tree, "tracked": tracked, "files": files, "modules": children,
-            "configuration": configuration, "status": status.hex(),
+            "configuration": configuration, "status": status.hex(), "refs": refs,
+            "symbolic_head": "" if symbolic_head == "HEAD" else symbolic_head,
+            "branch_configuration": _branch_configuration(source),
+            "stash_log": stash_path.read_bytes().hex() if stash_path.is_file() else None,
             "staged_diff": git(source, "diff", "--no-ext-diff", "--no-textconv", "--binary", "--cached").hex(),
             "working_diff": git(source, "diff", "--no-ext-diff", "--no-textconv", "--binary").hex()}
 
@@ -140,7 +157,7 @@ def _copy_remotes(source: Path, destination: Path, entries: list[tuple[str, str]
     for remote in git(destination, "remote").decode().splitlines():
         git(destination, "remote", "remove", remote)
     for key, value in _configuration_entries(source) if entries is None else entries:
-        if key.startswith("remote."):
+        if key.startswith("remote.") or key == "push.autosetupremote":
             git(destination, "config", "--local", "--add", key, value)
 
 
@@ -221,13 +238,25 @@ def create_prepared_workspace(prepared: dict, destination: Path) -> dict:
             raise WorkspaceCopyError("prepared source overlaps the destination")
         if not (source / ".git").is_dir() or (source / ".git/objects/info/alternates").exists():
             raise WorkspaceCopyError("prepared source must have independent Git storage")
-    result_sources = {}
-    for name, source in roots.items():
+    result_sources, copy_seconds = {}, {}
+    task_branch = "codex/task-" + uuid.uuid4().hex[:12]
+    def copy(item):
+        name, source = item
+        started = time.monotonic()
         target = destination if name == "workspace" else destination / name
         prepare_source(target, repository=REPOSITORIES[name], revision=revisions[name], local_source=source)
-        result_sources[name] = str(target)
+        git(target, "switch", "-c", task_branch)
+        if not any(key == "push.autosetupremote" for key, _ in _configuration_entries(target)):
+            git(target, "config", "--local", "push.autoSetupRemote", "true")
+        return name, str(target), time.monotonic()-started
+    name, target, seconds = copy(("workspace", roots.pop("workspace")))
+    result_sources[name], copy_seconds[name] = target, seconds
+    if roots:
+        with ThreadPoolExecutor(max_workers=min(2, len(roots))) as pool:
+            for name, target, seconds in pool.map(copy, roots.items()):
+                result_sources[name], copy_seconds[name] = target, seconds
     return {"schema": "vaws.workspace-copy.v1", "state": "ready", "source": str(stage),
-            "workspace": str(destination), "sources": result_sources,
+            "workspace": str(destination), "sources": result_sources, "copy_seconds": copy_seconds,
             "head": revisions["workspace"], "revisions": dict(revisions)}
 
 
@@ -242,14 +271,39 @@ def _copy_repository(source: Path, destination: Path, snapshot: dict) -> None:
         git(destination, "config", "core.longpaths", "true")
     for key, value in snapshot["configuration"].items():
         git(destination, "config", key, value)
-    git(destination, "update-ref", "HEAD", snapshot["head"])
+    # clone advertises only part of the source refs. Preserve local branches,
+    # tags, private refs and stashes without altering the source or using alternates.
+    _copy_remotes(source, destination)
+    source_refs = {row.split("\0", 1)[0] for row in snapshot["refs"]}
+    commands = [f"delete {ref}\n" for ref in git(destination, "for-each-ref", "--format=%(refname)").decode().splitlines()
+                if ref not in source_refs]
+    symbolic = []
+    for row in snapshot["refs"]:
+        ref, oid, symref = row.split("\0")
+        if symref:
+            symbolic.append((ref, symref))
+        else:
+            commands.append(f"update {ref} {oid}\n")
+    if commands:
+        git(destination, "update-ref", "--stdin", data=("option no-deref\n"+"".join(commands)).encode())
+    for ref, target in symbolic:
+        git(destination, "symbolic-ref", ref, target)
+    if snapshot["symbolic_head"]:
+        git(destination, "symbolic-ref", "HEAD", snapshot["symbolic_head"])
+    else:
+        git(destination, "update-ref", "--no-deref", "HEAD", snapshot["head"])
+    for key in {key for key, _ in _configuration_entries(destination, local=True) if key.startswith("branch.")}:
+        git(destination, "config", "--local", "--unset-all", key)
+    for key, value in snapshot["branch_configuration"]:
+        git(destination, "config", "--local", "--add", key, value)
+    if snapshot["stash_log"] is not None:
+        stash = destination / ".git/logs/refs/stash"
+        stash.parent.mkdir(parents=True, exist_ok=True)
+        stash.write_bytes(bytes.fromhex(snapshot["stash_log"]))
     git(destination, "read-tree", snapshot["tree"])
     exclude = destination / ".git/info/exclude"
     with exclude.open("a", encoding="utf-8") as stream:
         stream.write("\n.vaws-local/\n")
-    # Preserve upstream remotes instead of making the source working copy a
-    # development remote. Credentials, if any, are never included in receipts.
-    _copy_remotes(source, destination)
     _copy_contents(source, destination, snapshot)
 
 

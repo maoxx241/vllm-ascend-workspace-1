@@ -17,6 +17,16 @@ VAWS 保留可直接查看、搜索和编辑的 `vllm/` 与 `vllm-ascend/`，用
 已有准备结果直接复用。候选 `sources.lock.json` 不意味着当前目录已经包含源码，
 也不意味着每次会话必须准备完整开发环境。
 
+新开发任务默认聚焦已选中的 `vllm-ascend`；没有选中它时使用 workspace 根。
+明确选择 vLLM、VAWS 或现有目录时保留该选择，不从任务文字猜仓库，也不为
+满足默认值补建源码。结果中的 `workspace` 是工具和配置所在的完整目录，
+`cwd` 是默认 shell、文件和 Git 操作目录，`repository` 指明该普通 Git 仓库。
+默认任务直接在返回的 `cwd` 使用原生 `git status/diff/add/commit`，无需先查看
+父仓再切换子仓。VAWS 脚本和 Skill 仍通过 `workspace` 下的绝对路径访问。
+续接保留此前选择；没有聚焦字段的旧任务仍使用原来的 workspace。
+没有 task 启动记录的原生任务也使用同一选仓逻辑：明确的已选业务仓 cwd 优先，
+完整目录根则保留 preparation 的选择。此路由只读，不重写共享目录的默认值。
+
 ## 精确的两个基准
 
 `sources.lock.json` 固定官方仓库及完整 commit SHA。先取得一个 Ascend SHA，再读取
@@ -41,7 +51,11 @@ release/tag 自己的历史声明，并保留对应 CANN、torch_npu、设备和
 VAWS 工具依赖继续由 `pyproject.toml` 和 `uv.lock` 固定，业务源码由 `sources.lock.json`
 固定。只改业务 Python 不重装相同工具环境；只更新工具不重写已有业务分支。
 新任务采用已接受的默认组合，恢复和 fork 保留原实际来源、修改及环境。
-网络不可用时复用可用的已接受本地组合，并报告实际版本。
+普通新任务以本地确定提交为准，复用匹配该提交的已接受准备缓存；缺缓存时准备该
+提交，不主动检查上游新版本或同步个人 fork；缺失的固定源码对象和依赖按需获取。
+结果报告实际版本以及
+`upstream_checked: false`。明确需要最新版本时，在新任务入口使用 `--latest`；
+已有任务恢复仍保留原选择。维护更新和源码锁更新继续使用各自明确入口。
 
 ## 目录与 Git
 
@@ -64,9 +78,16 @@ workspace/
 已验证的 canonical 准备计划复用其固定 revisions；复制步骤按这些精确提交
 克隆独立仓库，不重新捕获 staging 目录的可变工作文件。即使准备后的工作文件
 发生变化，也不能改变该计划选择的提交。现有编辑目录和 conversation fork
-使用完整 capture，保留 HEAD、staged、working 和普通 untracked 内容；用户
+使用完整 capture，保留 HEAD、本地 refs、分支配置、stash 历史、staged、working 和普通 untracked 内容；用户
 忽略的私有数据不自动复制。业务仓内部自己的 upstream submodules 仍由该仓库
 正常处理。两种路径的实际成本见 [dated 验证](source-workspace-validation-2026-09-13.md)。
+新固定版本副本的各仓创建普通可提交任务分支；客户端明确提供的分支保持其名称。
+已有目录恢复和 conversation fork 保留实际分支，不重新选择默认分支。
+fork 默认继承来源目录 preparation 的选仓。若调用方已有明确的父任务
+`context_file`，可向复制入口传 `source_context_file`（CLI 为 `--source-context-file`），
+校验它属于该来源目录后继承该任务实际选仓；显式 `--repo` 仍优先。
+这只读取父任务选择，不把新任务加入父任务。现有原生回调未提供可靠父关联时，
+不从最近任务或 cwd 猜父身份；也不要求 Agent 为普通 fork 补填上下文。
 
 完整任务根不能是包住 ignored 内仓的 linked worktree：父仓可能显示干净，
 普通 `git worktree remove` 却删除内仓尚未提交或推送的工作。linked 内仓还会
@@ -74,7 +95,13 @@ workspace/
 多仓目录默认整体独立，且位于客户端临时 worktree 清理范围之外。
 
 父仓忽略业务仓内容，避免误提交上游源码；搜索配置允许源码，并继续尊重各
-业务仓自己的 build 等忽略规则。人可以直接打开目录，分别运行：
+业务仓自己的 build 等忽略规则。需要跨仓检查时，已有 `workspace_sources.py`
+入口提供 `status` 与 `diff`，使用实际准备的仓库而非锁文件的候选 SHA。
+它报告每仓的分支、修改和错误；已声明源码缺失或 Git 目录损坏时，不会把父仓
+干净报告为全部干净。该入口仅按需运行，没有每次提示、提交或任务结束时的
+自动扫描，也不成为 Agent 检查清单。`show` 仍只展示锁文件来源。
+
+原生 Git 保持原有含义；明确操作别的仓库可以使用其绝对 cwd，或分别运行：
 
 ```text
 git -C vllm status
@@ -83,9 +110,14 @@ git -C vllm-ascend status
 git -C vllm-ascend diff
 ```
 
-父仓 status 不能代表内仓是否干净。准备及客户端配置结果用标准
+父仓 status 不能代表内仓是否干净。聚合的 `worktree_clean` 也只表示已检查的
+工作文件状态，不能证明所有本地分支、stash 或未推送提交可以删除。准备及客户端配置结果用标准
 `editor_workspace` 字段返回 `.vaws-local/vaws.code-workspace`，其中列出已经
-选中的实际来源，供支持该格式的编辑器打开多目录视图。它不拉取或补建源码。
+选中的实际来源，默认操作仓库列在第一位，集成终端 cwd 指向该仓库；其余仓库
+仍可浏览。路径引用随整个目录移动保留。它不拉取或补建源码。
+`start` 返回由同一实际选仓生成的任务编辑器文件；多个任务在相同完整目录选择
+不同仓库时，其视图独立。任务覆盖不改共享 preparation 或默认编辑器文件；
+恢复直接复用该任务记录，不重写其他任务的视图。
 多仓 Git UI、搜索发现和分仓 diff 按实际客户端能力接线与验收，不从生成
 配置文件或一次 `rg` 测试推断全部客户端自动支持。
 
@@ -94,10 +126,15 @@ git -C vllm-ascend diff
 准备先在未发布目录完成所有选定源码、组件环境和客户端配置，成功后才发布
 editing workspace。任一仓库失败不得写 ready；恢复需要核实已选目录和实际
 源码，不能将半成品当作可复用结果。更新不自动 stash、reset 或 rebase 用户修改。
+同一次调用直接使用已验证的准备结果及其环境 receipt，不重复执行完成验证或依赖
+选择；持久缓存跨调用复用仍检查实际 Git 状态。根仓准备后，两个独立业务仓可并行
+复制。`startup_timings` 返回锁等待、准备、复制与配置耗时，复制结果还返回逐仓
+耗时；这些是内部观察事实，不是 Agent 需要填写的操作记录。
 
 复用 `.vaws-local/native-workspace.json` 和 task `start.json` 记录明确的
 `project_root`、`native_workspace`、实际 `workspace`、逻辑 `sources` 与
-`source_channel`。复制来源只是 provenance，不能把临时 stage 当状态所有者。
+`source_channel`，以及新任务的默认 `repository` / `cwd`。
+复制来源只是 provenance，不能把临时 stage 当状态所有者。
 独立 clone 通过这份准备事实关联母工程，不靠 common-dir 相同或目录名猜身份。
 任务身份仍来自原生 context；准备 receipt 不授权控制其他任务。
 
@@ -122,10 +159,12 @@ editing workspace。任一仓库失败不得写 ready；恢复需要核实已选
 支持返回工作目录的 Kimi/Claude 创建回调可以交回实际目录；是否被客户端采用
 需要实际运行证明。官方 Kimi 的普通调用不要求个人 SessionSetup 扩展。
 
-Codex/Cursor 的 native worktree setup 回调不能替父进程改变 UI 根目录。
-此时结果返回实际 `workspace` 和可打开的 `editor_workspace`，已准备 roots
-自动参与 scope 与工具路由，Agent
-用该目录作为 shell cwd 和文件绝对路径。`native_workspace` 只是原生入口坐标，
+客户端进程保留从完整 workspace 启动，以继续发现 VAWS 配置和 Skill；已加载
+的 hook 返回实际业务操作 `cwd`，不向业务仓复制 VAWS 配置。Codex/Cursor 的
+native worktree setup 回调不能替父进程改变 UI 根目录。
+结果返回实际 `workspace`、操作 `cwd` 和可打开的 `editor_workspace`，已准备 roots
+自动参与 scope 与工具路由。Agent 使用操作目录作为 shell cwd 和文件绝对路径。
+`native_workspace` 只是原生入口坐标，
 不证明 UI 已切换。应向人展示实际源码目录与分仓 Git 操作入口；没有真实打开、
 搜索、diff、恢复和删除验收，不宣称完成原生多仓 UI 支持。
 

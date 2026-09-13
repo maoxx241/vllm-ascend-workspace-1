@@ -148,17 +148,25 @@ single business repository, not an outer container for ignored independent repos
 When preparation is needed and no prepared workspace exists, use
 `uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT`, with
 `--context-file PATH` when the native context is not available to the shell.
-It selects an exact canonical revision and its locked components, prepares only
+It selects the current local committed revision and its locked components; an
+explicit `--latest` requests upstream maintenance. Ordinary new tasks do not
+check GitHub identity, fetch upstream or sync the personal Fork. It prepares only
 the needed sources, publishes a complete independent editing directory and binds
 automatic attachment defaults. The existing preparation receipt records explicit
-`project_root`, `native_workspace`, actual `workspace`, `sources` and `source_channel`.
+`project_root`, `native_workspace`, actual `workspace`, `sources`, `source_channel`,
+`repository` and operation `cwd`.
 Task selection remains in the owning project's `.vaws-local/tasks/<task-id>/start.json`. Later calls
 and resume reuse that selection without checking upstream or preparing again.
 Ordinary local review and explicit endpoint/container work use their existing
 inputs directly; they do not call `vaws_start` or trigger setup/knowledge work.
 
-The returned workspace is the editing directory: set shell cwd to it and use
-absolute file/search/patch paths. An explicit native launcher starts the client
+The returned workspace is the bundle root. Use the returned operation `cwd` for
+business shell commands and absolute paths under the bundle for workspace tools.
+New bundles prefer `vllm-ascend` when selected; `--repo` or an explicit native child
+directory selects another prepared repository. Resume retains its recorded choice;
+old records without focus fields keep the workspace root. Source status and diff
+inspect every selected repository, rather than inferring child state from parent
+Git status. An explicit native launcher starts the client
 process in that directory. Supported Kimi/Claude directory-return callbacks can
 return it, subject to actual client acceptance. Codex/Cursor native worktree setup
 callbacks cannot change the parent UI directory; they return the actual workspace
@@ -231,6 +239,15 @@ is required for this server-local reuse.
 ### 5.1 Dependencies and runtime identity
 
 `pyproject.toml` declares dependencies and `uv.lock` fixes their source.
+Normal clients select an immutable bundle of a small runtime environment and an
+independent knowledge environment. Normal preparation installs only the runtime;
+the first valid knowledge operation prepares its fixed optional dependency closure.
+Tool discovery reads the generated catalog frozen with that bundle and installs
+nothing. Explicit `vaws_deps.py sync --capability knowledge` can prepare it ahead of
+use. Each component key covers its locked dependency closure; a knowledge-only
+update can reuse the runtime. Existing single-environment
+receipts and resumed tasks retain their exact selections. Explicit `--group dev`
+prepares a complete environment for tests that import all components together.
 Doctor reports installed and loaded runtime identities separately. Pin drift
 is reported without blocking observation or cleanup of existing executions.
 No consumer handshake is required. `sources.lock.json` separately fixes business-source
@@ -292,7 +309,8 @@ indexing and model lifecycle. Supported hooks reuse the normal task summary,
 and manual capture can reuse useful existing text without an extra summary or
 publishing follow-up.
 
-Dependency sync installs or reuses packages without knowledge preparation.
+Normal dependency sync installs or reuses runtime packages without installing the
+optional knowledge environment or preparing its model and index.
 Explicit knowledge setup can ask the package to prepare its model and index.
 An unused knowledge MCP connection performs no backend startup, maintenance,
 model verification, index reconciliation or shared-release network request;

@@ -23,7 +23,7 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 from vaws_venv import REMEDY, configure_windows_stdio, ensure_workspace_interpreter
-from vaws_environment import EnvironmentError, prepare_environment
+from vaws_environment import EnvironmentError, prepare_environment, capability_receipt
 
 
 def progress(message: str) -> None:
@@ -93,16 +93,21 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def cmd_sync(args: argparse.Namespace) -> int:
     extra = list(args.passthrough or [])
+    timings = {}
     progress("selecting or preparing the immutable locked dependency environment")
     try:
-        receipt = prepare_environment(ROOT, install_options=extra)
+        receipt = prepare_environment(ROOT, install_options=extra, timings=timings)
+        if getattr(args, "capability", None) == "knowledge":
+            timings["knowledge"] = {}
+            capability_receipt(receipt, "knowledge", prepare_missing=True, timings=timings["knowledge"])
     except (EnvironmentError, OSError) as exc:
-        _print({"ok": False, "error": str(exc), "remedy": REMEDY})
+        _print({"ok": False, "error": str(exc), "remedy": REMEDY, "timings": timings})
         return 1
     if os.name == "nt":
         from vaws_environment_link import link_environment
         link_environment(ROOT, key=receipt["key"], environment_root=Path(receipt["root"]))
-    payload = {"ok": True, "returncode": 0, "environment": receipt["root"], "receipt": receipt, "remedy": None}
+    payload = {"ok": True, "returncode": 0, "environment": receipt["root"], "receipt": receipt, "remedy": None,
+               "timings": timings}
     progress("dependencies ready")
     _print(payload)
     return 0
@@ -122,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.set_defaults(func=cmd_doctor)
 
     sync = sub.add_parser("sync", help="prepare a locked environment; progress on stderr, JSON on stdout")
+    sync.add_argument("--capability", choices=["knowledge"], help="also prewarm this optional fixed owner")
     sync.set_defaults(func=cmd_sync)
     return parser
 

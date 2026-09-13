@@ -50,11 +50,15 @@ def workspace(tmp_path, monkeypatch):
     calls, selected = [], {}
 
     class Updater:
-        def __init__(self, root, *, source_channel="development"):
+        def __init__(self, root, *, source_channel="development", source_names=None):
             assert source_channel in {"development", "release"}
             assert root == project
             self.state = {"prepared": {"stage": str(stage), "receipt": receipt, "sources": {},
                                        "revisions": {"workspace": latest}}}
+
+        def local_prepare(self):
+            calls.append(("local", {}))
+            return {"status": "cached", "target": latest, "upstream_checked": False}, self.state["prepared"]
 
         def step(self, **kwargs):
             calls.append(("update", kwargs))
@@ -207,7 +211,7 @@ def test_failed_update_returns_evidence_without_binding_or_creating(workspace, m
         return {"status": "deferred", "reason": "network_unavailable", "log": "/raw/updater-log.json"}
 
     monkeypatch.setattr(start.WorkspaceUpdater, "step", failed)
-    result = start.start("cursor", project, context["context_file"])
+    result = start.start("cursor", project, context["context_file"], latest=True)
     assert result["status"] == "failed" and result["phase"] == "upstream"
     assert json.loads(Path(result["evidence"]).read_text(encoding="utf-8"))["details"]["log"] == "/raw/updater-log.json"
     assert store.context(context["attachment"]["id"])["source_defaults"]["origin"] != "explicit"
@@ -221,7 +225,7 @@ def test_unavailable_upstream_reuses_a_valid_prepared_revision(workspace, monkey
         self.state.update(phase="ready", target=latest)
         return {"status": "deferred", "reason": "network_unavailable"}
     monkeypatch.setattr(start.WorkspaceUpdater, "step", unavailable)
-    result = start.start("codex", project, context["context_file"])
+    result = start.start("codex", project, context["context_file"], latest=True)
     assert result["status"] == "ready" and result["head"] == latest
     assert result["update"]["status"] == "cached"
     assert result["update"]["upstream_check"]["reason"] == "network_unavailable"
@@ -275,7 +279,7 @@ def test_configured_repository_starts_without_bootstrap_rerun(workspace, monkeyp
     monkeypatch.setattr(start, "ensure_workspace_interpreter", lambda **kwargs: calls.append("environment"))
     monkeypatch.setattr(start, "start", lambda *args, **kwargs: calls.append((args, kwargs)) or {"status": "ready"})
     assert start.main(["--client", "codex", "--context-file", "native.json"]) == 0
-    assert calls == ["environment", (("codex", project, "native.json"), {"source_channel": "development"})]
+    assert calls == ["environment", (("codex", project, "native.json"), {"source_channel": "development", "sources": None, "latest": False, "preferred": None})]
     assert json.loads(capsys.readouterr().out) == {"status": "ready"}
     assert identity.read_bytes() == before
     assert not (project / ".vaws-local/client-initialization.json").exists()

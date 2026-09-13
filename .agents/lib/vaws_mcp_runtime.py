@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 import sys
 
-from vaws_environment import read_receipt, saved_ready, PIN_ENV
+from vaws_environment import read_receipt, saved_ready, PIN_ENV, capability_receipt
 from vaws_local_state import prepared_workspace, shared_workspace_root
 from vaws_session_state import task_dir
 
@@ -29,6 +29,8 @@ class Selection:
     python: str
     key: str
     context_file: str = ""
+    cwd: Path | None = None
+    repository: str | None = None
 
 
 def caller_context(arguments: dict, metadata: dict | None, *, state_dir: str = "") -> dict | None:
@@ -62,6 +64,8 @@ def caller_context(arguments: dict, metadata: dict | None, *, state_dir: str = "
 
 def selection(root: Path, context: dict | None = None, *, catalog: bool = False,
               require_prepared: bool = True) -> Selection:
+    focus = {}
+    native_cwd = None
     if context is None and not catalog:
         # Direct capabilities use their configured workspace, without task or
         # catalog discovery. No Git process is needed to read this selection.
@@ -72,6 +76,7 @@ def selection(root: Path, context: dict | None = None, *, catalog: bool = False,
             shared / ".vaws-local/latest-runtime.json")
     if (context or catalog) and path.is_file():
         result = json.loads(path.read_text(encoding="utf-8"))
+        focus = result
         target = Path(result["workspace"]).resolve(strict=True)
         receipt = read_receipt(result["environment"]["receipt"])
     else:
@@ -83,6 +88,9 @@ def selection(root: Path, context: dict | None = None, *, catalog: bool = False,
             prepared = prepared_workspace(target, root, owner=shared)
             if prepared is not None:
                 target = prepared.resolve(strict=True)
+                from vaws_local_state import read_preparation
+                focus = read_preparation(target) or {}
+                native_cwd = context["attachment"]["cwd"]
             else:
                 from vaws_workspace_update import common_dir, git, repository_root
                 shared_git = common_dir(root)
@@ -93,8 +101,12 @@ def selection(root: Path, context: dict | None = None, *, catalog: bool = False,
                         or (require_prepared and actual_git == shared_git)):
                     raise ValueError("This new task has no prepared workspace. Run the project vaws_start.py entry once, then reuse its context.")
         receipt = saved_ready(target)
+    from vaws_source_view import native_focus, recorded_focus
+    editing = (native_focus(target, focus.get("sources", {}), focus, cwd=native_cwd)
+               if native_cwd is not None else recorded_focus(target, focus.get("sources", {}), focus))
     return Selection(target, receipt["receipt"], receipt["python"], receipt["key"],
-                     context["context_file"] if context else "")
+                     context["context_file"] if context else "",
+                     Path(editing["cwd"]), editing["repository"])
 
 
 def provider_command(kind: str, selected: Selection, environment: dict) -> tuple[list[str], dict]:
@@ -104,13 +116,15 @@ def provider_command(kind: str, selected: Selection, environment: dict) -> tuple
     modules = {"task": ["-m", "vaws_coordinator", "task-server"],
                "remote": ["-m", "remote_dev.mcp.server"],
                "knowledge": ["-m", "vaws_knowledge.server.mcp_server"]}
+    owner = capability_receipt(read_receipt(selected.receipt), kind)
+    executable = owner["python"]
     env = dict(environment)
     for key in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "VAWS_MANAGED_ENV_RECEIPT",
                 "VAWS_CONTEXT_FILE", "VAWS_PARENT_CONTEXT", "VAWS_ATTACH_CONTEXT"):
         env.pop(key, None)
     env[PIN_ENV] = selected.receipt
-    env["VIRTUAL_ENV"] = str(Path(selected.python).parent.parent)
-    env["PATH"] = str(Path(selected.python).parent) + os.pathsep + env.get("PATH", "")
+    env["VIRTUAL_ENV"] = owner["root"]
+    env["PATH"] = str(Path(executable).parent) + os.pathsep + env.get("PATH", "")
     if kind == "task":
         env = coordinator_environment(env, repo_root=selected.workspace)
     elif kind == "remote":
@@ -126,7 +140,7 @@ def provider_command(kind: str, selected: Selection, environment: dict) -> tuple
         env.update(knowledge_server_env(selected.workspace))
     else:
         raise ValueError(f"unknown provider: {kind}")
-    return [selected.python, *modules[kind]], env
+    return [executable, *modules[kind]], env
 
 
 class Backend:
@@ -139,6 +153,8 @@ class Backend:
         self.stderr = shared_workspace_root(root) / ".vaws-local/mcp/providers" / f"{kind}-{selected.key[:12]}-{digest}.log"
         self.closed = asyncio.Event()
         self.requests = set()
+        self.catalog = None
+        self.catalog_request = None
         self.ready = asyncio.get_running_loop().create_future()
         self.worker = asyncio.create_task(self.run())
 
@@ -149,6 +165,14 @@ class Backend:
         import anyio
 
         class CancellableSession(ClientSession):
+            async def _receive_loop(session):
+                try:
+                    await super()._receive_loop()
+                finally:
+                    # EOF is a definite dead transport, including an idle child
+                    # exit. Let its owner close it; never replay pending calls.
+                    self.closed.set()
+
             async def send_request(self, request, result_type, *args, **kwargs):
                 # MCP SDK 1.30 assigns this ID before its first await, but does
                 # not send notifications/cancelled when its caller cancels.
@@ -167,7 +191,7 @@ class Backend:
             self.stderr.parent.mkdir(parents=True, exist_ok=True)
             with self.stderr.open("a", encoding="utf-8") as log:
                 facts = {"provider": self.kind, "workspace": str(self.selected.workspace),
-                         "environment": self.selected.key, "python": self.selected.python,
+                         "environment": self.selected.key, "python": self.command[0],
                          "receipt": self.selected.receipt, "stderr": str(self.stderr)}
                 log.write(json.dumps({"vaws_provider_start": facts}) + "\n")
                 log.flush()
@@ -213,6 +237,18 @@ class Backend:
         finally:
             self.requests.discard(request)
 
+    async def tools(self):
+        if self.catalog is None:
+            if self.catalog_request is None:
+                self.catalog_request = asyncio.create_task(self.request("list_tools"))
+            try:
+                result = await asyncio.shield(self.catalog_request)
+                self.catalog = {tool.name: tool for tool in result.tools}
+            except Exception:
+                self.catalog_request = None
+                raise
+        return self.catalog
+
     async def close(self):
         pending = list(self.requests)
         for request in pending:
@@ -229,17 +265,47 @@ class Provider:
         self.kind, self.root = kind, root
         self.environment = dict(os.environ if environment is None else environment)
         self.backends = {}
+        self.retired = []
+        self.catalog_selection = None
+        self.scoped_catalogs = {}
 
     def backend(self, selected: Selection) -> Backend:
         key = (str(selected.workspace), selected.receipt)
+        previous = self.backends.get(key)
+        if previous is not None and (previous.worker.done() or previous.closed.is_set()):
+            self.retired.append(previous)
+            del self.backends[key]
         if key not in self.backends:
             self.backends[key] = Backend(self.kind, selected, self.root, self.environment)
         return self.backends[key]
 
-    async def list_tools(self):
-        result = await self.backend(selection(self.root, catalog=True)).request("list_tools")
+    async def tools_for(self, selected: Selection):
+        if self.kind == "knowledge":
+            from vaws_knowledge_catalog import frozen_catalog
+            receipt = read_receipt(selected.receipt)
+            projected = frozen_catalog(receipt)
+            if projected is not None:
+                from mcp.types import Tool
+                return {row["name"]: Tool.model_validate(row) for row in projected["tools"]}
+            if receipt.get("schema_version") == 2:
+                # Legacy selections can use an existing backend, but cannot
+                # invent either its catalog or missing installation inputs.
+                capability_receipt(receipt, "knowledge")
+        return await self.backend(selected).tools()
+
+    async def list_tools(self, metadata: dict | None = None):
+        context = (caller_context({}, metadata, state_dir=self.environment.get("VAWS_AGENT_SESSIONS_DIR", ""))
+                   if metadata else None)
+        # A list request carrying a native association can describe that task's
+        # fixed version. Unscoped clients still get the current catalog.
+        selected = selection(self.root, context, catalog=context is None, require_prepared=False)
+        catalog = await self.tools_for(selected)
+        if context is not None:
+            self.scoped_catalogs[context["context_file"]] = selected.key
+        else:
+            self.catalog_selection = selected.key
         tools = []
-        for tool in result.tools:
+        for tool in catalog.values():
             item = tool.model_copy(deep=True)
             schema = copy.deepcopy(item.inputSchema)
             schema.setdefault("properties", {}).setdefault("context_file", {
@@ -264,15 +330,41 @@ class Provider:
             values["context_file"] = context["context_file"]
         elif self.kind != "task":
             values.pop("context_file", None)
+        catalog_selection = self.scoped_catalogs.get(context["context_file"], self.catalog_selection) if context else self.catalog_selection
+        if self.kind == "knowledge" or (catalog_selection is not None and catalog_selection != selected.key):
+            # A long-lived native client may retain a newer schema than this
+            # task. Check the fixed backend before sending a possible mutation.
+            catalog = await self.tools_for(selected)
+            tool = catalog.get(name)
+            problem = "tool is unavailable in this task's fixed environment" if tool is None else None
+            if tool is not None:
+                from jsonschema.validators import validator_for
+                validator = validator_for(tool.inputSchema)(tool.inputSchema)
+                error = next(validator.iter_errors(values), None)
+                if error is not None:
+                    problem = error.message
+            if problem is not None:
+                from mcp.types import CallToolResult, TextContent
+                facts = {"status": "unsupported_task_capability", "tool": name,
+                         "environment": selected.key, "submitted": False,
+                         "reason": problem, "input_schema": tool.inputSchema if tool else None,
+                         "available_tools": sorted(catalog) if tool is None else None}
+                return CallToolResult(isError=True, structuredContent=facts,
+                                      content=[TextContent(type="text", text=json.dumps(facts))])
+        if self.kind == "knowledge":
+            # Keyed local preparation can take time. Other providers and
+            # cancellation remain responsive; no tool has been submitted yet.
+            await asyncio.to_thread(capability_receipt, read_receipt(selected.receipt),
+                                    "knowledge", prepare_missing=True)
         backend = self.backend(selected)
         result = await backend.request("call_tool", name=name, arguments=values, meta=metadata)
         result.meta = {**(result.meta or {}), "vaws_provider": {
             "environment": selected.key, "workspace": str(selected.workspace),
-            "python": selected.python, "stderr": str(backend.stderr)}}
+            "python": backend.command[0], "stderr": str(backend.stderr)}}
         return result
 
     async def close(self):
-        await asyncio.gather(*(backend.close() for backend in self.backends.values()), return_exceptions=True)
+        await asyncio.gather(*(backend.close() for backend in [*self.backends.values(), *self.retired]), return_exceptions=True)
 
 
 async def serve(kind: str, root: Path):
@@ -284,7 +376,8 @@ async def serve(kind: str, root: Path):
 
     @server.list_tools()
     async def list_tools():
-        return await provider.list_tools()
+        meta = server.request_context.meta
+        return await provider.list_tools(meta.model_dump(exclude_none=True) if meta else None)
 
     @server.call_tool(validate_input=False)
     async def call_tool(name, arguments):

@@ -90,9 +90,9 @@ uv run --no-project python .agents/skills/ascend-tensor-dump/scripts/dump_compar
 
 关注三个字段：
 
-- `first_nonfinite`：第一个出现 NaN/Inf 的 stage，通常就是答案所在层。
-- `storage_aliases` 里 `stride_conflict` 为真的组：同一块存储被不同 stride 访问，缓存或 block table 踩踏的签名。
-- `records_without_summary`：非空说明 `DUMP_PROBE_SUMMARY` 正则写窄了，有 stage 没被统计到。
+- `first_nonfinite`：记录顺序中第一个含 NaN/Inf 的 stage，是定位线索。需核对该区域是否已初始化、消费前是否覆盖，以及实际消费者使用的范围，不能仅据此确定根因。
+- `storage_aliases` 里 `stride_conflict` 为真的组：同一存储指针关联了不同布局记录。先检查这些 view 的读写范围和时序；不同 stride 本身不能证明缓存或 block table 被破坏。
+- `records_without_summary`：有记录缺少统计值。检查 `DUMP_PROBE_SUMMARY` 的覆盖和记录内容；缺少统计值不能当作数值正常。
 
 ## 6. 两个配置对拍
 
@@ -139,7 +139,7 @@ python .../dump_compare.py tensors \
   --atol 1e-3 --rtol 1e-3
 ```
 
-默认容差是 `1e-2`，属于 bf16 宽松档。要声称"逐位一致"必须显式收紧。
+默认容差是 `1e-2`。按实际比较要求选择容差；`exact_equal` 表示转换后数值精确相等，收紧容差也不能建立原始存储逐位一致的结论。
 
 ## 8. 图模式采集
 

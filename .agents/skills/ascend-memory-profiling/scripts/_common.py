@@ -107,37 +107,6 @@ def get_machine_alias(machine: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# msprof environment check
-# ---------------------------------------------------------------------------
-
-def check_msprof_available(ep: SshEndpoint) -> dict[str, Any]:
-    """Verify that msprof is available on the remote machine.
-
-    Returns {"available": True, "path": str, "version": str} on success.
-    Raises RuntimeError with actionable fix instructions on failure.
-    """
-    r = ssh_exec(
-        ep,
-        f"{ENV_PREAMBLE} which msprof 2>/dev/null && msprof --version 2>&1 | head -3",
-        check=False,
-    )
-    lines = [l.strip() for l in r.stdout.strip().splitlines() if l.strip()]
-    if r.returncode != 0 or not lines:
-        raise RuntimeError(
-            "msprof 在远端不可用。显存 profiling 依赖 msprof 采集组件级内存数据。\n"
-            "请确认:\n"
-            "  1. CANN (ascend-toolkit) 已正确安装\n"
-            "  2. /usr/local/Ascend/ascend-toolkit/set_env.sh 可正常 source\n"
-            "  3. msprof 在 PATH 中 (通常位于 ascend-toolkit/bin/)\n"
-            f"远端输出: stdout={r.stdout[:300]!r}  stderr={r.stderr[:300]!r}"
-        )
-    msprof_path = lines[0]
-    version_info = " ".join(lines[1:]) if len(lines) > 1 else "unknown"
-    progress(f"msprof available: {msprof_path} ({version_info})")
-    return {"available": True, "path": msprof_path, "version": version_info}
-
-
-# ---------------------------------------------------------------------------
 # msprof wrapping helpers
 # ---------------------------------------------------------------------------
 

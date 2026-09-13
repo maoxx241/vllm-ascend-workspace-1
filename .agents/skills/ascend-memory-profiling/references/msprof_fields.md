@@ -1,10 +1,9 @@
 # msprof Memory CSV Field Reference
 
 Reading guide for observed CANN exports. Field names and units vary by release:
-inspect the actual CSV header before applying a conversion. Typical ranges below
-are historical examples, not expected values or acceptance thresholds. A PROF
-directory containing multiple devices does not by itself assign each component
-row to a physical device.
+inspect the actual CSV header before applying a conversion. A PROF directory
+containing multiple devices does not by itself assign each component row to a
+physical device.
 
 ## 1. `npu_module_mem_*.csv` -- Component-Level Memory
 
@@ -20,16 +19,16 @@ Automatically collected when `--sys-hardware-mem=on` is passed to msprof or when
 
 ### Key Components
 
-| Component | What it represents | Typical range (910B4) |
-|-----------|-------------------|----------------------|
-| APP | All application-level memory (PyTorch allocator + GE) | 10-25 GB |
-| HCCL | Communication buffers for collective ops (all-reduce, etc.) | 200-500 MB |
-| RUNTIME | CANN runtime internal allocations | 50-100 MB |
-| SLOG | System logging buffers | 100-150 MB |
-| GE | Graph Engine internal memory | Variable |
-| FE | Frontend memory | Small |
-| DEVMM | Device Memory Management | Small |
-| Others | AICPU, CCE, TBE, TS, etc. | Usually 0 |
+| Component | What it represents |
+|-----------|-------------------|
+| APP | All application-level memory (PyTorch allocator + GE) |
+| HCCL | Communication buffers for collective ops (all-reduce, etc.) |
+| RUNTIME | CANN runtime internal allocations |
+| SLOG | System logging buffers |
+| GE | Graph Engine internal memory |
+| FE | Frontend memory |
+| DEVMM | Device Memory Management |
+| Others | AICPU, CCE, TBE, TS, etc. |
 
 ## 2. `npu_mem_*.csv` -- Device & APP Timeline
 
@@ -84,11 +83,6 @@ Requires `profile_memory=True`. Records memory lifecycle for each operator.
 | Allocation Total Allocated(MB) | Global allocated total at allocation time | MB |
 | Allocation Total Reserved(MB) | Global reserved total at allocation time | MB |
 | Device Type | Device type and ID | -- |
-
-### Key patterns
-- `aten::empty` with large Size → weight tensor allocation
-- `aten::empty` without Release Time → permanent allocation (likely weights or KV cache)
-- `aten::matmul` with small Size → activation tensors (transient)
 
 ## Collection Method Comparison
 

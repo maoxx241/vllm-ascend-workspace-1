@@ -82,6 +82,7 @@ def _load_json(path: Path, label: str) -> dict[str, Any]:
 
 
 def validate_config(config: Mapping[str, Any]) -> None:
+    """Validate only the inputs used to submit a service topology."""
     errors: list[str] = []
     services = config.get("services")
     if not isinstance(services, list) or len(services) < 2:
@@ -108,7 +109,7 @@ def validate_config(config: Mapping[str, Any]) -> None:
             roles.add(role)
         if not isinstance(service.get("model"), str) or not service["model"]:
             errors.append(f"{path}.model must be a non-empty string")
-        for field in ("tp", "dp", "port", "health_timeout"):
+        for field in ("tp", "dp", "port"):
             value = service.get(field)
             if value is not None and (
                 not isinstance(value, int) or isinstance(value, bool) or value < 1
@@ -130,24 +131,30 @@ def validate_config(config: Mapping[str, Any]) -> None:
         or set(order) != names
     ):
         errors.append("startup_order must contain every service name exactly once")
-    connector = config.get("connector")
-    if not isinstance(connector, Mapping):
-        errors.append("connector must be an object")
-    else:
-        if connector.get("type") not in {"nixl", "mooncake", "custom"}:
-            errors.append("connector.type must be nixl, mooncake, or custom")
-        if not isinstance(connector.get("options"), Mapping):
-            errors.append("connector.options must be an object")
+    if errors:
+        raise PdServingError("; ".join(errors))
+
+
+def validate_proxy(config: Mapping[str, Any], *, health: bool = False) -> None:
+    """Validate an existing proxy endpoint for the requested HTTP operation."""
+    errors: list[str] = []
     proxy = config.get("proxy")
     if not isinstance(proxy, Mapping):
         errors.append("proxy must be an object")
     else:
         if not isinstance(proxy.get("base_url"), str) or not proxy["base_url"]:
             errors.append("proxy.base_url must be a non-empty string")
-        if not isinstance(proxy.get("health_path", "/health"), str):
+        if health and not isinstance(proxy.get("health_path", "/health"), str):
             errors.append("proxy.health_path must be a string")
         if proxy.get("proxy_mode", "direct") not in {"direct", "environment"}:
             errors.append("proxy.proxy_mode must be direct or environment")
+    if errors:
+        raise PdServingError("; ".join(errors))
+
+
+def validate_smoke(config: Mapping[str, Any]) -> None:
+    validate_proxy(config)
+    errors: list[str] = []
     smoke = config.get("smoke")
     if not isinstance(smoke, Mapping):
         errors.append("smoke must be an object")
@@ -220,7 +227,7 @@ def status(*, service="pd", execution_id=None, config_path=None, client=None, co
     if observation["state"] not in RUNNING or config_path is None:
         return result
     config = _load_json(config_path, "PD config")
-    validate_config(config)
+    validate_proxy(config, health=True)
     health_url = config["proxy"]["base_url"].rstrip("/") + "/" + config["proxy"].get("health_path", "/health").lstrip("/")
     mode = config["proxy"].get("proxy_mode", "direct")
     proxy = http_connection(health_url, proxy_mode=mode)
@@ -246,7 +253,7 @@ def smoke(
     output_dir: Path | None = None,
 ) -> dict[str, Any]:
     config = _load_json(config_path, "PD config")
-    validate_config(config)
+    validate_smoke(config)
     url = (
         config["proxy"]["base_url"].rstrip("/")
         + "/"

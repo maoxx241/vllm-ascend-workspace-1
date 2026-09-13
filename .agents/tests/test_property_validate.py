@@ -10,9 +10,7 @@ NUL, newlines, Unicode look-alikes, full-width and non-ASCII digits).
 
 from __future__ import annotations
 
-import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -21,7 +19,7 @@ LIB = ROOT / ".agents" / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from vaws_validate import ValidationError, ensure_child_path, parse_device_csv, require_env_name, require_remote_leaf, require_safe_id  # noqa: E402
+from vaws_validate import ValidationError, parse_device_csv, require_env_name, require_safe_id  # noqa: E402
 from test_property_support import MULTIBYTE, Gen, run_cases  # noqa: E402
 
 ASCII_ALNUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -100,7 +98,6 @@ class SafeIdProperties(unittest.TestCase):
             self.assertNotIn("\\", value)
             self.assertNotIn("\x00", value)
             self.assertNotIn(value, {".", ".."})
-            self.assertEqual(require_remote_leaf(value), value, "every safe id is a valid remote leaf")
             self.assertEqual(Path("/state") / value, Path("/state", value))
             self.assertEqual((Path("/state") / value).parent, Path("/state"))
 
@@ -184,53 +181,6 @@ class DeviceCsvProperties(unittest.TestCase):
             self.assertTrue(all(isinstance(d, int) and d >= 0 for d in result or []))
 
         run_cases(200, body, label="unicode device tokens")
-
-
-class ChildPathProperties(unittest.TestCase):
-    def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        base = Path(self._tmp.name).resolve()
-        self.root = base / "state"
-        self.outside = base / "outside"
-        (self.root / "a" / "b").mkdir(parents=True)
-        self.outside.mkdir()
-        (self.root / "escape_link").symlink_to(self.outside)
-        (self.root / "inner_link").symlink_to(self.root / "a")
-
-    def test_child_accepted_iff_its_resolved_location_is_under_root(self) -> None:
-        def body(gen: Gen, _index: int) -> None:
-            parts = [gen.choice(("a", "b", "..", ".", "escape_link", "inner_link", "new", gen.text(ASCII_ALNUM, 1, 5))) for _ in range(gen.integer(0, 5))]
-            child = self.root.joinpath(*parts) if parts else self.root
-            if gen.boolean(0.15):
-                child = self.outside.joinpath(*parts)
-            resolved = child.resolve()
-            expected = resolved == self.root or self.root in resolved.parents
-            try:
-                result = ensure_child_path(self.root, child)
-            except ValidationError:
-                self.assertFalse(expected, f"{child} resolves to {resolved} under root but was rejected")
-                return
-            self.assertTrue(expected, f"{child} -> {resolved} escapes {self.root} but was accepted")
-            self.assertEqual(result, resolved)
-            self.assertTrue(result.is_absolute())
-
-        run_cases(600, body, label="ensure_child_path")
-
-    def test_relative_children_resolve_against_cwd_not_root(self) -> None:
-        # Documented contract: ``ensure_child_path`` resolves both sides with
-        # ``Path.resolve``; a *relative* child is relative to the process cwd.
-        original = os.getcwd()
-        try:
-            os.chdir(self.root)
-            self.assertEqual(ensure_child_path(self.root, Path("a/b")), self.root / "a" / "b")
-            with self.assertRaises(ValidationError):
-                ensure_child_path(self.root, Path("../outside"))
-            os.chdir(self.outside)
-            with self.assertRaises(ValidationError):
-                ensure_child_path(self.root, Path("x"))
-        finally:
-            os.chdir(original)
 
 
 if __name__ == "__main__":

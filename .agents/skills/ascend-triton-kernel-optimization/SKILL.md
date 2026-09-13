@@ -41,3 +41,4 @@ Read the relevant detail only when needed:
 
 - [profiling decision tree](references/profiling-decision-tree.md)
 - [ascend techniques](references/ascend-techniques.md)
+- [Existing-evidence report command](references/command-recipes.md)

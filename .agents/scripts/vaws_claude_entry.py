@@ -60,7 +60,9 @@ def launch_plan(kind: str, target: Path, options: list[str], environment: dict) 
             path = ROOT / ".agents/hooks" / name
         arguments = [str(path), "--client", "claude", "--project", str(target),
                      "--environment-receipt", receipt["receipt"], *options]
-    knowledge = kind in ("knowledge", "summary")
+    # Summary first enters the lightweight hook, which checks native scope and
+    # final text before selecting or preparing the optional knowledge owner.
+    knowledge = kind == "knowledge"
     owner = capability_receipt(receipt, "knowledge" if knowledge else "runtime", prepare_missing=knowledge)
     return [owner["python"], *arguments], environment
 

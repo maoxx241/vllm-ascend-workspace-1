@@ -166,6 +166,7 @@ def test_missing_identity_does_not_claim_prepared(project, monkeypatch):
     task_record(root, context, target, receipt)
     result = hints.project_output("claude", payload("claude", "SessionStart", "first-use", root),
                                   '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"native context"}}', root=root)
+    result = hint("claude", "SessionStart", result)
     assert "first-use setup is incomplete" in result
     assert "ask once" in result and "already supplied" in result
     assert str(root / ".agents/bootstrap/repo-init/SKILL.md") in result
@@ -191,7 +192,8 @@ def test_missing_established_identity_in_linked_worktree_reports_existing_eviden
     record = root / ".vaws-local/client-initialization.json"
     record.write_text('{"clients":{}}')
     result = hints.preparation_hint(target, "claude", context)
-    assert "identity_missing" in result and str(record) in result
+    state, _ = json.JSONDecoder().raw_decode(result.split("Saved repository state: ", 1)[1])
+    assert state["state"] == "identity_missing" and state["evidence"] == str(record)
     assert "repo-init" not in result and "ask once" not in result
     assert not (root / ".vaws-local/updates/onboarding-notice.json").exists()
 

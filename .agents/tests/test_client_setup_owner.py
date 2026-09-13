@@ -120,7 +120,11 @@ def test_old_linked_hook_is_replaced_once_and_foreign_hook_is_preserved(family):
     old = setup.hook_groups("cursor", primary)
     foreign = linked.parent / "unrelated/.agents/hooks/vaws_session.py"
     old_command = old["sessionStart"][0]["command"]
-    foreign_command = old_command.replace(str(linked / ".agents/hooks/vaws_session.py"), str(foreign))
+    foreign_arguments = setup.hook_argv(old_command)
+    foreign_arguments[1] = str(foreign)
+    foreign_command = setup.local_hook_command(foreign_arguments)
+    assert foreign_command != old_command
+    assert setup.hook_argv(foreign_command)[1] == str(foreign)
     old["sessionStart"] += [{"command": old_command}, {"command": foreign_command}]
     hooks_path.parent.mkdir()
     hooks_path.write_text(json.dumps({"hooks": old}))

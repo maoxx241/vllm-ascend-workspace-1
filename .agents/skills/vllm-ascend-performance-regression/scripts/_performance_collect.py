@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+import time
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -14,7 +15,7 @@ for directory in (ROOT / ".agents/lib", ROOT / ".agents/skills/vllm-ascend-bench
 
 from _benchmark_common import (assemble_config, call_serve_start, extract_metrics, run_bench_on_remote,
     fixed_dataset_bench_args, prepare_fixed_request_dataset)
-from _serving_start import wait_for_ready
+from _serving_start import wait_for_launch, wait_for_ready
 from vaws_remote_target import ssh_endpoint_from_mapping
 from vaws_report import report_directory
 from vaws_task_target import PENDING, task_client
@@ -32,7 +33,7 @@ def collect_measurement(client, benchmark, sources, entry, *, context_file, serv
         config.execution_id = execution_id
         if reply.get("state") in PENDING:
             emit_progress("wait-for-runtime", execution_id=execution_id)
-            reply = client.wait(execution_id, until="running", timeout_seconds=startup_timeout, poll_interval=3)
+            reply = wait_for_launch(client, reply, time.monotonic() + startup_timeout)
         target = client.target(execution_id)
         if not target.get("live") or not target.get("service_port"):
             raise PerformanceRegressionError(f"service did not reach running: {reply}")
@@ -40,7 +41,7 @@ def collect_measurement(client, benchmark, sources, entry, *, context_file, serv
         port = int(target["service_port"])
         served_model = config.served_model_name or Path(config.model).name
         ready = wait_for_ready(endpoint, port, config.health_timeout or 300, served_model,
-            still_running=lambda: client.observe(execution_id).get("state") == "running",
+            still_running=lambda: client.observe(execution_id, refresh=False).get("state") == "running",
             log_text=lambda: str(client.observe(execution_id, "tail").get("tail") or ""))
         if not ready.get("ready"):
             raise PerformanceRegressionError(f"service failed business readiness: {ready}")
@@ -74,10 +75,10 @@ def collect_measurement(client, benchmark, sources, entry, *, context_file, serv
             execution_id = client.resolve_execution(service=service)
         if execution_id:
             client.observe(execution_id, "stop")
-            stopped = client.wait(execution_id, until="released", timeout_seconds=60, poll_interval=2)
+            stopped = client.wait(execution_id, until="released", timeout_seconds=60)
             if stopped.get("resources_released") is not True:
                 client.observe(execution_id, "stop", force=True)
-                stopped = client.wait(execution_id, until="released", timeout_seconds=30, poll_interval=2)
+                stopped = client.wait(execution_id, until="released", timeout_seconds=30)
             if stopped.get("resources_released") is not True:
                 raise PerformanceRegressionError(f"cleanup incomplete for owned execution {execution_id}: {stopped}")
 

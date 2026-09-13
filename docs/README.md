@@ -32,6 +32,10 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Dated design and validation evidence
 
+- [validation/README.md](validation/README.md) — separate VAWS engineering archive: versioned evidence, all runtime/tool families and 18 business skills, measured limits and explicit gaps; not development-domain knowledge.
+- [validation/coverage.json](validation/coverage.json) — bounded capability-to-source/test/evidence index used only by archive maintenance.
+- [validation/check_archive.py](validation/check_archive.py) and [validation/test_check_archive.py](validation/test_check_archive.py) — read-only archive and retained-JUnit integrity checks; no runtime startup or test replay.
+
 - [knowledge-adoption-2026-09-13.md](knowledge-adoption-2026-09-13.md) — source-level TeamAI/WeKnora comparison, selected knowledge mechanisms, nine-principle assessment and package/consumer validation boundaries.
 
 - [mechanism-performance-review-2026-09-13.md](mechanism-performance-review-2026-09-13.md) — critical-path and reuse review, local source-packet and lock probes, and ranked mechanism proposals with explicit measurement limits.

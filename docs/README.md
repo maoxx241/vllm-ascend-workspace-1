@@ -34,6 +34,8 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Dated design and validation evidence
 
+- [task-cost-reduction-validation-2026-09-13.md](task-cost-reduction-validation-2026-09-13.md) — local startup, optional dependency loading, managed preparation and completion costs, preserved failures and exact acceptance boundaries.
+
 - [knowledge-platform-validation-2026-09-13.md](knowledge-platform-validation-2026-09-13.md) — final knowledge component selection, exact CI, installed-reference acceptance and independent maintenance deployment; engineering evidence, not domain knowledge.
 
 - [validation/README.md](validation/README.md) — separate VAWS engineering archive: versioned evidence, all runtime/tool families and 18 business skills, measured limits and explicit gaps; not development-domain knowledge.

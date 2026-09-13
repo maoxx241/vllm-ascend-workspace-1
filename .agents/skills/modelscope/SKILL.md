@@ -38,6 +38,9 @@ uv run --no-project python "$SKILL_DIR/scripts/modelscope_auto.py" ensure \
 `ensure` behavior:
 
 - If a task is active, leave it running and report compact status.
+- If a recorded process is alive but its identity cannot be checked, report
+  `identity-unavailable` with a nonzero exit status and leave it running.
+  `ensure` does not start a second worker while that observation is unknown.
 - If official files are incomplete and no task is active, start a detached background worker in the same `LOCAL_DIR`.
 - If files are complete but verification is missing or stale, start detached SHA256 verification.
 - If verification reports a real mismatch, use the existing authorization to decide whether to repair; ask only if replacing those files was not authorized.
@@ -76,6 +79,9 @@ local file signatures still match. An old report or a changed file requires
 verification again; status does not rehash large weight files.
 The download record also retains the worker's birth time and command. A reused
 PID alone does not count as an active download.
+New workers are detached only after that identity has been saved; a failed
+startup cleans up its owned processes. `identity-unavailable` is distinct from
+an inactive worker: a later status call can recover after identity access returns.
 
 ## Verify
 

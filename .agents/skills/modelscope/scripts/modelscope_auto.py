@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -26,7 +28,7 @@ ensure_workspace_interpreter(repo_root=ROOT)
 
 import requests
 from _modelscope_common import file_signature
-from vaws_process_identity import process_identity, same_process
+from vaws_process_identity import process_identity
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -152,14 +154,23 @@ def read_pid(local_dir: Path) -> int | None:
         return None
 
 
-def worker_is_active(local_dir: Path, pid: int | None) -> bool:
+def worker_is_active(local_dir: Path, pid: int | None) -> bool | None:
+    """Distinguish a missing/mismatched worker from an unobservable live PID."""
     if not pid:
         return False
     try:
         record = json.loads((local_dir / "download.pid").read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return False
-    return isinstance(record, dict) and same_process(pid, record.get("identity"))
+        return None if pid_is_active(pid) else False
+    saved = record.get("identity") if isinstance(record, dict) else None
+    if not isinstance(saved, dict) or not all(
+        isinstance(saved.get(key), str) and saved[key] for key in ("started", "command")
+    ):
+        return None if pid_is_active(pid) else False
+    observed = process_identity(pid)
+    if observed is None:
+        return None if pid_is_active(pid) else False
+    return observed == saved
 
 
 def report_state(local_dir: Path, *, model_id: str = "", revision: str = "",
@@ -219,7 +230,9 @@ def inspect_model(spec: ModelSpec, revision: str) -> dict[str, Any]:
         (signature := file_signature(spec.local_dir / info["Path"])) is not None
         and signature[0] == int(info.get("Size", 0)) for info in files)
     verification = report_state(spec.local_dir, model_id=spec.model_id, revision=revision, files=files)
-    if active:
+    if active is None:
+        state = "identity-unavailable"
+    elif active:
         state = "active"
     elif complete and verification == "ok":
         state = "verified"
@@ -264,6 +277,30 @@ def build_worker_env(args: argparse.Namespace) -> dict[str, str]:
     return env
 
 
+@contextmanager
+def _worker_process(cmd: list[str], *, env: dict[str, str], launch_log):
+    """Keep a newly launched tree owned until its PID record is saved."""
+    options = dict(stdin=subprocess.DEVNULL, stdout=launch_log,
+                   stderr=subprocess.STDOUT, env=env)
+    if os.name == "nt":
+        from vaws_windows import owned_process
+        with owned_process(cmd, detach_on_success=True, **options) as process:
+            yield process
+    else:
+        process = subprocess.Popen(cmd, start_new_session=True, **options)
+        try:
+            yield process
+        except BaseException:
+            # The unreaped child keeps this process-group identity reserved.
+            if process.returncode is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=5)
+            raise
+
+
 def launch_worker(
     spec: ModelSpec,
     args: argparse.Namespace,
@@ -297,20 +334,20 @@ def launch_worker(
     elif args.proxy:
         cmd.extend(["--proxy", args.proxy])
 
-    options = ({"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}
-               if os.name == "nt" else {"start_new_session": True})
     with (spec.local_dir / "download.launch.log").open("ab", buffering=0) as launch_log:
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=launch_log,
-            stderr=subprocess.STDOUT,
-            env=build_worker_env(args),
-            **options,
-        )
-    record = {"pid": proc.pid, "identity": process_identity(proc.pid)}
-    (spec.local_dir / "download.pid").write_text(json.dumps(record) + "\n", encoding="utf-8")
-    return proc.pid
+        with _worker_process(cmd, env=build_worker_env(args), launch_log=launch_log) as proc:
+            identity = None
+            for attempt in range(3):
+                identity = process_identity(proc.pid)
+                if identity is not None:
+                    break
+                if attempt < 2:
+                    time.sleep(.05)
+            if identity is None:
+                raise RuntimeError("Cannot identify the new ModelScope worker; its process tree was not detached")
+            record = {"pid": proc.pid, "identity": identity}
+            (spec.local_dir / "download.pid").write_text(json.dumps(record) + "\n", encoding="utf-8")
+            return proc.pid
 
 
 def run_verify(spec: ModelSpec, revision: str) -> int:
@@ -437,12 +474,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def command_status(args: argparse.Namespace) -> int:
+    rc = 0
     for spec in resolve_models(args):
-        print_status(inspect_model(spec, args.revision))
-    return 0
+        result = inspect_model(spec, args.revision)
+        print_status(result)
+        rc = rc or int(result["state"] == "identity-unavailable")
+    return rc
 
 
 def command_ensure(args: argparse.Namespace) -> int:
+    rc = 0
     for spec in resolve_models(args):
         result = inspect_model(spec, args.revision)
         if result["state"] == "needs-download":
@@ -457,7 +498,8 @@ def command_ensure(args: argparse.Namespace) -> int:
                 result["state"] = "verify-started"
                 result["pid"] = pid
         print_status(result)
-    return 0
+        rc = rc or int(result["state"] == "identity-unavailable")
+    return rc
 
 
 def command_verify(args: argparse.Namespace) -> int:

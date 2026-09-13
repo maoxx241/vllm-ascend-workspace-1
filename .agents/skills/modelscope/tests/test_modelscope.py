@@ -8,8 +8,10 @@ network socket or depends on the developer HOME.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager, redirect_stdout
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -74,10 +76,9 @@ class ArgumentValidationTests(unittest.TestCase):
             identity = {"started": "worker-start", "command": "python modelscope_auto.py worker"}
             # Exercise real record matching against a fixed OS snapshot. Native
             # process discovery belongs to the subprocess lifecycle tests.
-            with mock.patch("vaws_process_identity.process_identity",
+            with mock.patch.object(auto, "process_identity",
                             side_effect=lambda queried: identity if queried == pid else None):
-                for record in (pid,
-                               {"pid": pid, "identity": {**identity, "started": "other"}},
+                for record in ({"pid": pid, "identity": {**identity, "started": "other"}},
                                {"pid": pid, "identity": {**identity, "command": "other"}}):
                     pidfile.write_text(json.dumps(record), encoding="utf-8")
                     with mock.patch.object(auto, "fetch_official_files", return_value=OFFICIAL[:2]):
@@ -127,6 +128,139 @@ class ArgumentValidationTests(unittest.TestCase):
     def test_resolve_models_requires_model_or_root(self) -> None:
         with self.assertRaises(SystemExit):
             auto.resolve_models(argparse.Namespace(model=None, root=None))
+
+
+class WorkerIdentityTests(unittest.TestCase):
+    @staticmethod
+    def args(spec):
+        return argparse.Namespace(
+            model=[spec], root=None, revision="master", proxy=None, no_proxy=False,
+            max_retries=3, max_workers=None, download_parallels=1,
+            parallel_threshold_mb=500, auto_install=False,
+        )
+
+    def test_launch_retries_identity_before_saving_and_detaching(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = _spec(tmp)
+            proc = mock.Mock(pid=4242)
+            identity = {"started": "worker-start", "command": "python worker"}
+            saved_on_detach = []
+
+            @contextmanager
+            def owner(*args, **kwargs):
+                yield proc
+                saved_on_detach.append(json.loads(
+                    (spec.local_dir / "download.pid").read_text(encoding="utf-8")))
+
+            with (
+                mock.patch.object(auto, "_worker_process", side_effect=owner) as launch,
+                mock.patch.object(auto, "process_identity", side_effect=[None, identity]) as observe,
+                mock.patch.object(auto.time, "sleep") as sleep,
+            ):
+                self.assertEqual(auto.launch_worker(spec, self.args(spec), verify_only=False), proc.pid)
+            launch.assert_called_once()
+            self.assertEqual(observe.call_args_list, [mock.call(proc.pid), mock.call(proc.pid)])
+            sleep.assert_called_once_with(.05)
+            self.assertEqual(saved_on_detach, [{"pid": proc.pid, "identity": identity}])
+
+    def test_persistent_launch_identity_failure_exits_owner_without_writing_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = _spec(tmp)
+            spec.local_dir.mkdir(parents=True)
+            pidfile = spec.local_dir / "download.pid"
+            # A failed replacement must also preserve a previous ownership record.
+            for previous in (None, b'{"pid": 17, "identity": {"started": "old", "command": "old"}}\n'):
+                with self.subTest(previous_record=previous is not None):
+                    if previous is not None:
+                        pidfile.write_bytes(previous)
+                    owner = mock.MagicMock()
+                    owner.__enter__.return_value.pid = 4242
+                    owner.__exit__.return_value = False
+                    with (
+                        mock.patch.object(auto, "_worker_process", return_value=owner),
+                        mock.patch.object(auto, "process_identity", return_value=None) as observe,
+                        mock.patch.object(auto.time, "sleep") as sleep,
+                    ):
+                        with self.assertRaisesRegex(RuntimeError, "identify"):
+                            auto.launch_worker(spec, self.args(spec), verify_only=False)
+                    self.assertEqual(observe.call_count, 3)
+                    self.assertEqual(sleep.call_args_list, [mock.call(.05), mock.call(.05)])
+                    self.assertIs(owner.__exit__.call_args.args[0], RuntimeError)
+                    self.assertEqual(pidfile.read_bytes() if pidfile.exists() else None, previous)
+
+    def test_failed_posix_launch_cleans_its_owned_process_group(self) -> None:
+        proc = mock.Mock(pid=4242, returncode=None)
+        os_api = mock.Mock(wraps=os)
+        os_api.name = "posix"
+        os_api.killpg = mock.Mock()
+        with (
+            mock.patch.object(auto, "os", os_api),
+            mock.patch.object(auto.signal, "SIGKILL", 9, create=True),
+            mock.patch.object(auto.subprocess, "Popen", return_value=proc) as launch,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "record failed"):
+                with auto._worker_process(["python", "worker"], env={}, launch_log=None):
+                    raise RuntimeError("record failed")
+        self.assertTrue(launch.call_args.kwargs["start_new_session"])
+        os_api.killpg.assert_called_once_with(proc.pid, 9)
+        proc.wait.assert_called_once_with(timeout=5)
+
+    def test_temporary_identity_failure_preserves_record_and_never_relaunches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = _spec(tmp)
+            spec.local_dir.mkdir(parents=True)
+            identity = {"started": "worker-start", "command": "python worker"}
+            pidfile = spec.local_dir / "download.pid"
+            original = json.dumps({"pid": 4242, "identity": identity}).encode("utf-8")
+            pidfile.write_bytes(original)
+            with (
+                mock.patch.object(auto, "fetch_official_files", return_value=OFFICIAL[:2]),
+                mock.patch.object(auto, "pid_is_active", return_value=True),
+                mock.patch.object(auto, "process_identity", return_value=None) as observe,
+                mock.patch.object(auto, "launch_worker") as launch,
+            ):
+                for command in (auto.command_status, auto.command_ensure):
+                    with self.subTest(command=command.__name__), redirect_stdout(io.StringIO()) as output:
+                        self.assertEqual(command(self.args(spec)), 1)
+                        self.assertIn("\tidentity-unavailable\t", output.getvalue())
+                        self.assertEqual(pidfile.read_bytes(), original)
+                observe.return_value = identity
+                with redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(auto.command_ensure(self.args(spec)), 0)
+                self.assertIn("\tactive\t", output.getvalue())
+                launch.assert_not_called()
+                self.assertEqual(pidfile.read_bytes(), original)
+
+    def test_live_pid_with_missing_identity_is_unknown_but_dead_pid_is_inactive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = _spec(tmp)
+            spec.local_dir.mkdir(parents=True)
+            pidfile = spec.local_dir / "download.pid"
+            for saved in (
+                None, {}, {"started": "birth"}, {"command": "python worker"},
+                {"started": 123, "command": "python worker"},
+                {"started": "birth", "command": ["python", "worker"]},
+            ):
+                with self.subTest(identity=saved):
+                    pidfile.write_text(json.dumps({"pid": 4242, "identity": saved}), encoding="utf-8")
+                    with (
+                        mock.patch.object(auto, "fetch_official_files", return_value=OFFICIAL[:2]),
+                        mock.patch.object(auto, "pid_is_active", return_value=True) as alive,
+                        mock.patch.object(auto, "process_identity", return_value={
+                            "started": "birth", "command": "python worker",
+                        }) as observe,
+                        mock.patch.object(auto, "launch_worker") as launch,
+                        redirect_stdout(io.StringIO()) as output,
+                    ):
+                        self.assertEqual(auto.command_ensure(self.args(spec)), 1)
+                        self.assertIn("\tidentity-unavailable\t", output.getvalue())
+                        launch.assert_not_called()
+                        observe.assert_not_called()
+                        alive.return_value = False
+                        self.assertIs(auto.worker_is_active(spec.local_dir, 4242), False)
+            pidfile.write_text("4242", encoding="utf-8")
+            with mock.patch.object(auto, "pid_is_active", return_value=True):
+                self.assertIsNone(auto.worker_is_active(spec.local_dir, 4242))
 
 
 class PathHandlingTests(unittest.TestCase):

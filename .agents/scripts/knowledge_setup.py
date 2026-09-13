@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
-from vaws_knowledge_service import knowledge_owner_path, prepare_knowledge, run_knowledge_cli  # noqa: E402
+from vaws_knowledge_service import knowledge_config_path, knowledge_owner_path, prepare_knowledge, run_knowledge_cli  # noqa: E402
 from vaws_venv import configure_windows_stdio  # noqa: E402
 
 
@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--read-only", action="store_true", help="enable shared updates and disable public contribution")
     mode.add_argument("--contribute", action="store_true", help="explicitly enable public contribution and prepare its fork")
     args = parser.parse_args(argv)
-    config = ROOT / ".vaws-local/knowledge/service.json"
+    config = knowledge_config_path(ROOT)
     configured = None
     if args.repository is not None or args.read_only or args.contribute:
         existing = json.loads(config.read_text(encoding="utf-8")) if config.exists() else {}

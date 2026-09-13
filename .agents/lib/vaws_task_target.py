@@ -4,7 +4,6 @@ This is not a request ledger, allocator, or recovery manager.
 """
 from __future__ import annotations
 
-import argparse
 import os
 from pathlib import Path
 from typing import Any
@@ -58,19 +57,6 @@ def task_client(context_file: str | None = None, **kwargs: Any) -> Any:
 
 def task_id_of(client: Any) -> str:
     return str(client.context["session"]["id"])
-
-
-def add_task_args(parser: argparse.ArgumentParser | argparse._ArgumentGroup) -> None:
-    parser.add_argument(
-        "--context-file",
-        help="native VAWS task context; defaults to VAWS_CONTEXT_FILE",
-    )
-    parser.add_argument("--execution-id", help="coordinator execution id when already known")
-    parser.add_argument(
-        "--service",
-        default="",
-        help="task-scoped business name for a long-running service",
-    )
 
 
 def reject_reserved_env(env: dict[str, str] | None) -> dict[str, str]:

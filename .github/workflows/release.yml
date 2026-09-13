@@ -29,7 +29,6 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: '3.13'
-          activate-environment: false
       - name: Check stable tag and canonical history
         env:
           RELEASE_TAG: ${{ github.ref_name }}

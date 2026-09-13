@@ -91,7 +91,7 @@ class BenchQueuedTests(unittest.TestCase):
     def test_supplied_live_service_is_not_stopped_on_error(self):
         cfg = SimpleNamespace(
             context_file=None, execution_id="exec-live", service="vllm",
-            task_id="task-1", model="/m", health_timeout=30,
+            task_id="task-1", model="/m", health_timeout=30, served_model_name="",
         )
         stop = mock.Mock(side_effect=AssertionError("must not stop a supplied service"))
         fake_serve = SimpleNamespace(
@@ -119,6 +119,30 @@ class BenchQueuedTests(unittest.TestCase):
         payload = printed.call_args[0][0]
         self.assertEqual(payload["status"], "incomplete")
         stop.assert_not_called()
+
+    def test_existing_execution_uses_resolved_preset_or_explicit_model_name(self):
+        for options, expected in (
+            (["--preset", "dsv4-flash"], "dsv4-w4a8"),
+            (["--preset", "dsv4-flash", "--served-model-name", "explicit-name"], "explicit-name"),
+            ([], "weight-directory"),
+        ):
+            with self.subTest(options=options), contextlib.ExitStack() as stack:
+                client = SimpleNamespace(context={"session": {"id": "task-1"}},
+                                         observe=lambda *args: {"state": "running"})
+                target = {"live": True, "service_port": 8000,
+                          "endpoint": {"host": "192.0.2.1", "port": 22, "user": "root"}}
+                readiness = mock.Mock(return_value={"ready": False, "error": "fixture readiness"})
+                stack.enter_context(mock.patch.object(_common, "task_client", return_value=client))
+                stack.enter_context(mock.patch("vaws_task_target.task_client", return_value=client))
+                stack.enter_context(mock.patch("vaws_task_target.execution_target", return_value=target))
+                stack.enter_context(mock.patch.dict(sys.modules, {"_serving_start": SimpleNamespace(wait_for_ready=readiness)}))
+                stack.enter_context(mock.patch.object(bench_run, "print_json"))
+                stack.enter_context(mock.patch.object(bench_run, "emit_progress"))
+                stop = stack.enter_context(mock.patch.object(bench_run, "call_serve_stop"))
+                rc = bench_run.main(["--execution-id", "exec-1", "--model", "/weights/weight-directory", *options])
+                self.assertEqual(rc, 1)
+                self.assertEqual(readiness.call_args.args[3], expected)
+                stop.assert_not_called()
 
 
 class PresetTests(unittest.TestCase):

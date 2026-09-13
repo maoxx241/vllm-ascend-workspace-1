@@ -677,25 +677,6 @@ def make_attempts(
     }
 
 
-def attempt_record(
-    *,
-    index: int,
-    outcome: str,
-    layer: str | None = None,
-    reason_code: str | None = None,
-    duration_ms: int | None = None,
-    note: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "index": index,
-        "outcome": outcome,
-        "layer": layer,
-        "reason_code": reason_code,
-        "duration_ms": duration_ms,
-        "note": note,
-    }
-
-
 def new_envelope(
     *,
     operation: Mapping[str, Any],

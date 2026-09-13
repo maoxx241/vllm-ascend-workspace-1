@@ -71,9 +71,18 @@ class ConstantsTests(unittest.TestCase):
         self.assertEqual(MODULE.resolve_spec("git+https://example.invalid/x@v1", {MODULE.SPEC_ENV: "/tmp/local.whl"}), "git+https://example.invalid/x@v1")
         self.assertEqual(MODULE.resolve_spec("  /tmp/tree  ", {}), "/tmp/tree")
         self.assertEqual(MODULE.SPEC_ENV, "VAWS_TOP_FROM")
-        for bad in ("", "   ", "a b", "x\ny"):
+        for bad in ("", "   ", "x\ny"):
             with self.subTest(bad=bad), self.assertRaisesRegex(MODULE.MonitorError, "invalid monitor install spec"):
                 MODULE.resolve_spec(bad, {})
+
+    def test_local_artifact_with_spaces_stays_one_argument(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="monitor artifacts ") as root:
+            artifact = Path(root) / "local monitor.whl"
+            artifact.touch()
+            spec = MODULE.resolve_spec(str(artifact), {})
+            self.assertEqual(spec, str(artifact))
+            self.assertEqual(MODULE.uvx_prefix(spec),
+                             ["uvx", "--from", str(artifact), MODULE.VAWS_TOP_COMMAND])
 
     def test_listener_is_loopback_only(self) -> None:
         self.assertEqual(MODULE.BIND, "127.0.0.1")
@@ -99,6 +108,16 @@ class ConstantsTests(unittest.TestCase):
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_empty_flags_clear_inherited_consumer_settings(self) -> None:
+        inherited = {key: "inherited-value" for key in MODULE.CONSUMER_ENV_KEYS}
+        inherited["PATH"] = "/usr/bin"
+        with mock.patch.dict(os.environ, inherited, clear=True), tempfile.TemporaryDirectory() as root:
+            env = MODULE.serve_env(namespace(inventory_files="", host_pool_files="",
+                                             bootstrap_command=""), 8790, Path(root))
+        for key in MODULE.CONSUMER_ENV_KEYS:
+            self.assertNotIn(key, env)
+        self.assertEqual(env["PATH"], inherited["PATH"])
+
     def test_serve_env_forces_loopback_port_and_state_dir(self) -> None:
         inherited = {"NFM_BIND": "0.0.0.0", "NFM_PORT": "1", "PATH": "/usr/bin"}
         with mock.patch.dict(os.environ, inherited, clear=True), tempfile.TemporaryDirectory() as root:

@@ -130,10 +130,6 @@ def remote_dev_env():
     }
 
 
-def _resolved_path(value):
-    return str(Path(value).expanduser().resolve())
-
-
 def managed_python():
     """A shared Windows worktree has one Windows coordinator, including from WSL."""
     return _managed_python(ROOT)
@@ -470,27 +466,37 @@ def _desired_hook_command(groups):
 
 
 def merge_hook_event(existing, desired, client, project):
-    """Replace one owned hook entry; keep siblings and group metadata."""
+    """Replace owned hooks once per condition set; keep siblings and scope."""
     desired_command = _desired_hook_command(desired)
     expected = executed_hook_script(hook_argv(desired_command)) if desired_command else None
     replaced = False
+    replaced_scopes = []
     result = []
     for group in existing:
         if not isinstance(group, dict):
             result.append(group)
             continue
         if "hooks" in group:
+            scope = {key: value for key, value in group.items() if key != "hooks"}
+            matcher = desired[0].get("matcher")
+            original_entries = group.get("hooks") or []
+            if matcher and (scope.get("matcher") in LEGACY_CONTEXT_MATCHERS or
+                            ("matcher" not in scope and original_entries and all(
+                                owned_hook_command(entry.get("command", ""), client, project, expected=expected)
+                                for entry in original_entries))):
+                scope["matcher"] = matcher
             entries = []
-            for entry in group.get("hooks") or []:
+            for entry in original_entries:
                 if owned_hook_command(entry.get("command", ""), client, project, expected=expected):
-                    if replaced:
+                    replaced = True
+                    if scope in replaced_scopes:
                         continue
                     updated = dict(entry)
                     updated["command"] = desired_command
                     updated.setdefault("type", "command")
                     updated["timeout"] = desired[0]["hooks"][0].get("timeout", HOOK_TIMEOUT_SECONDS)
                     entries.append(updated)
-                    replaced = True
+                    replaced_scopes.append(scope)
                 else:
                     entries.append(entry)
             if entries:
@@ -505,7 +511,7 @@ def merge_hook_event(existing, desired, client, project):
                         # Expanding a VAWS matcher must not expand a sibling's
                         # user-selected scope. Keep that group and move ours.
                         result.append({**updated_group, "hooks": custom})
-                        result.append({"matcher": matcher, "hooks": owned})
+                        result.append({**scope, "hooks": owned})
                         continue
                     updated_group["matcher"] = matcher
                 elif "matcher" not in group and matcher and len(owned) == len(entries):
@@ -514,15 +520,17 @@ def merge_hook_event(existing, desired, client, project):
             continue
         command = group.get("command", "")
         if owned_hook_command(command, client, project, expected=expected):
-            if replaced:
-                continue
+            replaced = True
             updated = dict(group)
             updated["command"] = desired_command
             if desired[0].get("matcher"):
                 if "matcher" not in updated or updated["matcher"] in LEGACY_CONTEXT_MATCHERS:
                     updated["matcher"] = desired[0]["matcher"]
+            scope = {key: value for key, value in updated.items() if key != "command"}
+            if scope in replaced_scopes:
+                continue
             result.append(updated)
-            replaced = True
+            replaced_scopes.append(scope)
         else:
             result.append(group)
     if not replaced:

@@ -85,8 +85,9 @@ def add_claude_setup(files: dict, notes: list, project: Path, root: Path, *,
         server.get("env", {}).pop(PIN_ENV, None)
     hooks = settings.setdefault("hooks", {})
     for event, groups in hooks.items():
-        seen = set()
+        seen = []
         for group in groups:
+            scope = {key: value for key, value in group.items() if key != "hooks"}
             kept = []
             for item in group.get("hooks", []):
                 try:
@@ -115,11 +116,12 @@ def add_claude_setup(files: dict, notes: list, project: Path, root: Path, *,
                 python = python or argv[0]
                 command = shell_command([argv[0], entry, kind, *options])
                 # The general hook merger preserves its unfamiliar previous
-                # wrapper and adds the current direct hook. Keep one callback.
-                key = (kind, tuple(options))
+                # wrapper and adds the current direct hook. Keep one callback
+                # for each group condition, without dropping another matcher.
+                key = (scope, kind, tuple(options))
                 if key not in seen:
                     kept.append({**item, "command": command})
-                    seen.add(key)
+                    seen.append(key)
             group["hooks"] = kept
         hooks[event] = [group for group in groups if group.get("hooks")]
     create = hooks.get("WorktreeCreate", [])

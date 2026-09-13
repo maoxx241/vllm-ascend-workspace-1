@@ -38,7 +38,6 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python }}
-          activate-environment: false
       - name: Install locked workspace packages
         run: uv run --no-project python .agents/scripts/vaws_deps.py sync --packages-only --locked --group dev
       - name: Verify system interpreter handoff

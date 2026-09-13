@@ -121,18 +121,6 @@ def same_shared(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
     ) == json.dumps(right, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def parse_metric_maps(values: Sequence[str]) -> dict[str, str]:
-    mapping = dict(DEFAULT_BENCHMARK_METRICS)
-    for value in values:
-        target, separator, source = value.partition("=")
-        if not separator or not target.strip() or not source.strip():
-            raise PerformanceRegressionError(
-                f"metric map must use TARGET=SOURCE, got: {value}"
-            )
-        mapping[target.strip()] = source.strip()
-    return mapping
-
-
 def normalize_benchmark_result(
     benchmark: Mapping[str, Any],
     *,

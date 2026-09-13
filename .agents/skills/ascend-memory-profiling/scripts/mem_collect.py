@@ -35,6 +35,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[4]
 LIB = ROOT / ".agents" / "lib"
@@ -66,19 +67,6 @@ from _common import (
     selected_python,
     ssh_exec,
 )
-
-
-def _emit_env_recovery_hint(log_text: str, session_id: str | None = None) -> None:
-    """If log_text contains environment error patterns, emit structured recovery guidance."""
-    if not log_text:
-        return
-    if not any(pat in log_text for pat in _ENV_ERROR_PATTERNS):
-        return
-    progress(
-        "ENV_ERROR_DETECTED: inspect this execution's coordinator preparation "
-        "logs and environment recipe. Coordinator prepares managed Python and "
-        "sources; do not synchronize or reinstall into a live execution root."
-    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -513,8 +501,11 @@ def _main_attach(
         try:
             wait_for_health(ep, port, timeout=args.health_timeout)
         except TimeoutError:
-            log_text = _collect_serving_logs(ep, serving_state, run_dir, target)
-            _emit_env_recovery_hint(log_text, args.session_id)
+            _collect_serving_logs(ep, serving_state, run_dir, target)
+            progress(
+                "Health check timed out. Inspect the collected service log and "
+                "this execution's coordinator preparation logs and environment recipe."
+            )
             raise SystemExit(
                 f"Service on port {port} is not responding to /health after "
                 f"{args.health_timeout}s. Check service status with the serving skill."

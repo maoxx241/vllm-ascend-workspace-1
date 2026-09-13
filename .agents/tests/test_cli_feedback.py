@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -35,7 +36,9 @@ sys.addaudithook(audit)
             home = root / "home"
             home.mkdir()
             env = os.environ.copy()
-            env.update(PYTHONPATH=str(root), HOME=str(home), USERPROFILE=str(home))
+            diagnostics = root / "diagnostics"
+            env.update(PYTHONPATH=str(root), HOME=str(home), USERPROFILE=str(home),
+                       VAWS_DIAGNOSTICS_ROOT=str(diagnostics), VAWS_LOG_LEVEL="INFO")
             cases = [
                 (["--help"], 0),
                 (["status", "--help"], 0),
@@ -56,6 +59,15 @@ sys.addaudithook(audit)
                     self.assertEqual(result.returncode, expected, result.stderr)
                     self.assertIn("usage:", result.stdout + result.stderr)
                     self.assertNotIn("AssertionError", result.stdout + result.stderr)
+                    if expected == 0:
+                        self.assertFalse(diagnostics.exists(), "help must not write diagnostic records")
+                    else:
+                        records = [json.loads(line) for path in diagnostics.glob("events/**/*.jsonl")
+                                   for line in path.read_text(encoding="utf-8").splitlines()]
+                        self.assertTrue(any(row.get("event") == "operation.end"
+                                            and row.get("status") == "error"
+                                            and row.get("attributes", {}).get("category") == "caller"
+                                            for row in records), records)
             self.assertEqual(list(home.iterdir()), [])
 
 

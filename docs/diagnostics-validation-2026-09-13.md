@@ -57,6 +57,10 @@ An initial dependency assertion still expected the old direct-dependency list an
 
 A later dependency refresh selected remote `8796b91e74f9968791176cd330fb110f269f0774`, coordinator `92264a28fcda5b0b85f9c36f2907fa91948760f9` and knowledge `0457d9d8cdb4d105d1d38820f9211fc0b73f42e7`, with unchanged package versions and diagnostics pin. Remote/coordinator changes in that refresh were limited to CI and test fixtures, including the final correction of a legacy cancellation fixture. Knowledge distinguished expected redaction findings and explicit parser errors from actual tool failures and isolated test logs. Its owner reported 80 passing tests and three subtests on each of Windows and WSL. The consumer created a separate immutable developer environment and rechecked installed commit identities, doctor, lock and catalog successfully; it did not rerun the earlier large consumer suites for this refresh.
 
+Knowledge 0.7.2 at `1149816c0d4830e0acf95cfe2040464b2d7a8d73` subsequently restored the source revision in prepared/catalog explain results. A separate immutable environment passed installed identity, doctor, lock and generated-catalog checks with the other pins unchanged. Earlier test results retain their original package revisions.
+
+The first consumer CI exposed three outdated test assumptions: parser errors were expected to leave no diagnostic files, an unrelated native hook rejected the lightweight diagnostics adapter along with runtime owners, and a missing-child test required a filename that redaction can remove. The corrected fixtures retain the no-network/no-database/no-child-launch guards for help and unrelated hooks, check explicit caller classification for parser errors, and verify the missing child exits with code 2 without fallback. The three affected files passed 51 tests and 15 subtests on each of Windows and WSL. The WSL run used a private minimal environment with the intended diagnostics, coordinator and remote-dev revisions; it was not a full workspace dependency or CI run.
+
 ## Failure and safety evidence
 
 - A missing diagnostics package produces a bounded, static bootstrap failure event. The actual core collector and ingester accepted it, and repeated ingestion did not create another incident. Help and successful interpreter handoff did not generate false failure records.
@@ -122,6 +126,16 @@ After deliberately killing its main process, systemd restarted it with a new
 PID and `NRestarts=1`; its issue and model queues retained one publication attempt
 each, without duplicate submissions.
 
+On Windows an owned, limited-privilege login task starts that WSL user service
+through hidden system PowerShell. A real Task Scheduler run initially failed:
+the desktop package had virtualized the helper's `LOCALAPPDATA` path, so the
+same user outside the package could not see the registered file. Registration
+now resolves the created file's physical path from its handle. The repaired
+login action was actually run and returned `LastTaskResult=0`, state `Ready`,
+while the existing worker PID and restart count stayed unchanged. User lingering
+is enabled in WSL. This validates the installed action; no machine reboot or
+interactive logout was performed for this test.
+
 One new synthetic operation exercised the supervised worker, with no manual
 publication call. The failure event at 14:17:44 UTC produced
 [acceptance issue #175](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/issues/175)
@@ -167,3 +181,28 @@ the installed index and its referenced JavaScript/CSS assets were present.
 Console help, offline bundle generation and dependency consistency checks
 passed. This establishes the released artifact, without claiming that an
 existing fleet service or every preserved task environment was restarted.
+
+Final cross-component review found that the public schema dropped an owner's
+explicit `classification=caller` and numeric HTTP/JSON-RPC error codes. Worker
+**0.1.3** fixes the projection and ingestion together: only the enumerated
+classifications `caller`, `cancelled` and `unknown` are retained; explicit caller
+or cancellation events remain local. Generic validation/permission categories
+and business exit codes are not silently suppressed. Numeric error codes accept
+only signed 32-bit integers, excluding booleans, floats and arbitrary text.
+
+The fix passed 48 affected tests on each of Windows and WSL, plus all seven
+release-head CI jobs. A real installed knowledge CLI was exercised through a
+private log root and the new collector/ingester: an explicit caller failure
+exited 2 and queued no issue; an unknown business failure also exited 2 and
+queued one local incident. Neither probe published to GitHub. Tests also covered
+HTTP 4xx warnings, HTTP 5xx failures and malformed fields without leaking unknown
+text or changing the original failure outcome.
+
+The final installed worker is the released **0.1.3** wheel from
+`a9135c13bcd3ec88dd3a7c2f454a57f9bee9be14`, verified against SHA256
+`dfaace962da54b7b968b9778ab979b793a285fbf6ffc64fb037db2222ae00042`.
+Replacing the owned unit selected the new permanent virtual environment,
+preserved its fixed observation timestamp and queues, and completed a healthy
+cycle. The earlier issue/comment remained published with one attempt each.
+The 0.1.2 restart and login-action evidence above remains explicitly tied to that
+earlier deployed version; no redundant public acceptance issue was created.

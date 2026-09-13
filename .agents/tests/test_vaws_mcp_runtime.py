@@ -154,16 +154,26 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await provider.close()
 
     async def test_missing_backend_returns_failure_without_hidden_fallback(self):
-        provider = runtime.Provider("task", self.root)
-        try:
-            with patch.object(runtime, "provider_command", return_value=([sys.executable, str(self.root / "missing.py")], {})):
-                backend = provider.backend(self.selections["new"])
-                with self.assertRaises(Exception):
-                    await asyncio.wait_for(backend.request("list_tools"), timeout=10)
-                self.assertTrue(backend.stderr.is_file())
-                self.assertIn("missing.py", backend.stderr.read_text())
-        finally:
-            await provider.close()
+        from vaws_diagnostics import configure
+        with patch.dict("os.environ", {"VAWS_DIAGNOSTICS_ROOT": str(self.root / "diagnostics"), "VAWS_LOG_LEVEL": "INFO"}):
+            recorder = configure("vaws-workspace", root=str(self.root / "diagnostics"))
+            provider = runtime.Provider("task", self.root)
+            try:
+                with patch.object(runtime, "provider_command", return_value=([sys.executable, str(self.root / "missing.py")], {})):
+                    backend = provider.backend(self.selections["new"])
+                    with self.assertRaises(Exception):
+                        await asyncio.wait_for(backend.request("list_tools"), timeout=10)
+                    self.assertTrue(backend.stderr.is_file())
+                    records = [json.loads(line) for line in backend.stderr.read_text(encoding="utf-8").splitlines()]
+                    previews = [row.get("attributes", {}).get("preview", "") for row in records
+                                if row.get("event") == "process.stderr"]
+                    # A private/high-entropy temporary path may be redacted in
+                    # full. The OS failure must remain diagnostically useful.
+                    self.assertTrue(any("can't open file" in text and "[Errno 2]" in text for text in previews))
+            finally:
+                await provider.close()
+                recorder.close()
+            self.assertEqual([process.returncode for process in self.processes], [2])
 
     async def test_task_without_context_does_not_start_a_runtime(self):
         for kind in ("task",):

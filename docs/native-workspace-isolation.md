@@ -9,10 +9,16 @@ setup 是可复用的优化，不是所有客户端都必须具备的前置能�
 
 ## 新建与恢复
 
-新任务有两条准备路径：
+普通 PR review 和显式 remote-dev endpoint 工作（包括用户给定的现有容器）
+不会因缺少 `.vaws-local/github.json` 而询问身份、创建 Fork 或运行初始化。
+只有明确 setup 请求，或 managed 操作实际需要尚未确认的个人容器身份时才进入
+首次配置流程。显式新建原生 Worktree 保留既有 setup 成本；这不是每条 review
+或已有目录恢复的前置流程。
+
+需要独立本地编辑或受管准备时，有两条路径：
 
 - 客户端已创建独立 worktree，且 setup 已提供选定环境：直接使用这个目录。
-- 普通项目目录中的新会话：项目指引让 Agent 的第一个仓库操作运行一次
+- 需要独立本地编辑或受管准备，且没有已准备目录的新任务：运行一次
   `uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT`。
   官方 Kimi 加上原生 hook 已提供的 `--context-file PATH`。
 
@@ -20,8 +26,8 @@ setup 是可复用的优化，不是所有客户端都必须具备的前置能�
 在母仓外的同级位置准备独立编辑目录，选择 canonical main 的精确提交及其锁定
 组件环境，显式绑定 sources，并返回 `workspace`、`head`、`environment` 和
 `context_file`。同一 task 重复调用复用已保存结果，不再次 fetch、安装或换目录。
-初始化状态由命令在本地读取；只有缺少首次配置时才返回 setup 提示，不让 Agent
-每次检查身份文件。多个会话同时准备时，命令显示并等待仓库更新锁，超时才返回
+该准备命令内部读取初始化状态，不让 Agent 每次检查身份文件；普通 Review 和
+直接 endpoint 任务不调用它，也不会因启动指引触发首次配置。多个会话同时准备时，命令显示并等待仓库更新锁，超时才返回
 等待时长和锁文件证据。
 它不是通用客户端 launcher，也不解析客户端的 resume 参数。
 
@@ -48,7 +54,7 @@ resume 沿用既有 task、编辑目录、sources 和环境，不调用新的准
 | Cursor | AGENTS.md 和 alwaysApply 项目规则；sessionStart / preToolUse 自动关联与注入 context | worktrees.json setup 准备新目录；用户级 providers 接收原生 workspaceFolder |
 | Claude Code | CLAUDE.md 导入 AGENTS.md；SessionStart 导出 context，PreToolUse 注入 | WorktreeCreate 可准备客户端选用的原生 worktree；薄入口保留真实调用者 |
 | Grok | 原生读取 AGENTS.md；Bash 提供 GROK_SESSION_ID，PreToolUse 注入 context | Git worktree 创建回调及原生 /new、/fork 偏好；普通入口不依赖个人修复版 |
-| Kimi Code | 原生读取 AGENTS.md；UserPromptSubmit 提供 context_file；准备命令和三个 VAWS provider 的调用显式携带它 | 显式启用的 SessionSetup 扩展可提前选目录，官方配置只使用受支持事件 |
+| Kimi Code | 原生读取 AGENTS.md；UserPromptSubmit 提供 context_file；准备命令和 task provider 显式携带它，远端与知识调用可选 | 显式启用的 SessionSetup 扩展可提前选目录，官方配置只使用受支持事件 |
 
 Grok 的 SessionStart stdout 不会成为模型提示，因此启动入口放在客户端真实
 读取的项目指引中。Kimi 官方 Bash 有 cwd 参数，Read/Write/Edit 支持绝对路径；
@@ -59,6 +65,12 @@ Grok 的 SessionStart stdout 不会成为模型提示，因此启动入口放在
 [Claude WorktreeCreate](https://code.claude.com/docs/en/hooks#worktreecreate)
 和 [Kimi hooks](https://moonshotai.github.io/kimi-code/en/customization/hooks)。
 具体已测版本记录在 dated 验收文档，不能从配置规划测试推断所有新客户端均已通过。
+
+PreToolUse 的归属路由只处理实际需要 context 的 VAWS 调用；普通原生工具
+在 Git、registry、环境导入或 forward 之前返回。现有自定义 hook 和条件保留。
+Prompt hook 先刷新变化的 cwd，再在原生 context 可用时静默返回；官方 Kimi
+使用受支持的 prompt hook 提供显式 context。SessionStart/End、subagent 归属和
+工具输入关联继续由原有生命周期处理。
 
 初始化不再因个人二进制缺失而阻塞，也不为保护补丁关闭客户端自动升级。
 Kimi 普通配置会替换本仓精确拥有的旧 SessionSetup 回调，保留用户项；
@@ -99,6 +111,10 @@ shell 与 MCP 的身份传递各自独立。shell 优先读取 VAWS_CONTEXT_FILE
 索引；模型下载复用知识包缓存。新工作树不另建一套知识库。共享知识内容可由
 知识包维护更新，但 task 使用的组件版本保持固定。查询和捕获按需使用，不要求
 额外维护命令、轮询或重复总结。用户选择的知识挂载和发布设置保留。
+未使用的知识连接不启动后端、索引或维护；有效查询或成功捕获才按需激活。
+explain 直接读取 Markdown，自动总结保持本地非索引写入。活动且后端可用时，
+持久 3600 秒审计期限用于发现向量缺失；未使用或停止的 provider 在下一次实际
+使用时恢复到期工作。此期限不承诺不可用后端在一小时内修复。
 原生回复事件自动保存已有最终文本。Kimi Stop 和 Cursor 命令行 SessionEnd
 不直接携带这段文本时，适配器只读取该事件明确对应的会话记录尾部，提取已完成
 的最终回复；不扫描其它会话，也不要求 Agent 再总结。

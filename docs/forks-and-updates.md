@@ -2,27 +2,31 @@
 
 Status: current
 
-首次使用确认个人 GitHub 身份并配置客户端。之后，新任务在独立编辑目录中
-采用本轮主仓版本和配套组件，开始工作后保持固定。入口不依赖用户调用 Skill，
-也不要求安装个人修改版客户端。遵循[九条设计原则](design-principles.md)。
+用户明确初始化，或受管操作真正需要尚未确认的个人容器身份时，建立个人开发
+配置。需要独立本地编辑或受管准备的新任务采用本轮主仓版本和配套组件，开始工作
+后保持固定。普通 Review 和直接 endpoint 工作无需准备。入口不依赖 Skill 或个人
+修改版客户端。遵循[九条设计原则](design-principles.md)。
 
 ## 首次使用
 
-根 `AGENTS.md` 仅在启动入口报告 `needs_setup` 时指向
-[一次性初始化参考](../.agents/bootstrap/repo-init/SKILL.md)。该参考位于自动 Skill
-发现目录之外，后续新会话、更新和修复不再触发它。初始化通过
-`workspace_forks.py`、`vaws_deps.py sync` 和
+仅在用户明确初始化，或需要准备的操作报告尚未建立所需个人身份时，读取根
+`AGENTS.md` 指向的[一次性初始化参考](../.agents/bootstrap/repo-init/SKILL.md)。
+该参考位于自动 Skill 发现目录之外，后续新会话、更新和修复不再触发它。
+初始化通过 `workspace_forks.py`、`vaws_deps.py sync` 和
 `vaws_client_setup.py --client all --apply` 配置个人 Fork、依赖和已安装的五种客户端。
-原生客户端负责项目与 hook 信任。Git clone 本身不执行代码，写出配置文件
-也不等于客户端已经加载配置；真实验收见[本轮验收](unified-session-validation-2026-09-13.md)。
+普通本地文件、Git/PR review 或显式 remote-dev endpoint（含现有容器）不因缺少
+`github.json` 询问身份、建 Fork、同步源码或初始化。原生客户端负责项目与 hook
+信任；Git clone 和写配置文件不等于已启用。实际验收见
+[统一启动验收](unified-session-validation-2026-09-13.md)及
+[现有容器验收](existing-container-validation-2026-09-13.md)。
 
-首次确认个人 GitHub 用户名。`gh` 登录是候选，不能静默代替用户选择。
+需要首次初始化时，确认个人 GitHub 用户名。`gh` 登录是候选，不能静默代替用户选择。
 确认结果位于未跟踪的 `.vaws-local/github.json`，不包含凭据。
 coordinator 自动将它用于 native session 的用户归属，SSH 仍使用 root；见
 [用户与协调](identity-and-agent-coordination.md)。身份待确认时，独立本地查询
 和 Review 可继续，不重复追问或添加任务检查清单。
 
-启动入口复用现有身份配置，不要求 Agent 检查状态文件。若已保存客户端初始化
+显式准备入口复用现有身份配置，不要求 Agent 检查状态文件。若已保存客户端初始化
 记录却缺少身份文件，返回缺失路径和现有记录，按具体故障修复；不会将已初始化
 的仓库重新当作第一次使用。损坏的配置、环境缺失和客户端接线变化也直接使用
 下面的维护入口，不重新运行完整初始化。
@@ -49,12 +53,13 @@ Fork、其他所有者的 redirect 和无关同名仓库。`origin` 是个人 Fo
 工作区入口校验上述三个开发仓库；外部组件的贡献入口由其 owner 负责。
 这不是拦截任意终端 Git 命令的权限系统。
 
-## 每个新任务准备一次
+## 需要独立编辑或受管环境时准备一次
 
 | 场景 | 行为 |
 |---|---|
 | 原生客户端已经创建独立 worktree，并由 setup 选定环境 | 直接使用已有目录和环境 |
-| 普通新会话尚未准备 | 项目短指引使 Agent 首个仓库动作运行 `vaws_start.py --client CLIENT` |
+| 需要独立本地编辑或受管准备的新任务尚未准备 | 运行一次 `vaws_start.py --client CLIENT` |
+| 普通 Review、原目录本地工作或直接 endpoint/container | 使用原生工具或 remote-dev，不调用 `vaws_start`、不检查身份、不准备知识 |
 | 同一任务重复准备 | 返回已完成的选择，不再 fetch、安装或创建目录 |
 | 恢复会话 | 沿用原任务、目录和环境，无准备或更新步骤 |
 
@@ -62,7 +67,8 @@ Fork、其他所有者的 redirect 和无关同名仓库。`origin` 是个人 Fo
 `environment` 和 `context_file`，并绑定任务的默认 sources。用户继续使用原客户端，
 无需启动 VAWS launcher。客户端 UI/default cwd 可以保持原目录；后续 shell
 以返回目录为 cwd，文件、搜索和补丁使用该目录下的绝对路径。
-官方 Kimi 从已有 hook 取得 context，并将其传给启动命令及三个 VAWS MCP provider。
+官方 Kimi 从已有 hook 取得 context，并将其传给启动命令及 task 工具；
+remote-dev 和 knowledge 可选接收该 context，用于选择该任务的环境。
 各客户端短指引和边界见[编辑隔离合同](native-workspace-isolation.md)。
 
 准备检查 canonical 默认分支一次（当前为 main），不依赖 tag 或 Release。
@@ -92,7 +98,7 @@ fork 来源、已选环境及新目录中的编辑继续保留。客户端没有
 ## 组件和知识
 
 主仓提交通过 `pyproject.toml`、`uv.lock`、vaws-top wheel pin 和 submodule gitlink
-确定配套版本。维护者更新并验证这组输入；新任务取得主仓所选组合，不各自追逐
+确定配套版本。维护者更新并验证这组输入；需要准备的新任务取得主仓所选组合，不各自追逐
 所有组件仓库的分支头。Release 可作为里程碑，不是更新触发条件。
 
 稳定的 MCP gateway 根据明确的 native context 路由到该任务固定的环境，启动
@@ -104,7 +110,10 @@ Gateway 不从最近任务或 cwd 猜身份，亦不将“最新环境”当旧�
 同一工作区家族共享知识配置、项目知识快照、候选内容和包维护的模型/index 缓存。
 共享知识内容更新独立于任务代码版本；普通任务无需复制知识库、重建相同索引或
 单独维护模型。用户自定义知识根和发布选择保留，默认不开启公开贡献。
-准备 pending 不阻止独立工具。详见[依赖合同](dependency-plane.md)。
+知识 MCP 未使用时不启动后端或维护；有效 query 或成功 capture 按需激活，自动总结仅本地保存。
+活动且后端可用时，包按持久 3600 秒期限审计向量完整性；未使用或停止的连接不承诺
+一小时内后台修复，下一次实际使用恢复到期工作。pending 不阻止独立工具。
+详见[知识合同](target-state.md#54-knowledge)和[依赖合同](dependency-plane.md)。
 
 coordinator daemon 的 idle 升级和 monitor 的实例管理仍由各包负责；忙碌实例的
 状态不由 workspace 强制改写。没有每五分钟轮询、常驻代码 watcher 或工作中换版本。

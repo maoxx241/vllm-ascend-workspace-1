@@ -40,12 +40,14 @@ Configured Codex/Cursor native worktree setup prepares once after the client
 creates a directory and before the Agent starts. It fixes the chosen environment
 and that directory's MCP/hook wiring. All five official clients also receive the
 same short `AGENTS.md` startup guidance. A prepared independent native worktree
-is reused; otherwise the first repository operation calls
+is reused. When independent local editing or managed preparation is needed,
+the task calls
 `uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT`
 with the existing `--context-file PATH` when needed. This bounded entry prepares
 the canonical default branch with its latest locked components, creates an
 independent worktree, binds explicit sources and saves the task selection in
 `.vaws-local/tasks/<task-id>/start.json` under the shared primary worktree.
+Ordinary review and direct remote endpoints do not call this preparation entry.
 It requires no Skill or client fork. Resume and repeated calls reuse that
 selection; running services keep their loaded environments. There is no periodic
 updater or unrelated per-component upgrade. The optional CLI launcher remains
@@ -122,15 +124,19 @@ The gateway (`vaws_native_mcp.py` / `vaws_mcp_runtime.py`) resolves calls from a
 existing `context_file` or supported native metadata and reads the task's fixed
 workspace/receipt. It launches task, remote-dev and knowledge package backends
 with that receipt's Python and workspace cwd. A native worktree already prepared
-at startup can supply its saved selection directly. Missing task preparation or
-context produces an explicit error instead of selecting a recent task.
+at startup can supply its saved selection directly. Managed task calls require
+context and preparation. Direct remote-dev and optional knowledge calls without
+context use the configured workspace's saved environment, without task-registry,
+Git or latest-catalog discovery. Supplied context retains its fixed task selection;
+an ordinary checkout's saved environment suffices for these companion calls.
 
 Backends are retained by workspace and receipt. A long-lived gateway can serve
 tasks with different fixed environments; later syncs or a newer catalog selection
 do not replace their imported dependencies. Tool results expose the selected
 environment, workspace, Python and backend stderr path. Official Kimi passes the
-returned `context_file` to all three providers; clients without supported native
-metadata also need their existing context supplied by hooks or tool arguments.
+returned `context_file` to task tools; companion tools accept it optionally.
+Clients without supported native metadata can supply their existing context
+through hooks or tool arguments when using a task's selected environment.
 
 In a checkout shared by Windows and WSL, managed tasks and knowledge use the
 prepared Windows owner. A managed CLI switches owner before reading stdin or
@@ -182,8 +188,20 @@ while the service configuration and reference content are shared. Package owners
 retain index maintenance, locking and model lifecycle; shared paths alone do not
 prove compatibility across concurrently running package versions.
 
-Knowledge MCP starts its internal model/index maintenance while alive, independent
-of public contribution. Shared synchronization is enabled by default and consumes
+Knowledge MCP activates internal model/index maintenance only on a valid query
+or successful capture when needed, independent of public contribution.
+Initialize, tools/list, ping, invalid requests and unused EOF do not start a
+backend or maintenance/network work. Explain reads Markdown, and automatic
+summary capture remains a local non-indexing write. An unused provider therefore
+does not prepare knowledge for a plain PR review or explicit remote operation.
+Maintenance respects existing `next_check` and `next_verify` receipts; the
+verification interval is 3,600 seconds while maintenance is active and usable.
+A stopped/unused provider resumes overdue work on its next actual use; backend
+failures may defer repair. Explicit prepare retains its verification behavior.
+See the [knowledge contract](target-state.md#54-knowledge) for vector-loss bounds.
+
+Shared synchronization is enabled by default, runs with use-driven maintenance,
+and consumes
 GitHub Releases from `vllm-ascend-workspace/vaws-knowledge-corpus`. Shared updates
 verify the exact Git identity, model files and dense OVPack before switching;
 project and candidate knowledge stay local. Knowledge PRs currently require

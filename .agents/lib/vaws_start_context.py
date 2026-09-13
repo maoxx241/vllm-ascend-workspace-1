@@ -8,12 +8,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shlex
-import subprocess
 
 from vaws_mcp_runtime import selection
-from vaws_local_state import shared_workspace_root
-from vaws_workspace_entry import FIRST_USE_REFERENCE, workspace_entry
 
 
 def hint_event(payload: object) -> bool:
@@ -42,22 +38,7 @@ def existing_context(client: str, payload: dict) -> dict:
     return AgentSessions(Path(state) if state else None).native_context(client, native, agent)
 
 
-def preparation_hint(root: Path, client: str, context: dict) -> str:
-    if not context["session"].get("github_identity"):
-        owner = shared_workspace_root(root)
-        setup = workspace_entry(owner, announce=False)
-        if setup["state"] in {"identity_pending", "needs_github_user"}:
-            return ("VAWS first-use setup is incomplete: no confirmed GitHub identity is bound. "
-                    f"Read {owner / FIRST_USE_REFERENCE} for this repository's one-time initialization; "
-                    "ask once for the personal GitHub username unless it was already supplied, then reuse that answer. "
-                    "No prepared editing workspace or component runtime is confirmed.")
-        if setup["state"] in {"configured", "disabled"}:
-            return ("VAWS repository identity is configured, but this native task has no bound GitHub identity. "
-                    f"Context: {context['context_file']}. Start a new native session to bind the saved identity; "
-                    "do not rerun repository initialization. The existing task was left unchanged.")
-        return ("VAWS native task has no bound GitHub identity. "
-                f"Saved repository state: {json.dumps(setup, ensure_ascii=False)}. "
-                "Repair the reported state using the existing confirmation; do not restart first-use initialization.")
+def preparation_hint(root: Path, context: dict) -> str:
     try:
         selected = selection(root, context)
     except ValueError as exc:
@@ -66,14 +47,9 @@ def preparation_hint(root: Path, client: str, context: dict) -> str:
         if str(exc) != ("This new task has no prepared workspace. Run the project "
                         "vaws_start.py entry once, then reuse its context."):
             raise
-        command = ["uv", "run", "--no-project", "python", str(root.resolve() / ".agents/scripts/vaws_start.py"),
-                   "--client", client, "--context-file", context["context_file"]]
-        rendered = subprocess.list2cmdline(command) if os.name == "nt" else shlex.join(command)
-        return ("VAWS task is attached but its editing workspace and component runtime are NOT prepared. "
-                "First repository action, before file reads, edits or VAWS tool calls:\n"
-                f"{rendered}\n"
-                "Then use the returned workspace W for file tools and `cd W` for shell commands. "
-                "Native cwd/source defaults alone do not mean preparation is complete.")
+        # A native attachment does not select workspace preparation. Review and
+        # explicit endpoint work need neither preparation nor personal identity.
+        return ""
     return (f"VAWS task workspace is prepared: W={selected.workspace}\n"
             f"Selected environment: {selected.key}\nSelected Python: {selected.python}\n"
             "Use W for file tools and `cd W` for shell commands. Reuse this task's existing "
@@ -104,12 +80,14 @@ def project_output(client: str, payload: dict, raw: str, *, root: Path) -> str:
         if not isinstance(hint, str) or not hint:
             return raw
     try:
-        facts = preparation_hint(root, client, existing_context(client, payload))
+        facts = preparation_hint(root, existing_context(client, payload))
     except Exception as exc:
         facts = (f"VAWS workspace selection could not be read: {type(exc).__name__}: {exc}. "
                  "The existing task selection was left unchanged; inspect its context and "
                  "recorded environment before continuing. No new workspace was inferred.")
-    hint = facts + "\n\n" + hint.replace("Client startup owns workspace and component preparation. ", "")
+    hint = hint.replace("Client startup owns workspace and component preparation. ", "")
+    if facts:
+        hint = facts + "\n\n" + hint
     if text_only:
         return hint + "\n"
     if client == "cursor":

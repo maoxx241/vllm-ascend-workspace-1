@@ -17,20 +17,22 @@ def guidance(client: str | None = None) -> str:
     selection = (" CLIENT is codex, cursor, claude, grok or kimi."
                  if client is None else "")
     kimi = (
-        " Official Kimi also passes `context_file` to the task, remote-dev and knowledge MCP tools."
+        " Official Kimi task tools require `context_file`; companion tools accept it "
+        "when reusing the task's selected environment."
         if client in (None, "kimi") else ""
     )
     return (
         "Reuse a prepared workspace W and environment supplied by the native hook. "
-        "Otherwise, make a new session's first repository action "
-        f"`uv run --no-project python .agents/scripts/vaws_start.py --client {name}`."
-        + selection + " It checks initialization; follow its result without a separate probe. "
+        "Ordinary local review uses native tools; explicit remote endpoint or existing-container "
+        "work uses remote-dev directly. These tasks need no startup, identity or knowledge preparation.\n\n"
+        "When independent local editing or managed preparation is needed and no W is prepared, run "
+        f"`uv run --no-project python .agents/scripts/vaws_start.py --client {name}` once."
+        + selection + " Follow its result without a separate initialization probe. "
         "Pass `--context-file PATH` when the hook supplies context outside the client environment.\n\n"
-        "Use the returned `workspace` as W for every shell call and absolute paths under W "
-        "for file, search and patch tools, even if the client UI shows the original project. "
-        "Sources and environment are already bound. If a tool needs context, pass the existing "
-        "`context_file`." + kimi + "\n\n"
-        "Resume reuses the earlier W, task and environment without preparation or updates.\n"
+        "Use the returned `workspace` as W for shell calls and absolute paths under W for file, "
+        "search and patch tools, even if the client UI shows the original project. Sources and "
+        "environment are bound. Pass the existing `context_file` to tools that need task context."
+        + kimi + " Resume reuses the earlier W, task and environment without preparation or updates.\n"
     )
 
 

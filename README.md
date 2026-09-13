@@ -6,11 +6,19 @@
 
 ## 从任务开始
 
-在 Agent 客户端中打开工作区，直接提出：
+在 Agent 客户端中打开工作区，直接说明目标，例如：
+
+> Review 这个 PR，重点检查错误处理和兼容性。
+
+> 这次用指定机器上的现有容器 `repro-case`，代码在 `/work/vllm`，按 `/work/start-case.sh` 复现问题。
+
+PR review 直接使用原生 Git 和文件工具。已有容器任务直接把 host、container、cwd 和原启动命令交给 remote-dev，保留容器内代码和环境；无需先绑定模式、同步源码、拉起受管服务或准备知识库。两类任务都不因缺少 GitHub 身份配置而要求初始化。知识按需参考，缺失或未就绪不阻止独立工作。容器调用示例和边界见 [remote-dev 消费说明](docs/remote-dev-consumption.md)。
+
+需要完整开发配置时，再明确提出：
 
 > 初始化这个工作区，配好 vLLM Ascend 的开发环境。
 
-初始化复用已有配置，安装锁定依赖，并通过 `vaws_client_setup.py --client all --apply` 一次配置已安装的 Codex、Cursor、Claude、Grok 和 Kimi；不以调用 Skill 或安装个人修改版客户端为前提。项目短指引让新任务准备一次独立编辑目录、主仓版本及配套环境；已有原生 worktree setup 的结果直接复用。用户继续在原客户端表达目标，恢复会话沿用原目录和环境。实际边界见[编辑隔离合同](docs/native-workspace-isolation.md)，本轮实测进度见[验收记录](docs/unified-session-validation-2026-09-13.md)。安装与平台行为见 [dependency-plane.md](docs/dependency-plane.md) 和 [platform-contract.md](docs/platform-contract.md)。
+初始化复用已有配置，安装锁定依赖，并通过 `vaws_client_setup.py --client all --apply` 一次配置已安装的 Codex、Cursor、Claude、Grok 和 Kimi；无需用户手动调用 Skill 或安装个人修改版客户端。需要独立本地编辑或受管准备时，项目短指引让新任务准备一次编辑目录、主仓版本及配套环境；已有原生 worktree setup 的结果直接复用。普通 Review 和直接 endpoint 任务不调用 `vaws_start`。用户继续在原客户端表达目标，恢复会话沿用原目录和环境。实际边界见[编辑隔离合同](docs/native-workspace-isolation.md)，本轮实测进度见[验收记录](docs/unified-session-validation-2026-09-13.md)。安装与平台行为见 [dependency-plane.md](docs/dependency-plane.md) 和 [platform-contract.md](docs/platform-contract.md)。
 
 日常工作只需说明目标和影响结果的输入，例如：
 
@@ -62,9 +70,9 @@ Agent 按任务选择工具或技能；执行引用、状态推进和报告由�
 
 ## 仓库与本地状态
 
-规范仓库是 `vllm-ascend-workspace/vllm-ascend-workspace`。`vllm/`、`vllm-ascend/` 是指向社区上游的 Git 子模块。首次启动发现仓库尚未初始化时，`AGENTS.md` 和启动结果指向一次性的 [repo-init](.agents/bootstrap/repo-init/SKILL.md)，完成后不再自动触发；开发 Fork 必须属于个人账号，`origin` 指向个人 Fork，`upstream` 保留官方来源。
+规范仓库是 `vllm-ascend-workspace/vllm-ascend-workspace`。`vllm/`、`vllm-ascend/` 是指向社区上游的 Git 子模块。首次初始化由 AGENTS 指向一次性的 [repo-init](.agents/bootstrap/repo-init/SKILL.md)，完成后不再自动触发。明确初始化，或受管操作真正需要尚未确认的个人容器身份时，才进行 GitHub 身份确认；普通 review 和显式远端 I/O 不触发这套流程。开发 Fork 必须属于个人账号，`origin` 指向个人 Fork，`upstream` 保留官方来源。
 
-新任务检查一次 VAWS 主仓，采用该提交的锁定组件组合并同步个人 Fork，无需等待 Release。启动入口绑定返回目录的 sources，MCP gateway 为该任务固定组件环境；客户端 UI 可以保持原目录，Agent 在返回目录中编辑。工作中和恢复会话不检查或切换版本，知识配置、内容和模型/index 缓存按工作区家族复用。见[个人 Fork 与自动更新](docs/forks-and-updates.md)。共享 root 下的用户容器命名、随正常调用投递的留言和算子产物缓存由组件处理；权重沿用服务器现有路径，初始化后无需 Agent 填写身份、轮询或登记成果。见[身份与协调](docs/identity-and-agent-coordination.md)。
+需要独立编辑或受管准备的新任务检查一次 VAWS 主仓，采用该提交的锁定组件组合并同步个人 Fork，无需等待 Release。启动入口绑定返回目录的 sources，MCP gateway 为该任务固定组件环境；客户端 UI 可以保持原目录，Agent 在返回目录中编辑。工作中和恢复会话不检查或切换版本，知识配置、内容和模型/index 缓存按工作区家族复用。见[个人 Fork 与自动更新](docs/forks-and-updates.md)。共享 root 下的用户容器命名、随正常调用投递的留言和算子产物缓存由组件处理；权重沿用服务器现有路径，初始化后无需 Agent 填写身份、轮询或登记成果。见[身份与协调](docs/identity-and-agent-coordination.md)。
 
 `.agents/skills/` 保存业务技能，`.agents/lib/` 保存共享消费代码，`.agents/scripts/` 保存客户端接线和维护工具。客户端投影统一指向规范技能。运行状态和私人配置放在未跟踪的 `.vaws-local/`，凭据不入库。公开知识只使用包生成的脱敏副本。
 

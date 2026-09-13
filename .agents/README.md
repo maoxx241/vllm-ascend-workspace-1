@@ -11,8 +11,9 @@ skills. Runtime behavior belongs to the four installed components; see
   a Skill or installed runtime.
 - `scripts/vaws_client_setup.py` configures installed clients and shared project
   guidance once. Official Codex, Cursor, Claude, Grok and Kimi use
-  `scripts/vaws_start.py` for one new-task preparation; existing native worktree
+  `scripts/vaws_start.py` when independent editing or managed preparation is needed; existing native worktree
   callbacks can supply an already selected workspace and environment.
+  Ordinary local review and explicit remote endpoint/container work skip startup.
   Startup binds sources and returns the editing root. Resume retains the task,
   directory and environment. See [client boundaries](../docs/native-workspace-isolation.md)
   and [current acceptance progress](../docs/unified-session-validation-2026-09-13.md).
@@ -37,7 +38,7 @@ skills. Runtime behavior belongs to the four installed components; see
   APIs. Managed runs prepare their bound sources internally.
 - Knowledge lookup and capture use the package tools. `scripts/knowledge_setup.py`
   retries package preparation or changes the requested sharing configuration.
-  Dependency sync prepares knowledge; MCP maintains it while alive. Linked
+  Knowledge preparation is explicit; the MCP connection stays idle until actual use. Linked
   worktrees share configuration, content and reusable model/index state.
   New setup keeps public contribution disabled, and preserves existing choices.
 

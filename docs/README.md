@@ -8,11 +8,11 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Current contracts
 
-- [forks-and-updates.md](forks-and-updates.md) — Skill-independent first use, personal forks and one upstream preparation per new task.
+- [forks-and-updates.md](forks-and-updates.md) — requested setup and managed identity, personal forks and upstream preparation for independent local editing or managed work; ordinary review and explicit endpoints need no first-use setup.
 - [identity-and-agent-coordination.md](identity-and-agent-coordination.md) — shared-root user attribution, opportunistic message delivery and compiled-output reuse; first-version boundaries are explicit.
 
 - [platform-contract.md](platform-contract.md) — common Windows/macOS/Linux entry points, literal process arguments, native owners and immutable environments.
-- [native-workspace-isolation.md](native-workspace-isolation.md) — official five-client startup guidance, editing paths, automatic attachments and exact task component selection; native setup is optional.
+- [native-workspace-isolation.md](native-workspace-isolation.md) — official five-client guidance, editing paths, automatic attachments and fixed component selection; preparation is used on demand and native setup is optional.
 
 - [design-principles.md](design-principles.md) — nine governing principles; total Agent task cost takes priority, tools stay bounded, knowledge is advisory, and valid work is reused.
 - [windows-installation.md](windows-installation.md) — PowerShell setup, same-filesystem uv cache and verified offline transfer.
@@ -25,13 +25,16 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [dependency-plane.md](dependency-plane.md) — `uv.lock` is the only pin; `vaws_deps.py status|doctor|sync`. Covers immutable preparation and capability reporting.
 - [npu-fleet-monitor.md](npu-fleet-monitor.md) — local deploy and lifecycle of the standalone vaws-top fleet monitor.
 - [property-testing.md](property-testing.md) — property-based tests for the deterministic cores.
-- [remote-dev-consumption.md](remote-dev-consumption.md) — how this scaffold consumes the installed vaws-remote-dev package.
+- [remote-dev-consumption.md](remote-dev-consumption.md) — direct existing-container/code/script work, full-ID endpoint reuse, unsupported boundaries and installed remote-dev wiring.
 - [target-state.md](target-state.md) — current component ownership and runtime contracts, including the single minimal knowledge contract: optional reference, plain Markdown and no per-task bookkeeping.
 - [tracked-leak-guard.md](tracked-leak-guard.md) — tracked-file leak scanner, hook, and CI.
 - [tracked-path-guard.md](tracked-path-guard.md) — anti-rot guard against dead in-tree paths in tracked docs.
 
 ## Dated design and validation evidence
 
+- [existing-container-design.md](existing-container-design.md) — reviewed design for existing-container I/O, use-driven knowledge maintenance and lightweight native sessions; acceptance requirements are separate from results.
+- [existing-container-review-2026-09-13.md](existing-container-review-2026-09-13.md) — redacted Kimi K3 max/Never Ask review, its sole required correction and approved design scope; no runtime acceptance claim.
+- [existing-container-validation-2026-09-13.md](existing-container-validation-2026-09-13.md) — anonymized installed-candidate container, knowledge and native-review evidence, measured read costs and explicit pending final acceptance.
 - [fresh-xhigh-six-comparison-2026-09-13.md](fresh-xhigh-six-comparison-2026-09-13.md) — independent fresh xhigh scenario-6 Agent comparison, common business input, explicit timing boundaries and retained failures.
 
 - [native-kernel-recipe-performance-2026-09-13.md](native-kernel-recipe-performance-2026-09-13.md) — controlled incremental recipe compilation timings, retained fallback and failed attempts, and actual operator validation.

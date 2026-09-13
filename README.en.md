@@ -6,11 +6,19 @@ An Agent-only workspace for developing [vLLM](https://github.com/vllm-project/vl
 
 ## Start with a task
 
-Open this checkout in an Agent client and ask:
+Open this checkout in an Agent client and describe the task:
+
+> Review this PR for error handling and compatibility.
+
+> Use the existing container `repro-case` on the specified host, with code in `/work/vllm`, and reproduce the issue using `/work/start-case.sh`.
+
+PR review uses native Git and file tools. Existing-container work passes host, container, cwd and the original command directly to remote-dev, preserving that code and environment. Neither task needs a mode binding, source sync, managed execution, knowledge preparation or GitHub identity setup. Knowledge is optional reference. See [remote-dev consumption](docs/remote-dev-consumption.md) for examples and explicit limitations.
+
+When you need the complete development configuration, ask:
 
 > Initialize this workspace for vLLM Ascend development.
 
-Initialization reuses configuration, installs locked packages and runs `vaws_client_setup.py --client all --apply` to configure installed Codex, Cursor, Claude, Grok and Kimi clients together. It requires neither invoking a Skill nor installing a personal client build. Short project guidance prepares one independent editing directory, upstream revision and component environment per new task; existing native worktree setup results are reused directly. Users keep working in their usual client, and resume retains the original directory and environment. See [workspace isolation](docs/native-workspace-isolation.md) for the contract and [this round's acceptance record](docs/unified-session-validation-2026-09-13.md) for verified scope. Installation and platform behavior are in [dependency-plane.md](docs/dependency-plane.md) and [platform-contract.md](docs/platform-contract.md).
+Initialization reuses configuration, installs locked packages and runs `vaws_client_setup.py --client all --apply` to configure installed Codex, Cursor, Claude, Grok and Kimi clients together. Users need neither manually invoke a Skill nor install a personal client build. When independent local editing or managed preparation is needed, short project guidance prepares one editing directory, upstream revision and component environment; existing native worktree setup results are reused directly. Ordinary review and direct endpoint work skip `vaws_start`. Users keep working in their usual client, and resume retains the original directory and environment. See [workspace isolation](docs/native-workspace-isolation.md) for the contract and [this round's acceptance record](docs/unified-session-validation-2026-09-13.md) for verified scope. Installation and platform behavior are in [dependency-plane.md](docs/dependency-plane.md) and [platform-contract.md](docs/platform-contract.md).
 
 For daily work, describe the outcome and the inputs that matter:
 
@@ -62,9 +70,9 @@ Skill selection follows the task. Detailed inputs and procedures live beside the
 
 ## Repository and local state
 
-The canonical repository is `vllm-ascend-workspace/vllm-ascend-workspace`. Git submodules `vllm/` and `vllm-ascend/` remain on their community upstreams. Personal forks are development remotes; setup preserves established remote choices.
+The canonical repository is `vllm-ascend-workspace/vllm-ascend-workspace`. Git submodules `vllm/` and `vllm-ascend/` remain on their community upstreams. AGENTS points to the one-time [repo-init reference](.agents/bootstrap/repo-init/SKILL.md) for first setup; it does not trigger automatically afterward. Identity confirmation applies to requested setup or a managed operation that actually needs a missing personal-container identity. Ordinary review and explicit remote I/O do not trigger it. Personal forks are development remotes; setup preserves established remote choices.
 
-A new task checks canonical main once and selects that revision's locked component combination; no Release is required. Startup binds the returned editing directory as task sources, and the MCP gateway routes calls to the task's fixed environment. The client's displayed cwd may stay at the original project. Work and resume do not switch versions. Related worktrees share knowledge configuration, content and reusable model/index state. See [forks and updates](docs/forks-and-updates.md).
+A new task needing independent editing or managed preparation checks canonical main once and selects that revision's locked component combination; no Release is required. Startup binds the returned editing directory as task sources, and the MCP gateway routes calls to the task's fixed environment. The client's displayed cwd may stay at the original project. Work and resume do not switch versions. Related worktrees share knowledge configuration, content and reusable model/index state. See [forks and updates](docs/forks-and-updates.md).
 
 `.agents/skills/` contains business skills, `.agents/lib/` contains shared consumer code, and `.agents/scripts/` contains client wiring and maintenance tools. Client projections route to canonical skills. Runtime state and private configuration stay under untracked `.vaws-local/`; credentials are never committed. Public knowledge uses only package-prepared redacted copies.
 

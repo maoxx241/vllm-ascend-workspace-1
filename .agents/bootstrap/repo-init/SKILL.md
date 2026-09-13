@@ -1,13 +1,16 @@
 ---
 name: repo-init
-description: Initialize this repository once when its startup entry reports needs_setup. Read through the first-use pointer in AGENTS.md; established repositories use the relevant maintenance command directly.
+description: Initialize this repository once when explicitly requested or required preparation reports missing first-use setup. Read through AGENTS.md; established repositories use the relevant maintenance command directly.
 ---
 
 # First repository setup
 
 This reference lives outside automatic skill discovery. Use it only for a
-repository that has not completed first-use setup. New sessions, updates and
-repairs use their existing entries without loading this reference again.
+repository that has not completed first-use setup, when the user requests it or
+required preparation reports missing setup. Ordinary local work, PR review and
+explicit remote endpoints, including existing containers, need no initialization
+or identity confirmation. Later sessions, updates and repairs use their specific
+entries without loading this reference again.
 
 Ask once for the user's personal GitHub username, explaining that setup creates
 personal development forks and configures installed clients for upstream updates
@@ -32,9 +35,11 @@ configuration and records its result in the shared repository state.
 
 Complete the running client's native trust prompts. If it has not loaded the
 new providers/hooks, reopen the project or start a new native session once.
-That session follows the normal startup entry; configuration alone is not proof
-that a client has loaded it. No further initialization checks belong to ordinary
-tasks, and resume keeps its existing workspace and environment.
+Configuration alone is not proof that a client has loaded it. Prepare through
+`vaws_start.py` when independent editing or managed preparation is needed; reuse
+a workspace already supplied by native setup. Resume keeps its existing workspace
+and environment. Official Kimi passes the hook context to startup and task tools;
+remote-dev and knowledge accept it optionally to select that task's environment.
 
 For missing installer prerequisites, see [bootstrap prerequisites](references/command-recipes.md).
 Fork behavior and targeted later repairs are documented in

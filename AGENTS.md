@@ -7,16 +7,17 @@ work and choose capabilities as needed. User instructions take precedence over
 Skill guidance; routine decisions stay with the Agent.
 
 <!-- BEGIN VAWS session-start -->
-Reuse a prepared workspace W and environment supplied by the native hook. Otherwise, make a new session's first repository action `uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT`. CLIENT is codex, cursor, claude, grok or kimi. It checks initialization; follow its result without a separate probe. Pass `--context-file PATH` when the hook supplies context outside the client environment.
+Reuse a prepared workspace W and environment supplied by the native hook. Ordinary local review uses native tools; explicit remote endpoint or existing-container work uses remote-dev directly. These tasks need no startup, identity or knowledge preparation.
 
-Use the returned `workspace` as W for every shell call and absolute paths under W for file, search and patch tools, even if the client UI shows the original project. Sources and environment are already bound. If a tool needs context, pass the existing `context_file`. Official Kimi also passes `context_file` to the task, remote-dev and knowledge MCP tools.
+When independent local editing or managed preparation is needed and no W is prepared, run `uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT` once. CLIENT is codex, cursor, claude, grok or kimi. Follow its result without a separate initialization probe. Pass `--context-file PATH` when the hook supplies context outside the client environment.
 
-Resume reuses the earlier W, task and environment without preparation or updates.
+Use the returned `workspace` as W for shell calls and absolute paths under W for file, search and patch tools, even if the client UI shows the original project. Sources and environment are bound. Pass the existing `context_file` to tools that need task context. Official Kimi task tools require `context_file`; companion tools accept it when reusing the task's selected environment. Resume reuses the earlier W, task and environment without preparation or updates.
 <!-- END VAWS session-start -->
 
 ## First use
 
-Only when startup reports this repository has never been initialized, read
+For explicitly requested first-time setup, or when needed preparation reports
+this repository has never been initialized, read
 [repo-init](.agents/bootstrap/repo-init/SKILL.md). It is a one-time setup reference
 outside the automatic Skill catalog. Reuse the user's confirmed personal GitHub
 choice; an authenticated login is only a suggestion. Once initialized, ordinary
@@ -27,11 +28,14 @@ work, updates and repairs use their specific tools and returned facts.
 | Work | Entry |
 |---|---|
 | Local files, shell, Git and ordinary PR review | Native tools |
-| Explicit remote endpoint I/O | remote-dev tools with host/port/user/cwd |
+| Explicit remote endpoint or existing container | remote-dev with host/port/user/cwd and optional container |
 | Managed environment, NPU run or service | `vaws_run`, `vaws_execution`, `vaws_finish` |
 | Knowledge lookup or capture | `knowledge_query`, `knowledge_explain`, `knowledge_capture` |
 | Local fleet monitor lifecycle | [Monitor commands](docs/npu-fleet-monitor.md) |
 | Domain development, measurement or debugging | The relevant business Skill |
+
+For an existing container, preserve the supplied code, environment and command;
+see [remote-dev consumption](docs/remote-dev-consumption.md).
 
 `vaws_run` prepares its sources and resources; `vaws_session` is optional for
 inspection or source overrides. Task identity comes from the native attachment's

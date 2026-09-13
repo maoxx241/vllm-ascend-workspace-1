@@ -30,6 +30,7 @@ def shared_workspace_root(repo_root: Path = ROOT) -> Path:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            encoding="utf-8",
             timeout=5,
             check=False,
         )

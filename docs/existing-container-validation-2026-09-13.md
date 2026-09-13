@@ -266,3 +266,51 @@ installed package selection.
 The completed work validates CPU tools, transport, script semantics and reuse of
 an existing environment. It does **not** establish NPU model accuracy, serving
 throughput, resource admission or an absence of hardware-specific regressions.
+
+## Mainline integration follow-up
+
+The follow-up integrates current canonical main, including cross-root remote RPC
+reuse, native kernel preparation, official-client startup and the task-selected
+MCP gateway. Explicit setup replaces generated Codex routing with the current
+matcher; it does not classify old matcher versions. Missing selected-workspace
+hooks now report an error instead of executing an entry from another checkout.
+Existing task ownership and user-authored hook siblings remain intact.
+
+Ordinary review and direct endpoints bypass workspace preparation in both the
+generated project guidance and real native startup hints. Remote-dev and
+knowledge accept calls without task context, using the configured workspace's
+saved environment without registry or Git discovery. Explicit/native context
+retains task-specific selection, while managed task calls still require it.
+Current clients' native context channels remain supported. This supersedes the
+earlier task-only matcher and mandatory Kimi-extension boundaries above; the
+earlier measurements remain evidence of their stated revisions.
+
+All component PR checks passed before merge:
+[remote-dev #14](https://github.com/vllm-ascend-workspace/remote-dev/pull/14),
+[coordinator #30](https://github.com/vllm-ascend-workspace/vaws-coordinator/pull/30)
+and [knowledge #28](https://github.com/vllm-ascend-workspace/vaws-knowledge/pull/28).
+The workspace lock now selects canonical repositories at remote-dev `a6536288`,
+coordinator `921ce2af` and knowledge `3a65926d`. The coordinator selection is an
+ancestor of its mainline merge `66dde4b6`. Installed preparation produced receipt
+`561d729f659f`; no source injection was used in the final four-machine run.
+
+That final run passed all eight checks on each of A–D: **32/32**. All twelve
+owned jobs were quiet, all four marked fixtures were absent, and cleanup reported
+no errors. Original code, packages, environment, container configuration and
+lifecycle were preserved. Loaded remote-dev was 0.8.0 at `a6536288`; its installed
+code-set SHA256 was
+`04f3ef6d0a21350d86bcd1e17409c87311330d6e1575b0c9ee1ba16f295278ef`.
+The five warm-read medians were A 337.573, B 335.831, C 333.718 and D 339.613 ms.
+These are functional-run timings, not a new paired comparison or an NPU result.
+
+Private follow-up evidence is under `.vaws-local/existing-container-merge-20260913`,
+including `installed-sync.json`, `four-host-final-summary.json` and
+`four-host-final.txt`. Full raw operation results remain in
+`live-20260913-083159-a5587722/summary.json` under the original evidence directory.
+
+The actual installed stdio gateway was also exercised without request metadata,
+task context or inherited GitHub identity. Its catalog exposed 18 remote tools,
+including the container coordinate and optional context. A real container source
+read succeeded, returned the full container ID and selected receipt `561d729f659f`;
+the dedicated task-registry path remained absent. This read-only entry acceptance
+is recorded in follow-up directory `gateway-20260913-083908-2f684950`.

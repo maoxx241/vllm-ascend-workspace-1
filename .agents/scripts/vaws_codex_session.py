@@ -50,9 +50,7 @@ def forward(target: Path, payload: dict) -> int:
     name = "knowledge_summary.py" if kind == "summary" else "vaws_session.py"
     hook = target / ".agents/hooks" / name
     if not hook.is_file():
-        # An explicitly selected older workspace may predate the thin hook.
-        # The installed bootstrap still launches its selected package version.
-        hook = ROOT / ".agents/hooks" / name
+        raise RuntimeError(f"selected workspace hook is missing: {hook}")
     command = [receipt["python"], str(hook), "--client", "codex", "--project", str(target),
                "--environment-receipt", receipt["receipt"]]
     print(json.dumps({"vaws_codex_hook": kind, "workspace": str(target),
@@ -70,7 +68,11 @@ def main() -> int:
         if re.sub(r"[^a-z]", "", event.lower()) == "pretooluse":
             name = str(payload.get("tool_name") or payload.get("toolName") or "")
             arguments = payload.get("tool_input", payload.get("toolInput", {}))
-            if (not re.search(r"(?:^|:|__)vaws_(session|run|execution|finish|message)$", name)
+            # The stable gateway also routes companion calls to a prepared
+            # task's package selection. Ordinary local tools need no runtime.
+            relevant = (re.search(r"(?:^|:|__)vaws_(session|run|execution|finish|message)$", name)
+                        or re.search(r"^(?:MCP:)?(?:mcp__)?(?:vaws[-_]knowledge__knowledge_(?:query|explain|capture)|remote[-_]dev__remote_[a-z_]+)$", name))
+            if (not relevant
                     or not isinstance(arguments, dict) or arguments.get("context_file")):
                 return 0
         target = scoped_workspace(payload, ROOT)

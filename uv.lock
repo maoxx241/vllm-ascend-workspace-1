@@ -4240,7 +4240,7 @@ wheels = [
 [[package]]
 name = "vaws-coordinator"
 version = "0.4.1.dev2"
-source = { git = "https://github.com/maoxx241/vaws-coordinator?rev=0d14525b9711f5a38e2036c87e9221982add7a7a#0d14525b9711f5a38e2036c87e9221982add7a7a" }
+source = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=921ce2af0e070b7566795779c3fd8f9d9366697c#921ce2af0e070b7566795779c3fd8f9d9366697c" }
 dependencies = [
     { name = "setuptools-scm" },
     { name = "vaws-remote-dev" },
@@ -4249,7 +4249,7 @@ dependencies = [
 [[package]]
 name = "vaws-knowledge"
 version = "0.5.1"
-source = { git = "https://github.com/maoxx241/vaws-knowledge?rev=dac5572b7887e4435fab35fb1a72a38c23d55b33#dac5572b7887e4435fab35fb1a72a38c23d55b33" }
+source = { git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=3a65926db4be36f39bf5efb516d1f74bd37702c5#3a65926db4be36f39bf5efb516d1f74bd37702c5" }
 dependencies = [
     { name = "fastembed" },
     { name = "openviking" },
@@ -4260,13 +4260,14 @@ dependencies = [
 [[package]]
 name = "vaws-remote-dev"
 version = "0.8.0"
-source = { git = "https://github.com/maoxx241/remote-dev?rev=6996e5756d8e81a7842173f34837d649be77b10c#6996e5756d8e81a7842173f34837d649be77b10c" }
+source = { git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=a65362882a85b4d460be3e1d15e90de9fb507e70#a65362882a85b4d460be3e1d15e90de9fb507e70" }
 
 [[package]]
 name = "vaws-workspace"
 version = "0"
 source = { virtual = "." }
 dependencies = [
+    { name = "mcp" },
     { name = "pillow" },
     { name = "vaws-coordinator" },
     { name = "vaws-knowledge" },
@@ -4276,23 +4277,22 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "jsonschema" },
-    { name = "mcp" },
     { name = "pytest" },
     { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "mcp", specifier = "==1.30.0" },
     { name = "pillow", specifier = ">=11" },
-    { name = "vaws-coordinator", git = "https://github.com/maoxx241/vaws-coordinator?rev=0d14525b9711f5a38e2036c87e9221982add7a7a" },
-    { name = "vaws-knowledge", git = "https://github.com/maoxx241/vaws-knowledge?rev=dac5572b7887e4435fab35fb1a72a38c23d55b33" },
-    { name = "vaws-remote-dev", git = "https://github.com/maoxx241/remote-dev?rev=6996e5756d8e81a7842173f34837d649be77b10c" },
+    { name = "vaws-coordinator", git = "https://github.com/vllm-ascend-workspace/vaws-coordinator?rev=921ce2af0e070b7566795779c3fd8f9d9366697c" },
+    { name = "vaws-knowledge", git = "https://github.com/vllm-ascend-workspace/vaws-knowledge?rev=3a65926db4be36f39bf5efb516d1f74bd37702c5" },
+    { name = "vaws-remote-dev", git = "https://github.com/vllm-ascend-workspace/remote-dev?rev=a65362882a85b4d460be3e1d15e90de9fb507e70" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "jsonschema" },
-    { name = "mcp", specifier = "==1.30.0" },
     { name = "pytest" },
     { name = "pyyaml" },
 ]

@@ -271,7 +271,7 @@ def test_client_setup_installs_once_and_next_native_target_only_removes_project_
 
 @pytest.mark.parametrize("fields", [
     {"tool_name": "exec_command", "tool_input": {"cmd": "git diff"}},
-    {"toolName": "mcp__remote_dev__remote_bash", "toolInput": {"command": "vaws_run"}},
+    {"toolName": "user_provider__shell", "toolInput": {"command": "vaws_run"}},
     {"tool_name": "vaws_run_extra"},
     {"tool_name": "vaws_run", "tool_input": []},
     {"tool_name": "vaws_run", "tool_input": {"context_file": "explicit"}},
@@ -303,6 +303,26 @@ runpy.run_path(sys.argv[1], run_name='__main__')
     assert result.returncode == 0, result.stderr
     assert result.stdout == result.stderr == ""
     assert list(tmp_path.iterdir()) == []
+
+
+def test_selected_workspace_missing_hook_never_runs_source_hook(family, monkeypatch):
+    source, target = family
+    ready(target)
+    (target / ".agents/hooks/vaws_session.py").unlink()
+    monkeypatch.setattr(adapter, "ROOT", source)
+    with patch.object(adapter.subprocess, "run", side_effect=AssertionError("unexpected fallback process")):
+        with pytest.raises(RuntimeError, match="selected workspace hook is missing"):
+            adapter.forward(target, {"hook_event_name": "SessionStart"})
+
+
+def test_companion_call_keeps_prepared_task_context_routing(monkeypatch):
+    target = Path("prepared")
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({
+        "hook_event_name": "PreToolUse", "tool_name": "mcp__remote_dev__remote_bash", "tool_input": {}})))
+    with patch.object(adapter, "scoped_workspace", return_value=target), \
+         patch.object(adapter, "forward", return_value=0) as forward:
+        assert adapter.main() == 0
+        assert forward.call_args.args[0] == target
 
 
 def test_pretool_migration_keeps_matcher_and_custom_conditions(family, tmp_path, monkeypatch):
@@ -350,3 +370,22 @@ def test_explicit_global_repair_narrows_only_generated_unconditional_adapter(fam
     fixed = files[user_path]
     plan(files, source, target, user_path.parent, monkeypatch, enable=True)
     assert files[user_path] == fixed
+
+
+def test_explicit_setup_does_not_copy_the_first_custom_group_matcher(family, tmp_path, monkeypatch):
+    source, target = family
+    user_path = tmp_path / "home/hooks.json"
+    project_path = target / ".codex/hooks.json"
+    item = {"type": "command", "command": shlex.join(["/reviewed/python", str(source / ".agents/scripts/vaws_codex_session.py")])}
+    custom = {"matcher": "Read", "hooks": [{"type": "command", "command": "user-audit"}]}
+    current = "current-context-filter"
+    project = generated(source, target)
+    project["hooks"]["PreToolUse"][0]["matcher"] = current
+    project["hooks"]["PreToolUse"].insert(0, custom)
+    files = {user_path: json.dumps({"hooks": {"PreToolUse": [{"hooks": [item]}]}}),
+             project_path: json.dumps(project)}
+    config.add_codex_setup(files, [], target, source, shell_command=shlex.join,
+                           parse_command=shlex.split, enable=True, user_path=user_path,
+                           pretool_matcher=current)
+    assert json.loads(files[user_path])["hooks"]["PreToolUse"] == [{"hooks": [item], "matcher": current}]
+    assert json.loads(files[project_path])["hooks"]["PreToolUse"] == [custom]

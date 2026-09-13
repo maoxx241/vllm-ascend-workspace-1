@@ -1,3 +1,11 @@
+<!-- BEGIN VAWS session-start -->
+For local PR review or an explicit remote endpoint (including a user-supplied container), use the native or remote-dev tools directly. No startup command, identity setup or knowledge lookup is required. When the task needs a new independent local editing workspace or managed preparation, run once `uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT`. Replace CLIENT with your native client: codex, cursor, claude, grok or kimi. Add `--context-file PATH` when the native hook supplied that context and the command cannot obtain it from the client environment (official Kimi needs it). The command checks saved initialization itself and reports missing first-use setup; no configuration inspection is needed beforehand. If the native hook explicitly reports a prepared workspace W and selected environment, use them directly.
+
+Use the returned `workspace` as W: shell tools use W as cwd (or `cd W && ...`), and file, search and patch tools use absolute paths under W. Sources and the selected environment are already bound; do not repeat session setup. Official Kimi task calls carry the returned `context_file`; companion calls can also supply it to use that prepared task's selected environment. Other clients receive context through hooks; if a tool reports missing context, pass the existing `context_file`. Use configured knowledge tools when useful.
+
+Resume keeps the earlier W, task and environment; do not prepare, update or create another directory. Client UI/default cwd can remain at the original project.
+<!-- END VAWS session-start -->
+
 # Repository instructions
 
 This is the vLLM-Ascend consumer workspace: project materials, client wiring
@@ -25,7 +33,9 @@ Ordinary local files, Git/PR review and explicit remote-dev endpoints, including
 an existing container, do not require `.vaws-local/github.json`. Its absence is
 not a reason to ask for identity, create forks or run client/dependency setup.
 
-When that setup is needed and no confirmed identity exists, inspect
+A `vaws.github.v1` snapshot in `.vaws-local/github.json` is the confirmed
+setup result; there is no separate `confirmed` field or per-session identity
+inspection. When that setup is needed and no confirmed identity exists, inspect
 `.agents/scripts/workspace_forks.py` and ask once for the user's personal GitHub
 username, explaining that setup creates personal development forks and configures
 the installed native clients
@@ -48,30 +58,27 @@ After identity setup, initialize the installed clients together with
 `uv run --no-project python .agents/scripts/vaws_deps.py sync`, then
 `uv run --no-project python .agents/scripts/vaws_client_setup.py --client all --apply`.
 The latter detects actual installed clients, prepares their hooks/providers and
-supported native defaults, and records the result in the primary worktree's
+shared startup instructions, and records the result in the primary worktree's
 `.vaws-local/client-initialization.json`. It does not require invoking a Skill.
-Complete any returned native UI choices once during this initialization, using
-available client tools or computer use; unsupported operations remain explicit
-in the result. Writing wiring files alone does not establish a default mode or
-native trust. An existing initialization attempt is not a per-task gate: do not
+Native worktree setup is an optional optimization; official clients also use
+the shared new-session entry. Client trust remains native. Do not
 rerun all-client setup, poll its record or repeat questions for ordinary work.
 Explicit initialization or repair can rerun the same idempotent entry.
+Complete requested dependency and client initialization together. If the
+running client does not load the new hooks/providers immediately, reopen the
+project or start a new native session once and complete its trust prompts.
+This is part of initialization, not a recurring session check.
 
-Codex
-local-environment setup and Cursor worktree setup then prepare the new directory
-created by the client, before the Agent starts: check the canonical default
-branch once, adopt an eligible revision and pin its components and client wiring.
-No Release or per-session Agent command is required. Normal SessionStart hooks
-automatically attach the native identity and actual cwd to VAWS; resume keeps
-the existing task, code and selected environment. There is no periodic watcher
-or update during work. A plain Local chat does not acquire a worktree from a hook.
-Native setup has contract tests and real-client acceptance evidence. Codex needs
-one native VAWS environment selection and `--codex-global-hooks` initialization
-with native review of the fixed user hooks; later worktrees reuse their definitions.
-Cursor uses New Worktree by default and
-the one-time `--cursor-global-mcp` setup. Claude uses WorktreeCreate; Grok uses native Git worktrees; Kimi needs the
-explicit native SessionSetup extension. Verified versions and remaining client
-boundaries are in [native client acceptance](docs/native-client-validation-2026-09-12.md).
+When independent local editing or managed preparation is needed, select the
+editing workspace, check upstream once and fix its component environment. Existing native worktree callbacks can perform
+this preparation; otherwise the generated startup instruction supplies the one
+command. The returned workspace is the editing root even when the client's UI
+still shows the original directory. Session hooks associate the native identity;
+the start operation binds the selected sources. Ordinary review and explicit
+endpoint work keep their existing directory without a start operation. Resume keeps that task, directory
+and environment. There is no periodic watcher or update during work, and no
+personal client binary is required. Current verification scope is recorded in
+[unified session acceptance](docs/unified-session-validation-2026-09-13.md).
 Explicit maintenance of an existing checkout can use
 `.agents/scripts/workspace_update.py apply`; this is not a per-task Agent step.
 Dirty sources and divergence stay for judgment when an update is needed.
@@ -97,6 +104,7 @@ adding personal/public categories, sharing permissions or publication steps.
 | Local files, shell, Git | Native client tools |
 | Explicit remote endpoint I/O, including an existing container | remote-dev tools with ordinary host/port/user, optional container, and cwd |
 | Managed preparation, device allocation and supervised runs/services | `vaws_session`, `vaws_run`, `vaws_execution`, `vaws_finish` |
+| Independent local editing or managed preparation without a prepared workspace | `.agents/scripts/vaws_start.py --client CLIENT`; reuse an existing preparation |
 | Workspace initialization or client wiring | `.agents/skills/repo-init/SKILL.md` |
 | Local fleet monitor lifecycle | `.agents/skills/npu-fleet-monitor/SKILL.md`; observation is not allocation |
 | Knowledge lookup and capture | `knowledge_query`, `knowledge_explain`, `knowledge_capture` |
@@ -112,8 +120,9 @@ old job references stay pinned to that container generation. See
 [remote-dev consumption](docs/remote-dev-consumption.md) for prerequisites and
 operations that explicitly reject a container endpoint.
 
-Native attachments automatically bind their actual working directory as the
-default source. `vaws_session` is optional for inspection or explicit source
+Startup binds the selected editing workspace as the task's default source;
+an already prepared native worktree uses its attached source. `vaws_session`
+is optional for inspection or explicit source
 overrides; a run can also pass `sources`, with an empty map using no project sources.
 An empty source map still uses managed execution; it is not a way to reuse an
 arbitrary container's code and startup environment.
@@ -128,7 +137,7 @@ Task identity comes from the native attachment's `context_file` or
 `VAWS_CONTEXT_FILE`. New native sessions create new tasks; resume keeps the
 original. Joining another task requires explicit association. Never infer
 identity or resource access from cwd, recent chats or a local report.
-Ordinary PR review needs no `vaws_session`, `vaws_run`, `vaws_finish` or knowledge
+Ordinary PR review needs no `vaws_start`, `vaws_session`, `vaws_run`, `vaws_finish` or knowledge
 call. Native hooks retain local identity/cwd association; task-tool routing
 does not make ordinary local or remote-dev tools enter the managed workflow.
 

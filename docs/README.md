@@ -8,11 +8,11 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Current contracts
 
-- [forks-and-updates.md](forks-and-updates.md) — requested setup and managed identity, personal forks and upstream preparation in native new-worktree setup; ordinary review and explicit endpoints need no first-use setup.
+- [forks-and-updates.md](forks-and-updates.md) — requested setup and managed identity, personal forks and upstream preparation for independent local editing or managed work; ordinary review and explicit endpoints need no first-use setup.
 - [identity-and-agent-coordination.md](identity-and-agent-coordination.md) — shared-root user attribution, opportunistic message delivery and compiled-output reuse; first-version boundaries are explicit.
 
 - [platform-contract.md](platform-contract.md) — common Windows/macOS/Linux entry points, literal process arguments, native owners and immutable environments.
-- [native-workspace-isolation.md](native-workspace-isolation.md) — native worktree setup, per-client capability boundaries, automatic attachments and fixed local environments; CLI copying is optional.
+- [native-workspace-isolation.md](native-workspace-isolation.md) — official five-client guidance, editing paths, automatic attachments and fixed component selection; preparation is used on demand and native setup is optional.
 
 - [design-principles.md](design-principles.md) — nine governing principles; total Agent task cost takes priority, tools stay bounded, knowledge is advisory, and valid work is reused.
 - [windows-installation.md](windows-installation.md) — PowerShell setup, same-filesystem uv cache and verified offline transfer.
@@ -35,6 +35,13 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [existing-container-design.md](existing-container-design.md) — reviewed design for existing-container I/O, use-driven knowledge maintenance and lightweight native sessions; acceptance requirements are separate from results.
 - [existing-container-review-2026-09-13.md](existing-container-review-2026-09-13.md) — redacted Kimi K3 max/Never Ask review, its sole required correction and approved design scope; no runtime acceptance claim.
 - [existing-container-validation-2026-09-13.md](existing-container-validation-2026-09-13.md) — anonymized installed-candidate container, knowledge and native-review evidence, measured read costs and explicit pending final acceptance.
+- [fresh-xhigh-six-comparison-2026-09-13.md](fresh-xhigh-six-comparison-2026-09-13.md) — independent fresh xhigh scenario-6 Agent comparison, common business input, explicit timing boundaries and retained failures.
+
+- [native-kernel-recipe-performance-2026-09-13.md](native-kernel-recipe-performance-2026-09-13.md) — controlled incremental recipe compilation timings, retained fallback and failed attempts, and actual operator validation.
+
+- [six-scenario-performance-2026-09-13.md](six-scenario-performance-2026-09-13.md) — fixed-component managed preparation, cross-container native reuse, incremental compilation and independent Agent timing comparisons.
+
+- [unified-session-validation-2026-09-13.md](unified-session-validation-2026-09-13.md) — unified official-client preparation and MCP routing; acceptance progress and pending native cases are explicit.
 
 - [native-client-validation-2026-09-12.md](native-client-validation-2026-09-12.md) — native worktree preparation, real client tasks and resume behavior, plus supported client extension boundaries.
 

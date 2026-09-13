@@ -93,8 +93,11 @@ uv run --no-project python .agents/scripts/vaws_deps.py sync
 uv run --no-project python .agents/scripts/vaws_deps.py status vaws-remote-dev
 ```
 
-Client setup selects the prepared interpreter and pins its ready receipt for
-`-m remote_dev.mcp.server`; no mutable workspace venv is required.
+Client setup installs a stable MCP gateway. Direct calls use the configured
+workspace's saved immutable environment without task preparation. Calls with
+native or explicit context keep that task's selected environment; the gateway
+starts `-m remote_dev.mcp.server` there.
+A mutable workspace venv is not required.
 
 ## 4. What this workspace may inject
 
@@ -118,15 +121,22 @@ user. They do not resolve `session_id` / `machine` through a consumer plugin.
 
 ## 6. Client wiring
 
-`uv run --no-project python .agents/scripts/vaws_client_setup.py` writes the `remote-dev` MCP
-entry as `python -m remote_dev.mcp.server` with the env above. It must not
-point the server at a workspace resolver.
+`uv run --no-project python .agents/scripts/vaws_client_setup.py --client all --apply`
+configures the remote-dev provider through `vaws_native_mcp.py`. The gateway
+uses the configured workspace's saved environment for direct calls, or selects
+the task's fixed environment from explicit context or actual native metadata.
+It then forwards ordinary remote calls to the package and strips its
+routing-only `context_file` before calling the remote-dev backend. It does not
+resolve endpoints, allocate resources or implement a remote-dev resolver.
 
-Clients normally use their native platform interpreter. Kimi Code shares
-`.kimi-code/mcp.json` between Windows and WSL in a mounted Windows project, so
-setup uses the same project-relative, per-environment Windows Python link for remote-dev,
-coordinator and knowledge. Start Kimi in that project directory; WSL launches
-the Windows executable through its normal interoperability support. Generated
-state paths use Windows spelling, and custom server commands and environment
-values remain intact. A generated `WSLENV` list forwards these values to the
-Windows process. Grok in WSL continues to use native Linux remote-dev.
+Supported client hooks provide context; official Kimi can pass the existing
+`context_file` when selecting a prepared task environment. It is optional for
+direct endpoints. New tasks can use newly prepared components without
+manually reconnecting the client, while resumed tasks keep their earlier
+selection. The package remains independently usable with explicit endpoints.
+
+Generated configuration preserves user server fields and follows the existing
+native interpreter/Windows owner rules, including required WSL environment
+forwarding. This does not expand mixed Windows/WSL worktree support. See the
+[platform contract](platform-contract.md) and
+[native client contract](native-workspace-isolation.md) for those boundaries.

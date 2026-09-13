@@ -68,7 +68,8 @@ def conditions(group: dict, event: str) -> dict:
 
 
 def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shell_command,
-                    parse_command, enable: bool = False, user_path: Path | None = None) -> None:
+                    parse_command, enable: bool = False, user_path: Path | None = None,
+                    pretool_matcher: str = TASK_TOOL_MATCHER) -> None:
     """Adapt an already-merged project plan, after its MCP entries are prepared."""
     if windows_mounted_workspace(root):
         if enable:
@@ -96,9 +97,6 @@ def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shel
     local_changed = False
     for event in EVENTS:
         groups = events.get(event, [])
-        covered = [conditions(group, event) for group in shared.get(event, [])
-                   if isinstance(group, dict) and isinstance(group.get("hooks"), list)
-                   and any(hook_kind(item, root, parse_command) == "adapter" for item in group["hooks"])]
         wanted = []
         # Earlier explicit user configuration may contain the same generated
         # direct hook. Replace those entries alongside the project migration.
@@ -107,13 +105,13 @@ def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shel
             if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
                 kept_shared.append(group)
                 continue
-            if (enable and event == "PreToolUse" and set(group) == {"hooks"} and group["hooks"]
+            if (enable and event == "PreToolUse" and set(group) <= {"hooks", "matcher"} and group["hooks"]
                     and all(hook_kind(item, root, parse_command) == "adapter" for item in group["hooks"])):
-                # Explicit global setup/repair can narrow a generated legacy
-                # group. Normal worktree setup never rewrites reviewed bytes.
-                # Keep the command and native trust untouched.
-                group = {**group, "matcher": TASK_TOOL_MATCHER}
-                global_changed = True
+                # Explicit setup replaces generated routing with the current
+                # contract. No old matcher/version classification is needed.
+                if group.get("matcher") != pretool_matcher:
+                    group = {**group, "matcher": pretool_matcher}
+                    global_changed = True
             remaining = [item for item in group["hooks"]
                          if hook_kind(item, root, parse_command) not in {"session", "summary"}]
             if remaining != group["hooks"]:
@@ -125,6 +123,9 @@ def add_codex_setup(files: dict, notes: list, project: Path, root: Path, *, shel
                 kept_shared.append({**group, "hooks": remaining})
         if event in shared:
             shared[event] = kept_shared
+        covered = [conditions(group, event) for group in kept_shared
+                   if isinstance(group, dict) and isinstance(group.get("hooks"), list)
+                   and any(hook_kind(item, root, parse_command) == "adapter" for item in group["hooks"])]
         kept = []
         for group in groups:
             if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):

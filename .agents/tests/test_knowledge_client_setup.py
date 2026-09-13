@@ -34,18 +34,24 @@ def test_all_clients_receive_knowledge_access_and_only_supported_summary_events(
     monkeypatch.setattr(setup, "managed_python", lambda: sys.executable)
     monkeypatch.setenv("KIMI_CODE_HOME", str(tmp_path / "kimi-home"))
     plan = setup.build_plan(client, tmp_path, kimi_config=tmp_path / "kimi-config.toml")
-    assert plan["mcp_servers"]["vaws-knowledge"] == ["-m", "vaws_knowledge.server.mcp_server"]
+    assert plan["mcp_servers"]["vaws-knowledge"] == [str(tmp_path / ".agents/scripts/vaws_native_mcp.py"), "knowledge"]
     if client == "kimi":
         hooks = setup.tomllib.loads(plan["files"][tmp_path / "kimi-config.toml"])["hooks"]
         assert "SessionStart" in {entry["event"] for entry in hooks}
-        assert "Stop" not in {entry["event"] for entry in hooks}
-        assert all(Path(argument).name != "knowledge_summary.py"
-                   for entry in hooks for argument in setup.hook_argv(entry["command"]))
+        stop = next(entry for entry in hooks if entry["event"] == "Stop")
+        assert any(Path(argument).name == "knowledge_summary.py"
+                   for argument in setup.hook_argv(stop["command"]))
         return
     payload = json.loads(plan["files"][tmp_path / HOOK_FILES[client]])
     event = "afterAgentResponse" if client == "cursor" else "Stop"
     group = payload["hooks"][event][0]
     command = group["command"] if client == "cursor" else group["hooks"][0]["command"]
+    if client == "cursor":
+        ended = payload["hooks"]["sessionEnd"]
+        assert len(ended) == 2
+        assert any(Path(argument).name == "vaws_session.py"
+                   for entry in ended for argument in setup.hook_argv(entry["command"]))
+        assert sum(entry["command"] == command for entry in ended) == 1
     arguments = setup.hook_argv(command)
     if client == "claude":
         assert arguments[1:3] == [str(tmp_path / ".agents/scripts/vaws_claude_entry.py"), "summary"]
@@ -74,6 +80,32 @@ def test_grok_summary_preserves_foreign_stop_and_existing_session_hook(tmp_path,
     commands = [entry["command"] for group in updated["Stop"] for entry in group["hooks"]]
     assert commands[0] == "foreign-stop"
     assert len(commands) == 2
+
+
+@pytest.mark.parametrize("existing_summary", [False, True])
+def test_cursor_existing_session_end_adds_or_updates_summary(tmp_path, monkeypatch, existing_summary):
+    monkeypatch.setattr(setup, "ROOT", tmp_path)
+    monkeypatch.setattr(setup, "OWNED_HOOK_SCRIPT", tmp_path / ".agents/hooks/vaws_session.py")
+    path = tmp_path / HOOK_FILES["cursor"]
+    desired = json.loads(setup.configuration("cursor", tmp_path)[path])
+    session, summary = desired["hooks"]["sessionEnd"]
+    foreign = {"command": "foreign-session-end", "timeout": 23}
+    existing = [{**session, "timeout": 19}, foreign]
+    if existing_summary:
+        arguments = setup.hook_argv(summary["command"])
+        arguments[0] = str(tmp_path / ".vaws-local/env-links" / ("a" * 64) / "bin/python")
+        existing.append({"command": setup.local_hook_command(arguments), "timeout": 31})
+    desired["hooks"]["sessionEnd"] = existing
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(desired), encoding="utf-8")
+
+    updated = setup.configuration("cursor", tmp_path)[path]
+    ended = json.loads(updated)["hooks"]["sessionEnd"]
+    assert ended[:2] == [{**session, "timeout": 19}, foreign]
+    assert len(ended) == 3
+    assert ended[2] == ({**summary, "timeout": 31} if existing_summary else summary)
+    path.write_text(updated, encoding="utf-8")
+    assert setup.configuration("cursor", tmp_path)[path] == updated
 
 
 @pytest.mark.parametrize("client", ["claude", "cursor", "codex", "grok"])

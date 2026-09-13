@@ -4,6 +4,7 @@ version = "0"
 requires-python = ">=3.11"
 dependencies = [
   "Pillow>=11",
+  "mcp==1.30.0",
   "vaws-remote-dev==0.8.0",
   "vaws-coordinator==0.4.1.dev2",
   "vaws-knowledge==0.5.1",
@@ -14,16 +15,15 @@ dev = [
   "pytest",
   "pyyaml",
   "jsonschema",
-  "mcp==1.30.0",
 ]
 
 [tool.uv]
 package = false
 
 [tool.uv.sources]
-vaws-remote-dev = { git = "https://github.com/maoxx241/remote-dev", rev = "6996e5756d8e81a7842173f34837d649be77b10c" }
-vaws-coordinator = { git = "https://github.com/maoxx241/vaws-coordinator", rev = "0d14525b9711f5a38e2036c87e9221982add7a7a" }
-vaws-knowledge = { git = "https://github.com/maoxx241/vaws-knowledge", rev = "dac5572b7887e4435fab35fb1a72a38c23d55b33" }
+vaws-remote-dev = { git = "https://github.com/vllm-ascend-workspace/remote-dev", rev = "a65362882a85b4d460be3e1d15e90de9fb507e70" }
+vaws-coordinator = { git = "https://github.com/vllm-ascend-workspace/vaws-coordinator", rev = "921ce2af0e070b7566795779c3fd8f9d9366697c" }
+vaws-knowledge = { git = "https://github.com/vllm-ascend-workspace/vaws-knowledge", rev = "3a65926db4be36f39bf5efb516d1f74bd37702c5" }
 
 [tool.pytest.ini_options]
 pythonpath = [".agents/lib"]

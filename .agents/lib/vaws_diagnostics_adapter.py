@@ -118,6 +118,17 @@ def _fallback_failure(observation, error_type, category):
                "started_at": observation.started_at, "duration_ms": observation.duration_ms,
                "attributes": {"error_type": error_type if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]{0,79}", error_type) else "Error",
                               "category": category, "logging_failed": True}}
+    try:
+        from vaws_community import read_policy_file
+        policy_file = os.environ.get("VAWS_COMMUNITY_POLICY", "")
+        policy = Path(policy_file)
+        if policy.is_absolute() and not policy_file.startswith(("\\\\", "//")) and len(policy_file) <= 4096:
+            choice = read_policy_file(policy)
+            if choice and choice["decision"] == "enabled":
+                payload["community"] = {"policy_file": str(policy), "workspace_id": choice["workspace_id"],
+                                        "revision": choice["revision"]}
+    except Exception:
+        pass  # Local evidence remains available; no consent is inferred.
     reference = None
     try:
         folder = base / "events/vaws-workspace"

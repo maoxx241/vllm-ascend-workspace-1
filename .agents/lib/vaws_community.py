@@ -30,10 +30,18 @@ def policy_path(root: Path) -> Path:
 
 
 def read_choice(root: Path) -> dict | None:
-    path = policy_path(root)
+    return read_policy_file(policy_path(root))
+
+
+def read_policy_file(path: Path) -> dict | None:
+    """Bounded stdlib reader also usable before the diagnostics package exists."""
     if not path.exists():
         return None
-    value = json.loads(path.read_text(encoding="utf-8"))
+    with path.open("rb") as stream:
+        raw = stream.read(16385)
+    if len(raw) > 16384:
+        raise ValueError("Community choice exceeds its size limit")
+    value = json.loads(raw)
     if (not isinstance(value, dict) or value.get("schema") != SCHEMA
             or value.get("decision") not in {"enabled", "disabled"}
             or any(not isinstance(value.get(key), str) or not re.fullmatch(r"[0-9a-f]{32}", value[key])

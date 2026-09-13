@@ -125,6 +125,24 @@ allowlist:
     match: '"do-not-copy"'
     justification: Fabricated value used to assert that identity copying drops a token field; no real credential is present.
 
+  - id: github-auth-fabricated-credentials
+    path_glob: .agents/tests/test_github_auth.py
+    categories: [secret-key, secret-value]
+    match_regex: '^(?:"(?:not-a-pattern-shaped-credential|opaque-private-test-credential|opaque-git-credential-fixture|private-repo-helper-fixture|private-trace-regression-fixture|fixture)"|primary-fixture)$'
+    justification: Explicit fake credentials used by offline API, credential pipe and Git trace leakage regression tests; none authenticates to a service.
+
+  - id: github-auth-host-confusion-fixture
+    path_glob: .agents/tests/test_github_auth.py
+    categories: [email]
+    match: api.github.com@other.example
+    justification: URL userinfo used to verify that a redirect cannot disclose credentials to a different origin; this is not a personal email.
+
+  - id: github-fork-credential-url-fixture
+    path_glob: .agents/tests/test_workspace_forks.py
+    categories: [secret-key, secret-value]
+    match_regex: '^(?:"never-copy-this-fixture"|https[:]//alice:\{secret\}@)$'
+    justification: Fake token and interpolated URL exercise rejection of credential-bearing Git remotes without backups or error-text disclosure.
+
 
 
 scoped_exclusions:

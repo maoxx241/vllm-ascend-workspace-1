@@ -116,6 +116,47 @@ def test_unkeyed_install_mutations_are_rejected(workspace, option):
         envs.prepare_environment(workspace, install_options=(option,))
 
 
+@pytest.mark.parametrize("option,settings", [
+    ("--native-tls", {}),
+    ("--system-certs", {}),
+    (None, {"UV_NATIVE_TLS": "true"}),
+    (None, {"UV_SYSTEM_CERTS": "true"}),
+    (None, {"UV_SYSTEM_CERTS": "true", "UV_HTTP_TIMEOUT": "120", "UV_CONCURRENT_DOWNLOADS": "2"}),
+])
+def test_transport_reaches_installer_without_changing_locked_selection(workspace, monkeypatch, option, settings):
+    _, _, document, input_id, _ = envs._inputs(workspace)
+    selection = envs._selection(document)[0]
+    expected_key = envs._key(envs._identity(), input_id, selection)
+    options = (option,) if option else ()
+    transport_names = ("UV_NATIVE_TLS", "UV_SYSTEM_CERTS", "UV_HTTP_TIMEOUT", "UV_CONCURRENT_DOWNLOADS")
+    for name in transport_names:
+        monkeypatch.delenv(name, raising=False)
+    for name, value in settings.items():
+        monkeypatch.setenv(name, value)
+    # Unrelated uv settings must still be unable to change the installation.
+    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(workspace / "wrong-environment"))
+    monkeypatch.setenv("UV_INDEX_URL", "https://invalid.example/simple")
+    monkeypatch.setenv("UV_NO_SYNC", "true")
+    install = envs._install
+    calls = []
+    def checked_install(command, environment, lock_fd):
+        calls.append(command)
+        if option:
+            assert option in command
+        assert {name: environment[name] for name in transport_names if name in environment} == settings
+        assert "UV_INDEX_URL" not in environment
+        assert "UV_NO_SYNC" not in environment
+        assert Path(environment["UV_PROJECT_ENVIRONMENT"]) == envs._store() / expected_key
+        install(command, environment, lock_fd)
+    monkeypatch.setattr(envs, "_install", checked_install)
+    ready = envs.prepare_environment(workspace, install_options=options)
+    assert len(calls) == 1
+    assert ready["key"] == expected_key
+    assert execute(ready["python"], "import vaws_env_fixture;print(vaws_env_fixture.VALUE)") == "1"
+    assert envs.prepare_environment(workspace)["key"] == ready["key"]
+    assert len(calls) == 1
+
+
 def test_checkout_changes_during_install_do_not_change_frozen_inputs(workspace, monkeypatch):
     lock_before = (workspace / "uv.lock").read_bytes()
     install = envs._install

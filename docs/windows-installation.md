@@ -36,6 +36,34 @@ The environment builder resolves the selected Python to its physical versioned
 path. Install that Python before preparing an offline bundle. It accepts only
 options represented in the immutable build contract; unknown options fail.
 
+## Corporate proxies and system certificates
+
+If uv reports `invalid peer certificate: UnknownIssuer` behind a corporate proxy
+and the proxy CA is already trusted by Windows, enable the system trust store for
+the current PowerShell session before downloading Python or syncing dependencies:
+
+```powershell
+$env:UV_NATIVE_TLS = 'true'
+uv python install 3.13
+uv run --no-project --python 3.13 python .agents/scripts/vaws_deps.py sync --locked --python 3.13
+```
+
+The sync entry preserves this setting for its installer. Current uv versions also
+support `UV_SYSTEM_CERTS=true`; `--native-tls` and `--system-certs` can instead be
+passed explicitly to `vaws_deps.py sync` when the bootstrap interpreter is already
+available. Certificate verification stays enabled and the dependency lock is
+unchanged.
+
+If downloads time out under load while individual requests succeed, set
+`$env:UV_CONCURRENT_DOWNLOADS = '4'` and `$env:UV_HTTP_TIMEOUT = '120'` before
+retrying. The sync installer preserves these transport limits too. Resume
+initialization with `vaws_init.py apply` to reuse saved choices and finished stages.
+
+When an internal package mirror is reachable directly but times out through the
+proxy, add that mirror's hostname to the session's `NO_PROXY`, preserving existing
+entries. Keep external GitHub traffic on the configured proxy. Do not put proxy
+credentials in tracked configuration or diagnostic output.
+
 ## Prepare an offline bundle while online
 
 First complete the online sync above for the exact checkout and target Python.

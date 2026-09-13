@@ -30,6 +30,8 @@ PIN_ENV = "VAWS_ENV_RECEIPT"
 MANAGED_PIN_ENV = "VAWS_MANAGED_ENV_RECEIPT"
 READY_NAME = ".vaws-ready.json"
 RECIPE_VERSION = 3
+# These settings change transport, not the locked environment contents.
+UV_TRANSPORT_ENV = frozenset({"UV_NATIVE_TLS", "UV_SYSTEM_CERTS", "UV_HTTP_TIMEOUT", "UV_CONCURRENT_DOWNLOADS"})
 
 
 class EnvironmentError(RuntimeError):
@@ -167,7 +169,7 @@ def _selection(document: dict, groups=None, extras=(), options=()) -> tuple[dict
         elif flag == "--only-dev": selected, project = {"dev"}, False
         elif flag == "--all-groups": selected = available_groups.copy()
         elif flag == "--all-extras": extra_set = available_extras.copy()
-        elif flag in ("--offline", "--no-cache", "--refresh", "--quiet", "--verbose"):
+        elif flag in ("--offline", "--no-cache", "--refresh", "--quiet", "--verbose", "--native-tls", "--system-certs"):
             transport.append(flag)
         else:
             raise EnvironmentError(f"unsupported immutable sync option: {token}; dependency-changing options must be represented in the environment key")
@@ -541,7 +543,8 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
                     command.extend(("--no-install-package", name))
                 command.extend(transport)
                 environment = {name: value for name, value in os.environ.items()
-                               if not name.startswith("UV_") and name not in ("VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", PIN_ENV)}
+                               if (not name.startswith("UV_") or name in UV_TRANSPORT_ENV)
+                               and name not in ("VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", PIN_ENV)}
                 environment["UV_PROJECT_ENVIRONMENT"] = str(root)
                 installing = time.monotonic()
                 _install(command, context_environment(environment), lock_fd)

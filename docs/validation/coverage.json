@@ -159,7 +159,7 @@
       "id": "knowledge-platform-final-20260913",
       "record": "docs/knowledge-platform-validation-2026-09-13.md",
       "version": {
-        "knowledge": "778a7b6b6a6f1b8c541dbdc6a646bc033f5e2c0f",
+        "knowledge": "c57e7fb3322c8d83669e5c5f827446462892f113",
         "coordinator": "9f94f27964437f962e6037529ccf2f0b1c709ede",
         "remote_dev": "a65362882a85b4d460be3e1d15e90de9fb507e70",
         "pr33_head": "3a2e8707eed610f681f7941c0845353f8f46df02",
@@ -167,13 +167,24 @@
         "pr33_tested_and_consumed_tree": "0e855733d5b269e43df6b92258d4ea01bfbacf73",
         "pr33_package_ci_run": "34747646848",
         "pr33_native_ci_run": "34747646837",
-        "consumer_summary_sha256": "996f9757dc7660528c939c2683c01ea94ab214d8c476517666ecd377cd64e50e",
-        "consumer_code_head": "52b3bec5d17371447c6902ef1c0c24a011e17836",
-        "consumer_code_ci_run": "34748066882",
-        "consumer_integration_status": "verified installed native acceptance and PR169 code-head CI"
+        "consumer_summary_sha256": "89ec2c57b56ba9164bd653c968a12f116ab588ed0d30873b993cbd4e32fd3a69",
+        "consumer_integration_status": "verified installed c57e7fb3 with code extra; final consumer commit CI and merge outcome follow PR169",
+        "previous_knowledge_stage": "778a7b6b6a6f1b8c541dbdc6a646bc033f5e2c0f",
+        "previous_consumer_summary_sha256": "996f9757dc7660528c939c2683c01ea94ab214d8c476517666ecd377cd64e50e",
+        "previous_consumer_code_head": "52b3bec5d17371447c6902ef1c0c24a011e17836",
+        "previous_consumer_code_ci_run": "34748066882",
+        "pr34_head": "cca9c66ce2f958138eed8241a7fd43162872aa94",
+        "pr34_ci_checkout": "4f7eac7050cc46da5079d57b144595efa51c3409",
+        "pr34_tested_and_consumed_tree": "de276435bf099c0bfb2c671a14e67fda8e137ecd",
+        "pr34_package_ci_run": "34749416066",
+        "pr34_native_ci_run": "34749416072",
+        "pr34_acceptance_sha256": "686b0561066ceca4e25f00ccdcc6becd6a5b2a3e5b0100b5ec42b8030d587836",
+        "final_installed_mcp_sha256": "19a1cf16d476bed4297c9ce6887cbba0d082667e44b3be26235b8a37dedbe294",
+        "final_code_map_sha256": "cf08d69d24a071adc4560c679f4d51a7c1e4489965f72dd395071933b6c1529b",
+        "consumer_checks": "https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/pull/169/checks"
       },
-      "scope": "Knowledge PR33 merged with the same tree/parents as the actual three-platform CI checkout: Ubuntu 531 passed/4 skipped/12 subtests, Windows and macOS 533 passed/2 skipped/12 subtests each. Consumer selects knowledge 778a7b6b; immutable environment sync and doctor succeeded. Eight affected local consumer suites contain 75 JUnit entries, zero failures/errors/skips; PR169 functional code-head CI passed on three operating systems. Actual final installed MCP preserved three tools, found all 20 original target pages in top8 and passed four explains with zero degraded/incomplete responses or capture calls; source/configuration/backend PIDs stayed unchanged. Twelve requested knowledge capabilities and independent Grok/feed maintenance retain their actual package/deployment evidence.",
-      "limits": "PR169 CI here identifies the functional code head; later documentation-only revisions retain their own CI status in the final report. Native package JUnit has 547 entries including 12 subtests per platform; Ubuntu count comes from its log. The 75-entry local summary does not embed source/runtime revisions; separate selection and installed evidence establish the package identity. Earlier scaling/quality measurements retain their actual revisions, fixture and hardware limits; the final 20-question native sample is not held-out relevance, native 100k, physical 16 GiB or new NPU acceptance."
+      "scope": "Knowledge PR34 merged with the same tree/parents as the actual three-platform CI checkout: Ubuntu 541 passed/4 skipped/12 subtests, Windows and macOS 543 passed/2 skipped/12 subtests each. Consumer selects knowledge c57e7fb3 with code extra; immutable sync and doctor succeeded. Eight affected consumer suites passed with 75 JUnit entries and zero failures/errors/skips. Actual installed preparation returned ready with 94 documents. Fresh installed MCP passed all 20 unchanged original targets in top8, four explanations and 20 source-span checks with exactly three tools, zero degraded/incomplete responses or capture calls, and unchanged source/configuration/backend identities. Installed supported C++ CLI mapped three pinned files and reused all three on repeat with zero source bytes read. Twelve requested capabilities and independent Grok/feed maintenance retain their package/deployment evidence.",
+      "limits": "PR169 final commit checks and merge status remain on the linked PR; the earlier successful functional-head CI and 778a7b6b measurements are not reattributed to c57e7fb3. PR34 native XML contains 545 testcase elements including two skips; suite tests=557 includes twelve subtests per platform. Ubuntu count comes from its log. Local suite summaries do not embed runtime revisions; separate selection and isolated installed probes establish package identity. Preparation ran concurrently with local suites and is not an isolated performance benchmark. Earlier scaling and quality measurements retain their actual revisions, fixture and hardware limits. The strict 20-question native sample is not held-out relevance, native 100k, physical 16 GiB or NPU acceptance; static code maps do not establish runtime dispatch."
     }
   ],
   "gaps": [

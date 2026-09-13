@@ -6,7 +6,7 @@ This is engineering validation of the reference platform, kept outside the
 vLLM/Ascend/NPU/AI/Infra knowledge library. The twelve requested capabilities
 are implemented; their actual format conversion, Grok research, source maps,
 curation, retrieval and scaling evidence is recorded in the package's
-[capability acceptance](https://github.com/vllm-ascend-workspace/vaws-knowledge/blob/778a7b6b6a6f1b8c541dbdc6a646bc033f5e2c0f/docs/knowledge-platform-acceptance-2026-09-13.md).
+[capability acceptance](https://github.com/vllm-ascend-workspace/vaws-knowledge/blob/c57e7fb3322c8d83669e5c5f827446462892f113/docs/knowledge-platform-acceptance-2026-09-13.md).
 The [consumer contract](knowledge-maintenance.md) keeps ordinary tasks at
 three optional knowledge tools. External intake, Grok work and hourly feed
 transport are independent of task startup and dependency sync.
@@ -15,16 +15,47 @@ transport are independent of task startup and dependency sync.
 
 | Package | Version / consumed commit |
 |---|---|
-| vaws-knowledge | 0.7.0 / `778a7b6b6a6f1b8c541dbdc6a646bc033f5e2c0f` |
+| vaws-knowledge | 0.7.0 / `c57e7fb3322c8d83669e5c5f827446462892f113` |
 | vaws-coordinator | 0.5.0.dev1 / `9f94f27964437f962e6037529ccf2f0b1c709ede` |
 | remote-dev | 0.8.0 / `a65362882a85b4d460be3e1d15e90de9fb507e70` |
 
-Only the knowledge version and its Git source changed in the dependency files.
-The locked immutable environment synchronized successfully with the dev group;
+The consumer selects the knowledge package's existing `code` extra so its
+C++ parser uses the declared supported pair: tree-sitter 0.25.2 and
+tree-sitter-cpp 0.23.4. This changes the already-present tree-sitter version
+from 0.26.0; the installed package count remains 179, with no new model.
+Coordinator and remote-dev pins remain unchanged. The locked immutable
+environment synchronized successfully with the dev group;
 doctor reported success with no warnings. This does not certify unrelated
 older running daemons or change existing tasks' fixed environments.
 
 ## Exact component checks
+
+[Package PR 34](https://github.com/vllm-ascend-workspace/vaws-knowledge/pull/34)
+merged as `c57e7fb3322c8d83669e5c5f827446462892f113`. Its head was
+`cca9c66ce2f958138eed8241a7fd43162872aa94`; the actual CI checkout was
+`4f7eac7050cc46da5079d57b144595efa51c3409`. The tested and merged commits
+have the same tree `de276435bf099c0bfb2c671a14e67fda8e137ecd` and parents
+`778a7b6b6a6f1b8c541dbdc6a646bc033f5e2c0f` and
+`cca9c66ce2f958138eed8241a7fd43162872aa94`.
+
+| PR 34 package CI | Passed | Skipped | Passed subtests | Time |
+|---|---:|---:|---:|---:|
+| [Ubuntu / Python 3.11](https://github.com/vllm-ascend-workspace/vaws-knowledge/actions/runs/34749416066) | 541 | 4 | 12 | 25.96 s |
+| [Windows / Python 3.13](https://github.com/vllm-ascend-workspace/vaws-knowledge/actions/runs/34749416072) | 543 | 2 | 12 | 216.72 s |
+| macOS / Python 3.13, same native run | 543 | 2 | 12 | 192.34 s |
+
+Each native XML has 545 actual `testcase` elements, including two skips;
+the suite's `tests=557` includes twelve subtests. There are no failures or
+errors. Windows JUnit SHA256 is
+`08fdb6f746f52d1561d3fc761a482048fe33e4f8a7e32696f8064e074e5c80ed`;
+macOS is `c45c043921e80ea006d52c084a6263f8151a5acbfd4d9185781294f46c16adb9`.
+Ubuntu's count is from its log. The retained component
+`.vaws-local/parser-guard-ci/acceptance.json` has SHA256
+`686b0561066ceca4e25f00ccdcc6becd6a5b2a3e5b0100b5ec42b8030d587836`.
+The native distribution-chain test retained its missing-model-cache skip;
+the earlier actual native distribution experiment remains separate evidence.
+
+### Earlier PR 33 stage
 
 [Package PR 33](https://github.com/vllm-ascend-workspace/vaws-knowledge/pull/33)
 merged after all three final checks passed. Its head was
@@ -33,7 +64,7 @@ merged after all three final checks passed. Its head was
 ref and consumed merge `778a7b6b` have the same tree
 `0e855733d5b269e43df6b92258d4ea01bfbacf73` and parents.
 
-| Final package CI | Passed | Skipped | Passed subtests | Time |
+| PR 33 package CI | Passed | Skipped | Passed subtests | Time |
 |---|---:|---:|---:|---:|
 | [Ubuntu / Python 3.11](https://github.com/vllm-ascend-workspace/vaws-knowledge/actions/runs/34747646848) | 531 | 4 | 12 | 20.50 s |
 | [Windows / Python 3.13](https://github.com/vllm-ascend-workspace/vaws-knowledge/actions/runs/34747646837) | 533 | 2 | 12 | 220.61 s |
@@ -57,7 +88,7 @@ found no blocking issue.
 
 ## Consumer checks and deployed maintenance
 
-Eight affected consumer suites passed in 15.925 s: client wiring, capture/query
+At the earlier `778a7b6b` stage, eight affected consumer suites passed in 15.925 s: client wiring, capture/query
 flow, actual MCP initialize/list, preparation, setup, installed shared corpus,
 native summary hooks and shared startup. Their eight retained JUnit files
 contain 75 entries, zero skips and no errors/failures. The bounded archive
@@ -68,9 +99,20 @@ separate selection/sync/doctor and installed MCP evidence identify the
 consumed package. Consumer [CI 34748066882](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/actions/runs/34748066882)
 passed all three platforms for functional head
 `52b3bec5d17371447c6902ef1c0c24a011e17836` (Ubuntu 82 s, macOS 200 s,
-Windows 613 s). This report and the final archive updates are subsequent
-documentation; [PR 169](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/pull/169)
-retains the final documentation-head CI and merge status separately.
+Windows 613 s). That CI identifies this earlier functional head. The final
+`c57e7fb3` pin and `code` dependency selection are later changes;
+[PR 169 checks](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/pull/169/checks)
+and the [PR state](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/pull/169)
+carry the final consumer commit's CI and merge outcome. This dated report does
+not pre-certify that future outcome.
+
+After the final `c57e7fb3` installation, the same eight consumer suites passed
+in 18.118 s, with 75 retained JUnit entries and zero failures, errors or skips.
+The archive checker reread the XML/log hashes. The new summary is
+`.vaws-local/test-runs/20260913-173301-d055dda5/summary.json`, SHA256
+`89ec2c57b56ba9164bd653c968a12f116ab588ed0d30873b993cbd4e32fd3a69`.
+As before, the test summary does not embed runtime revisions; the final
+selection and isolated installed probes establish the package identity.
 
 The actual Grok export, fixed exporter, personal Git feed, independent wheel,
 and natural 16:00 Windows synchronization are preserved in
@@ -80,7 +122,7 @@ routine at Saturday 10:00. Local feed transport runs hourly and at user logon.
 The natural local run took 1.357 s with zero source downloads and task result
 zero. Future scheduled Grok execution is not counted as an elapsed run.
 
-## Actual installed preparation
+## Earlier installed preparation at 778a7b6b
 
 The first final-version preparation found a busy lock and a historical ready
 record without a catalog. It was not accepted as successful final preparation.
@@ -105,7 +147,7 @@ reported no errors. Its shared pack remains Git revision
 The initial busy result, exact process-owner audit and completed preparation
 are retained separately in private deployment evidence.
 
-## Final installed MCP acceptance
+## Earlier installed MCP acceptance at 778a7b6b
 
 The isolated interpreter probe verified the installed 0.7.0 distribution and
 Git commit `778a7b6b6a6f1b8c541dbdc6a646bc033f5e2c0f`, rather than importing
@@ -134,6 +176,78 @@ Private evidence includes `final-installed-native-mcp.json` and the separate
 preparation, immutable selection, test-run and old-provider retirement records.
 The final MCP report SHA256 is
 `84f23b330b0b3bdbacfb50581a87a8674ab3bec88206ff9e854ff5203d42376e`.
+
+## Final installed preparation and MCP at c57e7fb3
+
+The final immutable environment installed knowledge 0.7.0 at
+`c57e7fb3322c8d83669e5c5f827446462892f113` with the supported `code` extra.
+Selection, sync and doctor receipts are retained as
+`final-parser-pin-sync.json` and `final-parser-pin-doctor.json`; doctor returned
+success, exit zero and no warnings. Its report also explicitly identifies
+older running daemons; it does not claim to have upgraded every live instance.
+
+Actual final `prepare` returned ready with 94 documents. It took 25.224 s
+including process startup while the eight consumer suites ran concurrently,
+so this is not an isolated performance benchmark. The package bootstrap
+revalidation parsed 65 documents and read 330,151 bytes once. This preparation
+work is outside warm queries. The retained result is `final-parser-pin-prepare.json`.
+
+A fresh isolated installed stdio MCP run at `c57e7fb3` passed all 20 unchanged
+original-source questions in top8, four full-body/hash explanations and all
+20 source-span checks. Both lexical and vector routes participated, with
+exactly three tools, zero degraded/incomplete responses and no capture calls.
+Configuration, source files, installed inputs and existing backend process
+identities stayed unchanged. The 94-document catalog snapshot
+`b1d318f2ef3f4f3c8b501eeac8686a5a:3` stayed unchanged across the run.
+
+Initialize took 789.853 ms and the first query 1,402.685 ms. Nineteen warm
+queries had p50 68.919 ms, p95 93.642 ms and maximum 99.054 ms. Maximum
+structured content was 15,292 bytes and the full MCP serialization 35,362
+bytes. These are bytes, not tokens, and the sample measures originating-source
+retrieval, not held-out relevance or native 100k performance. The original
+provisional 17/20 and the earlier `778a7b6b` 20/20 records remain separate.
+The component's private `final-parser-pin-native-mcp.json` has SHA256
+`19a1cf16d476bed4297c9ce6887cbba0d082667e44b3be26235b8a37dedbe294`.
+
+## Installed C++ parser correction
+
+A late actual code-map invocation in the base consumer environment exposed
+a native crash: tree-sitter 0.26.0 with tree-sitter-cpp 0.23.4 exited
+`3221225477` and produced no stdout/stderr. Earlier package CI selected the
+declared 0.25.2 test/code extra and therefore did not establish this base
+environment's native-parser compatibility. The failed subprocess result is
+retained in `code-map-native-probe.json`.
+
+After selecting the existing `code` extra, the same installed 0.7.0 component
+at `778a7b6b` used 0.25.2/0.23.4 and actually mapped the three pinned
+Python/C++ files at vllm-ascend
+`b36dc06d8e1b914e7a1318ee32310ef1d502007a`. It read 83,590 bytes,
+parsed three files in 419.65 ms (679.983 ms including subprocess startup),
+and returned ready with two explicit static-scope gaps. This is source
+navigation, not runtime dispatch or NPU evidence. The compatible-install
+result and complete map are retained separately from the failed probe.
+
+The package correction checks version metadata before either native import;
+unverified versions produce a `parser_unavailable` gap and preserve the last
+complete map. A C++ cache policy revision rejects old unverified parse entries
+while retaining Python caches. Forty-eight affected tests passed, including
+the legacy-cache regression that failed before this correction.
+
+A complete CLI probe in the original 0.26.0 environment, explicitly loading
+the corrected working-tree source, exited 2 with a partial map and neither
+native module loaded. It read one pinned 51,192-byte C++ file; the process
+took 471.992 ms. This source-override probe is distinct from installed-release
+acceptance and is retained in `guard-code-map-cli-probe.json`.
+
+The final installed `c57e7fb3` CLI was then tested without a source override,
+using tree-sitter 0.25.2 and tree-sitter-cpp 0.23.4. It mapped the same three
+pinned files and 83,590 bytes in 457.89 ms internally (851.216 ms including
+process startup), returning ready and complete with the same two static-scope
+gaps. An unchanged repeat reused all three files, parsed zero and read zero
+source bytes: 246.06 ms internally and 432.633 ms with startup. This verifies
+the installed supported parser and cache reuse, not runtime dispatch.
+`final-pin-code-map-probe.json` retains both runs; the resulting map SHA256 is
+`cf08d69d24a071adc4560c679f4d51a7c1e4489965f72dd395071933b6c1529b`.
 
 ## Measurement boundaries
 

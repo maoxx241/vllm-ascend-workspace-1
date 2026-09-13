@@ -22,12 +22,14 @@ The reference/coverage audit was refreshed at
 at `d14f5af40bcf1b9fd02906be08fb29ea211db60d`. This checkout includes the final
 source-workspace evidence in PR 168, merged at
 `71cd235560c59ea1f82936de11e9a42e666c9ca4`. Subsequent knowledge component
-evidence includes merged PRs 30–33 and actual cloud-feed/local scheduled return.
-The final consumer selects knowledge `778a7b6b`; dependency sync, doctor and
-eight affected local suites passed. Final installed native acceptance passed
-at that pin, and consumer PR 169 functional head `52b3bec5` passed three-platform
-CI. Later documentation-only revisions keep their own CI status in the final
-report.
+evidence includes merged PRs 30–34 and actual cloud-feed/local scheduled return.
+The final consumer selects knowledge `c57e7fb3` with the supported `code` extra;
+sync, doctor, eight affected local suites, real preparation, installed C++ maps
+and strict native MCP 20/20 plus four explanations passed at that pin.
+The earlier `778a7b6b` measurements and consumer functional head `52b3bec5`
+three-platform CI remain separately attributed. The final consumer commit's
+[CI and merge status](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/pull/169/checks)
+are carried by PR 169 rather than predicted by this dated archive.
 These facts do not relabel earlier device or performance runs.
 
 ## Versioned evidence
@@ -45,7 +47,7 @@ These facts do not relabel earlier device or performance runs.
 | [Six scenarios](../six-scenario-performance-2026-09-13.md) | Actual source/native reuse, fixed inputs, owned kernel and release evidence; independent direct/managed Agent samples | vLLM `e7739c8720974cdd442c0f051cc08a41a4e799c2`, Ascend `88398f3c885d1264cde65069dc8a3e9adf6487f0`; each arm keeps its own coordinator/version and timer; universal six-case speed target not met |
 | [Knowledge 0.6.0 adoption](../knowledge-adoption-2026-09-13.md) | Optional three-tool contract, lexical/vector fusion, source excerpt evidence and bounded owner worklist | consumed commit `485ddc0d71e86915487a1204032426a3d874ba0e`; later catalog/curation/media/release acceptance is recorded separately below |
 | [Knowledge component PRs 30–32](knowledge-component-2026-09-13.md) | Exact component/intake CI checkout/counts, retained local JUnit integrity, actual Grok export, live feed import and successful natural 16:00 Windows trigger | PR 32 merge `52754b5e`; cloud/installed-wheel revisions remain explicit; later integration belongs to the final report below; future scheduled Grok cycles are not counted as elapsed runs |
-| [Knowledge platform final integration](../knowledge-platform-validation-2026-09-13.md) | PR 33 three-platform package CI, selected `778a7b6b` pin, sync/doctor, eight local suites with 75 successful JUnit entries, actual installed MCP 20/20 original targets in top8 and four explains, and PR 169 code-head three-platform CI | Package checkout `cea65a73` and consumed merge share tree `0e855733`; consumer CI identifies head `52b3bec5`; local summary lacks embedded runtime revisions, while separate installed evidence identifies `778a7b6b`; later documentation-only CI retains its own status |
+| [Knowledge platform final integration](../knowledge-platform-validation-2026-09-13.md) | PR 34 three-platform package CI; installed `c57e7fb3` with `code`, sync/doctor, eight suites with 75 successful JUnit entries, real 94-document preparation, strict MCP 20/20 top8 plus four explains, and real C++ mapping/cache reuse | PR 34 checkout `4f7eac70` and consumed merge share tree `de276435`; earlier PR 33/`778a7b6b` results and consumer head `52b3bec5` CI retain their own provenance; final consumer checks follow PR 169 |
 
 GitHub was read again during this audit. Coordinator PR 33 and consumer PR 165
 were merged. Their exact tested heads were successful in
@@ -148,7 +150,7 @@ remain covered below. Counts describe this audit, not an API quota.
 |---|---|---|
 | remote-dev | 8 read/write/search/patch tools; Bash and 4 job tools; 3 artifact tools; probe/context | Actual 18-tool gateway and four-container tests; endpoint transport, process/stream and byte preservation. No implied device admission |
 | coordinator | `vaws_session`, `vaws_run`, `vaws_execution`, `vaws_finish`, `vaws_message` | Fixed input, resource ownership, wait/control, quiet/release, real isolated messaging; final correctness and measured candidates remain separate |
-| knowledge | query/explain/capture; explicit owner maintenance/publication | PR30–33 CI, final installed MCP 20/20 retrieval and four explains, PR169 code-head CI, optional/inert-provider evidence and actual independent cloud/local feed transport; fixture and hardware limits remain explicit |
+| knowledge | query/explain/capture; explicit owner maintenance/publication | PR30–34 CI, final installed MCP 20/20 retrieval and four explains, actual C++ parsing/cache reuse, optional/inert-provider evidence and independent cloud/local feed transport; final consumer checks follow PR169 |
 | vaws-top | package fleet queries; local deploy/start/status/restart/stop | Historical released monitor lifecycle and current launcher tests; observation never proves allocation. This checkout selects release `v0.1.2`, not necessarily the running instance |
 | local dependencies | status/doctor/sync, immutable environment selection | Existing platform and source-workspace checks; package-only sync and no knowledge preparation are covered by merged PR166 and its three-platform control-plane CI |
 | source preparation | requested initialization/forks/update, exact source-lock pairs, independent clones and resume | Current `sources.lock.json` supplies official development/release-vLLM pairs with the same Ascend revision; actual capture/migration and exact-head CI are retained. A declared pair is not an NPU compatibility result |
@@ -225,14 +227,14 @@ or device reruns are chosen only when the change and intended claim justify
 them; an archive audit by itself does not justify another NPU allocation.
 
 Five remaining scope gaps are explicit in the index. G1 and G6 are closed by
-PR 33 package checks, the final installed native result, affected local consumer
+PR 33–34 package checks, the final installed native result, affected local consumer
 suites, PR 169 functional code-head CI and actual independent feed return.
 The retained boundaries are native UI evidence; matched repeated measurements
 for a new final-version performance claim; actual inputs/results for business
 device claims; untested external/platform capabilities; and the old 90-suite
 summary's missing source/runtime provenance. Future Grok cycles are not missing
-functionality and are not counted as elapsed runs. Later documentation-only CI
-is tracked at its actual revision in the final report.
+functionality and are not counted as elapsed runs. Final consumer CI and merge
+state are tracked on PR 169 at its actual revision.
 
 The present audit does not require another unrelated NPU experiment. It reuses
 verified results, identifies their limits and leaves capability owners with

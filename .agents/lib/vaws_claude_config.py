@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from vaws_environment import PIN_ENV
-from vaws_workspace_update import common_dir
+from vaws_workspace_update import common_dir, repository_root
 
 KINDS = {
     ("-m", "vaws_coordinator", "task-server"): "task",
@@ -23,7 +23,7 @@ def same_repository(left: Path, right: Path) -> bool:
     if left.resolve() == right.resolve():
         return True
     try:
-        return common_dir(left).resolve() == common_dir(right).resolve()
+        return common_dir(repository_root(left)).resolve() == common_dir(repository_root(right)).resolve()
     except (OSError, RuntimeError):
         return False
 

@@ -45,6 +45,11 @@ class FakeGitHub:
 
 
 class ForkValidationTests(unittest.TestCase):
+    def setUp(self):
+        environment = mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": ""})
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_user_identity_requires_explicit_same_personal_login(self):
         self.assertEqual(forks.validate_github_user({"login": "Alice", "id": 42, "type": "User"}, "alice"), "Alice")
         for account, login in (({"login": "alice", "id": 42, "type": "Organization"}, "alice"),
@@ -80,14 +85,14 @@ class ForkValidationTests(unittest.TestCase):
         self.assertEqual(raised.exception.evidence["returncode"], 1)
 
     def test_api_machine_output_overrides_terminal_color_without_changing_parent(self):
-        original = {"CLICOLOR_FORCE": "1", "FORCE_COLOR": "1", "GH_FORCE_TTY": "80", "GITHUB_TOKEN": "private-fixture"}
+        original = {"CLICOLOR_FORCE": "1", "FORCE_COLOR": "1", "GH_FORCE_TTY": "80"}
         result = mock.Mock(returncode=0, stdout='{"ok": true}', stderr="")
         with mock.patch.dict(os.environ, original), mock.patch.object(forks.subprocess, "run", return_value=result) as run:
             self.assertEqual(forks.GitHubClient().api("user"), {"ok": True})
             env = run.call_args.kwargs["env"]
             self.assertEqual((env["CLICOLOR_FORCE"], env["FORCE_COLOR"], env["NO_COLOR"]), ("0", "0", "1"))
             self.assertNotIn("GH_FORCE_TTY", env)
-            self.assertEqual(env["GITHUB_TOKEN"], original["GITHUB_TOKEN"])
+            self.assertEqual(env["GITHUB_TOKEN"], "")
             self.assertEqual(os.environ["CLICOLOR_FORCE"], "1")
             self.assertEqual(os.environ["GH_FORCE_TTY"], "80")
             run.assert_called_once()
@@ -341,6 +346,15 @@ class SetupTests(unittest.TestCase):
         self.setup_forks(apply=True)
         self.assertEqual(forks.config_values(self.root, "remote.origin.pushurl"),
                          ["https://github.com/alice/vllm-ascend-workspace"])
+
+    def test_https_credentials_are_never_echoed_or_saved_in_a_backup(self):
+        secret = "never-copy-this-fixture"
+        forks.git(self.root, "remote", "add", "origin", f"https://alice:{secret}@github.com/{self.upstream}.git")
+        for replace in (False, True):
+            with self.subTest(replace=replace), self.assertRaisesRegex(forks.ForkPolicyError, "embedded credentials") as caught:
+                self.setup_forks(apply=True, replace_primary_remotes=replace)
+            self.assertNotIn(secret, str(caught.exception))
+            self.assertFalse((self.root / ".vaws-local").exists())
 
     def test_url_rewrite_to_unverified_owner_is_rejected_before_changes(self):
         forks.git(self.root, "config", "url.https://github.com/other/.insteadOf", "https://github.com/alice/")

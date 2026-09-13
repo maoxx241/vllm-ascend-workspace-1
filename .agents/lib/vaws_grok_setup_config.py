@@ -18,7 +18,7 @@ def plan_grok_setup(files: dict[Path, str], notes: list, project: Path, root: Pa
     """
     def git(*args):
         return subprocess.run(["git", "-C", str(project), *args], capture_output=True,
-                              text=True, timeout=5, check=False)
+                              text=True, encoding="utf-8", timeout=5, check=False)
 
     common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
     own = git("rev-parse", "--absolute-git-dir")

@@ -7,6 +7,8 @@ work and choose capabilities as needed. User instructions take precedence over
 Skill guidance; routine decisions stay with the Agent.
 
 <!-- BEGIN VAWS session-start -->
+On first entry to a fresh clone, if neither `.vaws-local/onboarding.json` nor `.vaws-local/github.json` exists, read `.agents/bootstrap/repo-init/SKILL.md` and offer its one-time setup choices. Reuse explicit answers and saved progress; a new task is not a new user. Existing setup needs no authentication or network probe.
+
 Reuse a prepared workspace W and environment supplied by the native hook. Ordinary local review uses native tools; explicit remote endpoint or existing-container work uses remote-dev directly. These tasks need no startup, identity or knowledge preparation.
 
 When independent local editing or managed preparation is needed and no W is prepared, run `uv run --no-project python .agents/scripts/vaws_start.py --client CLIENT` once. CLIENT is codex, cursor, claude, grok or kimi. Follow its result without a separate initialization probe. Pass `--context-file PATH` when the hook supplies context outside the client environment. New tasks select the local fixed commit and a matching ready cache; `--latest` explicitly checks upstream. The default operation directory is the selected Ascend repository; use `--repo workspace` or `--repo vllm` for an explicit alternative.
@@ -16,12 +18,14 @@ Keep the returned `workspace` as W, the root for task configuration, Skills and 
 
 ## First use
 
-For explicitly requested first-time setup, or when needed preparation reports
-this repository has never been initialized, read
+On first entry to a fresh clone, for explicitly requested setup, or when preparation
+reports incomplete initialization, read
 [repo-init](.agents/bootstrap/repo-init/SKILL.md). It is a one-time setup reference
 outside the automatic Skill catalog. Reuse the user's confirmed personal GitHub
-choice; an authenticated login is only a suggestion. Once initialized, ordinary
-work, updates and repairs use their specific tools and returned facts.
+choice; an authenticated login or connector is only a suggestion. Confirm the
+independent Fork, optional Star and community collaboration choices once and
+persist them with `vaws_init.py`. Once initialized, ordinary work, updates and
+repairs use their specific tools and returned facts without repeating these choices.
 
 ## Choose the capability
 

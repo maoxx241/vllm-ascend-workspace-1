@@ -75,6 +75,13 @@ transport; it never causes a new remote installation or health-check round trip.
 
 ## Publication and bot boundary
 
+Automatic contribution requires the workspace's explicit community choice. See
+[community collaboration](community-collaboration.md) for the public policy and
+first-use choices. Private events bind a workspace and its current consent
+revision; this binding is omitted from public evidence. The reporter rechecks
+the live policy before network actions. Missing, disabled, invalid or revoked
+consent cannot upload; enabling later does not authorize earlier events.
+
 The independent reporter reads bounded structured events, selects failed
 operations and creates a durable local outbox entry. The operation never waits
 for GitHub or a model. Outbox records carry a stable failure fingerprint, bounded
@@ -146,8 +153,20 @@ model requests each have an independent maximum of ten submissions per hour.
 
 Install the released diagnostics worker in a permanent, non-editable Python
 virtual environment. Library consumers may retain their exact compatible pin;
-upgrading this worker does not rewrite task environments. Enable the worker once
+upgrading this worker does not rewrite task environments. This unreleased system
+does not migrate old worker databases or retain old-process compatibility: stop
+the old component and install the new version with fresh worker state. Enable the worker once
 for the installation using the desired GitHub identity and explicit log roots:
+
+The owner supervises a user service on Linux (systemd), Windows (Task Scheduler)
+and macOS (launchd). `service status`, `start` and `remove` operate on the owned
+installation. Token authentication may be stored with `--save-token` in the
+owner's protected credential file; tokens never go in the service command.
+Normal onboarding installs only the local reporter. A maintainer may install a
+separate `--central-bot` service with Grok and an independent state directory,
+without `--root`. It diagnoses validated, already-public automatic VAWS issues;
+it cannot ingest or upload local logs. Revocation prevents new contributions,
+and does not retract a public issue or remove it from central maintenance.
 
 ```sh
 /path/to/venv/bin/vaws-diagnostics grok-profile --home /path/to/grok-bot-home

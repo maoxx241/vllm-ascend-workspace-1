@@ -22,6 +22,10 @@ def guidance(client: str | None = None) -> str:
         if client in (None, "kimi") else ""
     )
     return (
+        "On first entry to a fresh clone, if neither `.vaws-local/onboarding.json` nor "
+        "`.vaws-local/github.json` exists, read `.agents/bootstrap/repo-init/SKILL.md` and "
+        "offer its one-time setup choices. Reuse explicit answers and saved progress; "
+        "a new task is not a new user. Existing setup needs no authentication or network probe.\n\n"
         "Reuse a prepared workspace W and environment supplied by the native hook. "
         "Ordinary local review uses native tools; explicit remote endpoint or existing-container "
         "work uses remote-dev directly. These tasks need no startup, identity or knowledge preparation.\n\n"

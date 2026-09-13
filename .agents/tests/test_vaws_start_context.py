@@ -240,11 +240,12 @@ def test_ordinary_hooks_do_not_inject_preparation_or_identity_gate(project, monk
         result = run_hook(root, client, event_payload, package=True)
         assert result.stderr == ""
         projected = hints.project_output(client, event_payload, result.stdout, root=root)
-        for instruction in ("First repository action", "vaws_start.py", "first-use setup",
+        for instruction in ("First repository action", "vaws_start.py",
                             "ask once", "personal GitHub username", "NOT prepared"):
             assert instruction not in projected
         message = hint(client, event, projected)
         if message:
+            assert ("first-use setup" in projected) is (not confirmed_identity)
             assert store.native_context(client, native)["context_file"] in message
             assert "workspace is prepared" not in message
     context = store.native_context(client, native)

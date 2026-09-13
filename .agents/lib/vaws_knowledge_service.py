@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 PROJECT_ROOT_RELATIVE = ".agents/knowledge"
 CANDIDATE_ROOT_RELATIVE = ".vaws-local/knowledge/candidate"
 LOCATION_ENV = ("VAWS_KNOWLEDGE_CONFIG", "VAWS_KNOWLEDGE_PROJECT_ROOTS",
-                "VAWS_KNOWLEDGE_CANDIDATE_ROOT", "VAWS_KNOWLEDGE_STATE")
+                "VAWS_KNOWLEDGE_CANDIDATE_ROOT", "VAWS_KNOWLEDGE_STATE", "VAWS_COMMUNITY_POLICY")
 
 
 def knowledge_config_path(repo_root: Path) -> Path:
@@ -105,6 +105,8 @@ def knowledge_server_env(repo_root: Path) -> dict[str, str]:
         result["VAWS_KNOWLEDGE_PROJECT_ROOTS"] = str(repo_root / PROJECT_ROOT_RELATIVE)
         result["VAWS_KNOWLEDGE_CANDIDATE_ROOT"] = str(repo_root / CANDIDATE_ROOT_RELATIVE)
         result["VAWS_KNOWLEDGE_STATE"] = str(repo_root / ".vaws-local/knowledge/instance")
+    from vaws_community import community_environment
+    result = community_environment(repo_root, result)
     return result
 
 
@@ -119,16 +121,19 @@ def knowledge_owner_path(repo_root: Path, value: object) -> str:
     return managed_path(value, windows=windows_mounted_workspace(repo_root))
 
 
-def knowledge_owner_env(repo_root: Path) -> dict[str, str]:
+def knowledge_owner_env(repo_root: Path, *, receipt: dict | None = None) -> dict[str, str]:
     environment = knowledge_server_env(repo_root)
-    environment["VAWS_ENV_RECEIPT"] = managed_receipt(repo_root)["receipt"]
+    environment["VAWS_ENV_RECEIPT"] = (receipt or managed_receipt(repo_root))["receipt"]
     if windows_mounted_workspace(repo_root):
         for key in ("VAWS_KNOWLEDGE_CONFIG", "VAWS_KNOWLEDGE_PROJECT_ROOTS",
-                    "VAWS_KNOWLEDGE_CANDIDATE_ROOT", "VAWS_KNOWLEDGE_STATE"):
+                    "VAWS_KNOWLEDGE_CANDIDATE_ROOT", "VAWS_KNOWLEDGE_STATE", "VAWS_COMMUNITY_POLICY"):
             if key in environment:
                 environment[key] = knowledge_owner_path(repo_root, environment[key])
         if os.environ.get("WSLENV"):
             environment["WSLENV"] = os.environ["WSLENV"]
+        for key in ("GH_TOKEN", "GITHUB_TOKEN"):
+            if os.environ.get(key):
+                environment[key] = os.environ[key]
         environment = windows_interop_env(environment)
     return environment
 
@@ -148,7 +153,7 @@ def _run_knowledge(repo_root: Path, arguments: Sequence[str], *, receipt: dict |
         if prepare:
             shared_project_config(repo_root)
         environment = {key: value for key, value in os.environ.items() if key not in LOCATION_ENV}
-        environment.update(knowledge_owner_env(repo_root))
+        environment.update(knowledge_owner_env(repo_root, receipt=receipt) if receipt else knowledge_owner_env(repo_root))
         if receipt:
             environment["VAWS_ENV_RECEIPT"] = receipt["receipt"]
         command = [executable, *arguments]

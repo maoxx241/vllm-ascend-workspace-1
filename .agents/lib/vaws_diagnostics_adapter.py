@@ -310,6 +310,26 @@ def context_metadata(metadata=None):
 
 
 @contextmanager
+def community_context(root):
+    """Bind a configured gateway's workspace without changing process-global env."""
+    scope = None
+    api = _api()
+    try:
+        if api is not None and hasattr(api, "bind_community_policy"):
+            from vaws_community import local_policy_path
+            scope = api.bind_community_policy(local_policy_path(root))
+            scope.__enter__()
+    except Exception:
+        scope = None
+        _warn("community_scope_unavailable")
+    try:
+        yield
+    finally:
+        if scope is not None:
+            scope.__exit__(None, None, None)
+
+
+@contextmanager
 def request_context(metadata=None):
     """A persistent server gets a distinct trace per call unless one is supplied."""
     scope = None
@@ -526,6 +546,14 @@ def _quiet_scope():
 def bootstrap(entry_file):
     global _entry
     source = Path(entry_file).absolute()
+    try:
+        agent_root = next((parent for parent in source.parents if parent.name == ".agents"), None)
+        if agent_root is not None:
+            from vaws_community import local_policy_path
+            os.environ["VAWS_COMMUNITY_POLICY"] = str(local_policy_path(agent_root.parent))
+    except Exception:
+        # An unreadable policy must not inherit another project's upload choice.
+        os.environ.pop("VAWS_COMMUNITY_POLICY", None)
     quiet = False
     for value in sys.argv[1:]:
         if value in {"--", "--serve-args", "--bench-args", "--extra-serve-args"}:

@@ -2,17 +2,19 @@
 
 Status: current, 2026-09-13
 
-用户明确初始化，或受管操作真正需要尚未确认的个人容器身份时，建立个人开发
-配置。普通 Review、已有源码和直接 endpoint/container 工作不触发初始化或
+首次进入 fresh clone 时，Agent 提供一次初始化选择并复用对话中的确认结果；
+后续普通 Review、已有源码和直接 endpoint/container 工作不重复初始化或
 完整源码准备。配套版本与目录生命周期遵循[源码合同](source-workspace.md)
 和[九条设计原则](design-principles.md)。
 
 ## 首次配置与个人 Fork
 
-只有明确初始化请求，或所需受管身份尚未建立时，读取根 `AGENTS.md` 指向的
+首次进入 fresh clone、明确初始化或报告未完成 setup 时，读取根 `AGENTS.md` 指向的
 [一次性初始化参考](../.agents/bootstrap/repo-init/SKILL.md)。它不进入自动 Skill
-发现，也不因新会话、普通更新或知识 pending 而重新触发。初始化按需准备源码、
-锁定依赖并一次配置已安装的客户端。写配置不等于获得原生信任或通过实际验收。
+发现，也不因已初始化仓库的新会话、普通更新或知识 pending 而重新触发。
+`vaws_init.py` 一次记录 Fork、Star 和[社区协作](community-collaboration.md)选择，
+分阶段完成主仓 Fork、锁定依赖、客户端与贡献机制；失败后从未完成步骤继续。
+源码在首个实际任务按需准备。写配置不等于获得原生信任或通过实际验收。
 
 GitHub 用户名使用用户已明确确认的个人账号；`gh` 登录只是候选，不能代替选择。
 确认结果保存于未跟踪的 `.vaws-local/github.json`，不含凭据。coordinator 在需要时
@@ -20,11 +22,12 @@ GitHub 用户名使用用户已明确确认的个人账号；`gh` 登录只是�
 缺失或损坏的配置按具体故障修复，不把整个仓库重新当作第一次使用。
 
 ```text
-uv run --no-project python .agents/scripts/workspace_forks.py
-uv run --no-project python .agents/scripts/workspace_forks.py --github-user USER --apply
+uv run --no-project python .agents/scripts/vaws_init.py status --detect-auth
+uv run --no-project python .agents/scripts/vaws_init.py apply --github-user USER --fork yes --star no --community disabled
 ```
 
-默认返回计划；`--repo workspace` 可只配置主仓。工具核对个人 User、实际仓库名
+定向维护继续使用 `workspace_forks.py`，默认返回计划；`--repo workspace` 只配置主仓。
+工具核对个人 User、实际仓库名
 和 canonical fork network，拒绝组织 Fork、其他所有者的 redirect 和无关同名仓库。
 `origin` 指向个人 Fork，`upstream` 保留官方来源；GitHub 分配不同 Fork 名时保留
 实际地址。业务仓是普通独立 Git 仓库，其来源由 `sources.lock.json` 记录。

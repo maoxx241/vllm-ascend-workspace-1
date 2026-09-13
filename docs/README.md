@@ -8,6 +8,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 
 ## Current contracts
 
+- [community-collaboration.md](community-collaboration.md) — first-use choices, contribution consent and revocation, GitHub authentication and token boundaries.
 - [source-workspace.md](source-workspace.md) — exact development/release source pairs, independent multi-repository directories, automatic native source defaults and client lifecycle boundaries.
 - [forks-and-updates.md](forks-and-updates.md) — requested setup and managed identity, personal forks and upstream preparation for independent local editing or managed work; ordinary review and explicit endpoints need no first-use setup.
 - [identity-and-agent-coordination.md](identity-and-agent-coordination.md) — shared-root user attribution, opportunistic message delivery and compiled-output reuse; first-version boundaries are explicit.

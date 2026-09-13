@@ -80,7 +80,7 @@ Agent 按任务选择工具或技能；执行引用、状态推进和报告由�
 
 规范仓库是 `vllm-ascend-workspace/vllm-ascend-workspace`。`vllm/`、`vllm-ascend/` 是按需准备的普通独立 Git 仓库，仍可直接查看和修改。`sources.lock.json` 固定官方来源与精确组合：默认 `development` 使用同一 Ascend SHA 声明的 verified vLLM commit，`release` 使用其发布 tag 对应的完整 SHA；后者不代表完整稳定 Ascend 发布栈。人可以分别运行 `git -C vllm diff` 和 `git -C vllm-ascend diff`，父 status 不能代表内仓修改。
 
-首次初始化由 AGENTS 指向一次性的 [repo-init](.agents/bootstrap/repo-init/SKILL.md)。明确初始化，或受管操作真正需要尚未确认的个人容器身份时，才确认 GitHub 身份；普通 review 和显式远端 I/O 不触发这套流程。开发 Fork 必须属于个人账号，`origin` 指向个人 Fork，`upstream` 保留官方来源。
+首次进入 fresh clone 时，AGENTS 引导一次性的 [repo-init](.agents/bootstrap/repo-init/SKILL.md)：复用已确认的 GitHub 用户名，独立询问个人 Fork、可选 Star 和[社区协作](docs/community-collaboration.md)。支持 `gh` 登录与 token；后续任务复用选择和已完成步骤，不重新询问。首次只准备主仓和工具，业务源码按任务需要准备。关闭协作保留中央知识读取与本地日志，停止自动上传和贡献。开发 Fork 属于个人账号，`origin` 指向个人 Fork，`upstream` 保留官方来源。
 
 需要独立编辑或受管准备时，新任务一次选择精确主仓、组件与实际源码，准备入口和 native attachment 自动展开 sources；显式 `sources={}` 保持优先。MCP gateway 固定该任务的组件环境，恢复时不改版本。原生 launcher 在实际目录启动进程；Codex/Cursor worktree 回调只能返回实际 workspace 并接通 scope，不能声称替父 UI 切换目录。人可打开返回目录查看源码，Agent 使用实际 cwd 和绝对路径。知识配置、内容和模型/index 缓存按明确的工程关联复用。见[个人 Fork 与自动更新](docs/forks-and-updates.md)。共享 root 下的容器命名、留言和算子产物缓存由组件处理，权重沿用服务器现有路径，无需 Agent 填写身份或登记成果。见[身份与协调](docs/identity-and-agent-coordination.md)。
 

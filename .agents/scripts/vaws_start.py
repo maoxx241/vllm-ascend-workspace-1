@@ -263,10 +263,10 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     setup = workspace_entry(shared_workspace_root(ROOT), announce=False)
     if setup["state"] != "configured":
-        first_use = setup["state"] in {"identity_pending", "needs_github_user"}
+        first_use = setup["state"] in {"identity_pending", "needs_github_user", "setup_pending"}
         reference = FIRST_USE_REFERENCE if first_use else MAINTENANCE_REFERENCE
         next_step = (f"Read {FIRST_USE_REFERENCE} for this repository's one-time initialization. "
-                     "Reuse an already supplied personal GitHub username, or ask once." if first_use else
+                     "Reuse saved choices and an already supplied personal GitHub username; ask once only for missing choices, then resume setup." if first_use else
                      setup.get("message") or
                      f"Inspect the reported state and {MAINTENANCE_REFERENCE} for the relevant maintenance command; "
                      "do not restart first-use initialization.")

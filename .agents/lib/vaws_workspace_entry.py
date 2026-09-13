@@ -81,6 +81,16 @@ def workspace_entry(root: Path, *, announce: bool = True) -> dict:
     root = root.resolve()
     state = root / ".vaws-local/updates"
     try:
+        onboarding_path = root / ".vaws-local/onboarding.json"
+        if onboarding_path.is_file():
+            onboarding = json.loads(onboarding_path.read_text(encoding="utf-8"))
+            if not isinstance(onboarding, dict) or onboarding.get("schema") != "vaws.onboarding.v1":
+                return {"state": "configuration_invalid", "path": str(onboarding_path),
+                        "message": "Saved first-use progress is invalid; repair it without resetting the workspace."}
+            if onboarding.get("state") != "ready":
+                return {"state": "setup_pending", "reference": FIRST_USE_REFERENCE,
+                        "path": str(onboarding_path), "phase": onboarding.get("phase"),
+                        "message": "First-use setup is incomplete. Resume vaws_init.py apply; reuse saved choices and completed stages."}
         identity_path = root / ".vaws-local/github.json"
         if not identity_path.is_file():
             initialized = root / ".vaws-local/client-initialization.json"

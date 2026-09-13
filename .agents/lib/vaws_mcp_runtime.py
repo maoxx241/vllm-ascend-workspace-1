@@ -19,7 +19,7 @@ import sys
 from vaws_environment import read_receipt, saved_ready, PIN_ENV, capability_receipt
 from vaws_local_state import prepared_workspace, shared_workspace_root
 from vaws_session_state import task_dir
-from vaws_diagnostics_adapter import operation, phase, measured, captured_stderr, context_environment, context_metadata, request_context
+from vaws_diagnostics_adapter import operation, phase, measured, captured_stderr, context_environment, context_metadata, request_context, community_context
 
 
 @dataclass(frozen=True)
@@ -125,6 +125,8 @@ def provider_command(kind: str, selected: Selection, environment: dict) -> tuple
     env[PIN_ENV] = selected.receipt
     env["VIRTUAL_ENV"] = owner["root"]
     env["PATH"] = str(Path(executable).parent) + os.pathsep + env.get("PATH", "")
+    from vaws_community import community_environment
+    env = community_environment(selected.workspace, env)
     if kind == "task":
         env = coordinator_environment(env, repo_root=selected.workspace)
     elif kind == "remote":
@@ -318,7 +320,7 @@ class Provider:
         return tools
 
     async def call_tool(self, name: str, arguments: dict, metadata: dict | None = None):
-        with request_context(metadata), operation("mcp.call", provider=self.kind, tool=name) as observation:
+        with community_context(self.root), request_context(metadata), operation("mcp.call", provider=self.kind, tool=name) as observation:
             result = await self._call_tool(name, arguments, metadata)
             if result.isError:
                 facts = result.structuredContent or {}

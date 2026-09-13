@@ -37,7 +37,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 - [validation/README.md](validation/README.md) — separate VAWS engineering archive: versioned evidence, all runtime/tool families and 18 business skills, measured limits and explicit gaps; not development-domain knowledge.
 - [validation/coverage.json](validation/coverage.json) — bounded capability-to-source/test/evidence index used only by archive maintenance.
 - [validation/check_archive.py](validation/check_archive.py) and [validation/test_check_archive.py](validation/test_check_archive.py) — read-only archive and retained-JUnit integrity checks; no runtime startup or test replay.
-- [source-workspace-validation-2026-09-13.md](source-workspace-validation-2026-09-13.md) — four-machine source capture/materialization, measured independent-copy costs, package-only sync, old-layout migration and explicit pending final acceptance.
+- [source-workspace-validation-2026-09-13.md](source-workspace-validation-2026-09-13.md) — final installed four-machine source validation, three-platform CI, Kimi review, actual migration and task reuse, measured costs, and automatic source-lock PR validation and merge.
 - [managed-performance-redesign-2026-09-13.md](managed-performance-redesign-2026-09-13.md) — implemented preparation, wait, evidence and serving changes; real native and warm measurements with explicit limitations.
 
 - [knowledge-adoption-2026-09-13.md](knowledge-adoption-2026-09-13.md) — source-level TeamAI/WeKnora comparison, selected knowledge mechanisms, nine-principle assessment and package/consumer validation boundaries.

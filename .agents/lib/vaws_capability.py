@@ -36,8 +36,8 @@ def probe_shared(repo_root: Path | None = None) -> dict[str, Any]:
         return {
             "status": SHARED_ABSENT,
             "path": None,
-            "detail": "vaws-knowledge is not installed",
-            "remedy": REMEDY,
+            "detail": "vaws-knowledge is not installed; actual knowledge use prepares its fixed owner",
+            "remedy": REMEDY + " --capability knowledge",
             "problems": [],
             "documents": [],
             "source_repo": SHARED_SOURCE_REPO,

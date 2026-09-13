@@ -38,7 +38,8 @@ def ensure_workspace_interpreter(
         # Native GUI shells need not inherit the hook/MCP process's pin. Their
         # worktree selection remains valid while the Agent edits dependencies.
         selected = native_ready(repo_root, use_saved=use_saved)
-        receipt = capability_receipt(selected, "knowledge" if packages == ("vaws_knowledge",) else "runtime")
+        knowledge = packages == ("vaws_knowledge",)
+        receipt = capability_receipt(selected, "knowledge" if knowledge else "runtime", prepare_missing=knowledge)
     except EnvironmentError as exc:
         sys.stderr.write(f"{exc}; run `{REMEDY}` before starting a new client.\n")
         raise SystemExit(2) from exc

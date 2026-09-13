@@ -73,6 +73,11 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                                             str(self.root / (selected.key + ".jsonl")), str(self.init_gate or "-")], dict(env)))
         self.command_patch.start()
         self.addCleanup(self.command_patch.stop)
+        # These subprocess protocol fixtures represent legacy complete owners;
+        # lazy split-owner/catalog behavior has its own real install tests.
+        receipt_patch = patch.object(runtime, "read_receipt", return_value={"schema_version": 1})
+        receipt_patch.start()
+        self.addCleanup(receipt_patch.stop)
         from mcp.client import stdio
         launch = stdio._create_platform_compatible_process
         self.processes = []
@@ -174,9 +179,10 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             try:
                 with patch.object(runtime, "caller_context", return_value=None), \
                      patch.object(runtime, "selection", return_value=self.selections["new"]) as select:
-                    result = await provider.call_tool("read", {"host": "fixture", "container": "repro"})
+                    arguments = {"text": "fixture"} if kind == "knowledge" else {"host": "fixture", "container": "repro"}
+                    result = await provider.call_tool("knowledge_query" if kind == "knowledge" else "read", arguments)
                 select.assert_called_once_with(self.root, None, require_prepared=False)
-                self.assertEqual(result.structuredContent["arguments"], {"host": "fixture", "container": "repro"})
+                self.assertEqual(result.structuredContent["arguments"], arguments)
             finally:
                 await provider.close()
 

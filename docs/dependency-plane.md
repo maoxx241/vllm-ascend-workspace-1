@@ -25,8 +25,13 @@ immutable selection in the operating system's user data directory. Normal
 clients use a small runtime owner and a separate knowledge owner. Each key covers
 its exact dependency closure from `uv.lock`, Python identity, platform,
 architecture and selected extras. Updating knowledge alone reuses the runtime
-owner. A small immutable receipt fixes both owners for a task; it is published
-only after both are ready. Ordinary commands never install packages. An explicit
+owner. A small immutable receipt fixes both owners for a task and is published
+when the runtime is ready. It also saves the verified `pyproject.toml`, `uv.lock`
+and generated knowledge tool catalog, each with a SHA256. Knowledge is optional:
+its first actual use prepares only its fixed child from those saved inputs,
+even if the checkout's dependencies have since changed. This does not replace
+the task or project selection. Core commands and status reads never install
+knowledge. An explicit
 `--group dev` keeps one complete environment for tests that import multiple
 components. There is no additional client configuration choice.
 CI validates the lock with `vaws_deps.py sync --locked --group dev`. Do not copy those
@@ -81,8 +86,10 @@ git.
 | `ready` | installed version and commit match the lock |
 
 `off_spec` warns but does not block execution. `missing` makes capabilities
-that depend on the package unavailable. The remedy for every package gap is
-`uv run --no-project python .agents/scripts/vaws_deps.py sync`.
+that depend on the package unavailable. Core gaps use
+`uv run --no-project python .agents/scripts/vaws_deps.py sync`. Missing optional
+knowledge is prepared by actual use; `sync --capability knowledge` can prewarm
+it explicitly. Its absence does not block core readiness.
 
 ## Commands
 
@@ -107,7 +114,10 @@ options; unsupported flags and mutable local dependencies fail explicitly. It
 installs at the final path under a per-key OS lock and publishes the ready receipt
 last. The selected base Python and store paths are resolved to physical paths so
 an interpreter alias change cannot replace a running client's dependencies.
-An ordinary command reads the ready receipt and never installs packages.
+An ordinary core command reads the ready receipt and never installs packages.
+`--capability knowledge` additionally prewarms the optional owner. If that
+installation fails, the already-ready runtime remains usable; a retry uses the
+same child key and lock. No model or index work is part of package sync.
 
 `sync` installs or reuses packages and reports only their environment receipt.
 It does not import the knowledge service, inspect its readiness, prepare a model
@@ -123,7 +133,11 @@ as its remedy. Hooks and the native MCP gateway start in a prepared environment.
 Schema v1 single-environment receipts remain readable. Schema v2 receipts fix
 runtime and knowledge owners separately; `root` and `python` describe the runtime
 owner, while `key` and `receipt` identify the immutable combined selection.
-Knowledge commands and summary hooks select the knowledge interpreter internally.
+Knowledge commands and summary hooks select and, when needed, prepare the fixed
+knowledge interpreter internally. Configuring hooks does not prepare knowledge.
+Legacy schema v2 receipts without saved inputs continue using already-ready
+children. A missing legacy child reports that its original locked inputs or
+ready environment must be restored; it never adopts the current checkout's lock.
 The gateway (`vaws_native_mcp.py` / `vaws_mcp_runtime.py`) resolves calls from an
 existing `context_file` or supported native metadata and reads the task's fixed
 workspace/receipt. It launches task, remote-dev and knowledge package backends
@@ -137,6 +151,15 @@ an ordinary checkout's saved environment suffices for these companion calls.
 Backends are retained by workspace and receipt. A definite child exit or failed
 startup permits a fresh connection on the next new request; no in-flight command
 is replayed. A native-scoped tool listing uses that task's fixed environment.
+Knowledge listings read its fixed generated catalog without installing packages
+or starting a worker, including when the knowledge child is already ready.
+The projection is generated from the locked package's literal official `TOOLS`;
+it is not a separately authored schema. When updating the knowledge pin, run
+`python .agents/scripts/sync_knowledge_catalog.py` in the matching complete
+`--group dev` environment. CI checks the file against that installed package
+with the same generator (`--check` is also available). Bundle preparation
+verifies the projection's package identity and Git revision against `uv.lock`.
+Invalid calls are rejected against the fixed schema before optional installation.
 When a client retains a newer catalog, calls to an older environment are checked
 against its cached supported schema before submission. Unsupported calls return
 the actual schema and `submitted: false`, without changing the task's version.
@@ -153,6 +176,9 @@ prepared Windows owner. A managed CLI switches owner before reading stdin or
 performing work; local analysis and explicit endpoint I/O stay native. Existing
 per-environment Windows launch aliases remain immutable. The new gateway does
 not extend the supported mixed-OS worktree or owner boundaries.
+If its knowledge child is missing, WSL hands installation to that bundle's
+Windows runtime and original saved lock. It neither constructs a Linux child
+for the Windows selection nor changes the checkout's environment selection.
 Run `uv run --no-project python
 .agents/scripts/vaws_client_setup.py --client CLIENT --project PATH --apply` to
 generate configuration; managed entries retain custom fields and foreign

@@ -77,7 +77,8 @@ class SpecLockTests(unittest.TestCase):
             if info["state"] == "ready":
                 self.assertEqual(info["installed_version"], deps.locked_packages()[name]["version"])
                 self.assertEqual(info["installed_commit"], deps.locked_packages()[name]["commit"])
-                self.assertEqual(info["remedy"], "uv run --no-project python .agents/scripts/vaws_deps.py sync")
+                self.assertEqual(info["remedy"], "uv run --no-project python .agents/scripts/vaws_deps.py sync"
+                                 + (" --capability knowledge" if name == "vaws-knowledge" else ""))
 
     def test_missing_pyproject_is_missing_not_an_execution_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

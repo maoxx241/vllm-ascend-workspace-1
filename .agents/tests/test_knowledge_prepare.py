@@ -24,7 +24,7 @@ def test_mounted_workspace_reserves_windows_owner_before_it_is_installed(monkeyp
     root = PurePosixPath("/mnt/d/work")
     assert owner.windows_mounted_workspace(root)
     monkeypatch.setattr(envs, "native_ready", lambda root: pytest.fail("mounted workspaces must not select a Linux owner"))
-    def unavailable(root):
+    def unavailable(root, **kw):
         raise envs.EnvironmentError("no Windows environment selection exists")
     monkeypatch.setattr(envs, "windows_ready", unavailable)
     with pytest.raises(envs.EnvironmentError, match="no Windows environment"):
@@ -65,7 +65,7 @@ def test_windows_owner_receives_native_paths_and_explicit_environment(monkeypatc
 
 def test_missing_owner_reports_pending_without_running_linux_backend(tmp_path, monkeypatch):
     missing = tmp_path / "win32/Scripts/python.exe"
-    monkeypatch.setattr(knowledge, "knowledge_owner_python", lambda root: str(missing))
+    monkeypatch.setattr(knowledge, "knowledge_owner_python", lambda root, **kw: str(missing))
     monkeypatch.setattr(knowledge.subprocess, "run", lambda *args, **kwargs: pytest.fail("missing owner must not start a fallback"))
     result = knowledge.prepare_knowledge(tmp_path)
     assert result["status"] == "pending" and result["ready"] is False
@@ -73,7 +73,7 @@ def test_missing_owner_reports_pending_without_running_linux_backend(tmp_path, m
 
 
 def test_unprepared_owner_receipt_reports_pending_without_starting_knowledge(tmp_path, monkeypatch):
-    def unavailable(root):
+    def unavailable(root, **kw):
         raise envs.EnvironmentError("Windows owner has no ready receipt")
     monkeypatch.setattr(knowledge, "knowledge_owner_python", unavailable)
     monkeypatch.setattr(knowledge.subprocess, "run", lambda *args, **kwargs: pytest.fail("unprepared owner must not start knowledge"))
@@ -89,7 +89,7 @@ def test_unprepared_owner_receipt_reports_pending_without_starting_knowledge(tmp
 ])
 def test_prepare_uses_installed_cli_and_preserves_readiness(tmp_path, monkeypatch, code, payload, ready):
     calls = []
-    monkeypatch.setattr(knowledge, "knowledge_owner_python", lambda root: sys.executable)
+    monkeypatch.setattr(knowledge, "knowledge_owner_python", lambda root, **kw: sys.executable)
     monkeypatch.setattr(knowledge, "knowledge_owner_env", lambda root: {"KNOWLEDGE_OWNER": "native"})
     monkeypatch.setattr(knowledge, "shared_workspace_root", lambda root: root)
     monkeypatch.setattr(knowledge.subprocess, "run", lambda command, **kwargs: calls.append((command, kwargs)) or subprocess.CompletedProcess(command, code, json.dumps(payload)))
@@ -103,7 +103,7 @@ def test_prepare_uses_installed_cli_and_preserves_readiness(tmp_path, monkeypatc
 
 
 def test_invalid_prepare_reply_is_pending(tmp_path, monkeypatch):
-    monkeypatch.setattr(knowledge, "knowledge_owner_python", lambda root: sys.executable)
+    monkeypatch.setattr(knowledge, "knowledge_owner_python", lambda root, **kw: sys.executable)
     monkeypatch.setattr(knowledge, "knowledge_owner_env", lambda root: {})
     monkeypatch.setattr(knowledge.subprocess, "run", lambda command, **kwargs: subprocess.CompletedProcess(command, 0, "not JSON"))
     assert knowledge.prepare_knowledge(tmp_path)["status"] == "pending"
@@ -148,6 +148,18 @@ def test_failed_dependency_install_does_not_prepare_knowledge(tmp_path, monkeypa
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is False and "knowledge" not in payload
     assert "exit code 1" in payload["error"]
+
+
+def test_explicit_capability_sync_prewarms_only_the_selected_child(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(deps, "ROOT", tmp_path)
+    receipt = {"key": "b" * 64, "root": str(tmp_path / "runtime"), "receipt": str(tmp_path / "bundle.json")}
+    monkeypatch.setattr(deps, "prepare_environment", lambda *args, **kw: receipt)
+    monkeypatch.setattr(links, "link_environment", lambda *args, **kw: None)
+    calls = []
+    monkeypatch.setattr(deps, "capability_receipt", lambda *args, **kw: calls.append((args, kw)))
+    assert deps.main(["sync", "--capability", "knowledge"]) == 0
+    assert calls == [((receipt, "knowledge"), {"prepare_missing": True, "timings": {}})]
+    assert json.loads(capsys.readouterr().out)["receipt"] == receipt
 
 
 def test_dependency_entry_does_not_import_knowledge_service(monkeypatch):

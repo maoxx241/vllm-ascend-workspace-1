@@ -23,7 +23,7 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 from vaws_venv import REMEDY, configure_windows_stdio, ensure_workspace_interpreter
-from vaws_environment import EnvironmentError, prepare_environment
+from vaws_environment import EnvironmentError, prepare_environment, capability_receipt
 
 
 def progress(message: str) -> None:
@@ -97,6 +97,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
     progress("selecting or preparing the immutable locked dependency environment")
     try:
         receipt = prepare_environment(ROOT, install_options=extra, timings=timings)
+        if getattr(args, "capability", None) == "knowledge":
+            timings["knowledge"] = {}
+            capability_receipt(receipt, "knowledge", prepare_missing=True, timings=timings["knowledge"])
     except (EnvironmentError, OSError) as exc:
         _print({"ok": False, "error": str(exc), "remedy": REMEDY, "timings": timings})
         return 1
@@ -124,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.set_defaults(func=cmd_doctor)
 
     sync = sub.add_parser("sync", help="prepare a locked environment; progress on stderr, JSON on stdout")
+    sync.add_argument("--capability", choices=["knowledge"], help="also prewarm this optional fixed owner")
     sync.set_defaults(func=cmd_sync)
     return parser
 

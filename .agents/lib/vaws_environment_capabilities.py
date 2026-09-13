@@ -6,6 +6,9 @@ Explicit development groups retain a complete environment for in-process tests.
 """
 from __future__ import annotations
 
+import hashlib
+import os
+from pathlib import Path
 import re
 import tomllib
 
@@ -84,3 +87,54 @@ def bundle_selection(document, lock, selection, identity):
     components = plans(document, lock, base)
     return {**base, "layout": "capabilities-v1", "components": {
         name: _key(identity, plan["input_id"], plan["selection"]) for name, plan in components.items()}}
+
+
+def save_bundle_inputs(root: Path, project: bytes, lock: bytes, catalog: bytes) -> dict:
+    """Save the exact validated inputs before publishing a new bundle receipt."""
+    from vaws_environment import EnvironmentError
+    directory = root / "inputs"
+    if root.resolve() != root.absolute() or directory.resolve() != directory.absolute():
+        raise EnvironmentError("frozen capability inputs must not traverse a symlink")
+    directory.mkdir(parents=True, exist_ok=True)
+    result = {}
+    for name, data in (("pyproject.toml", project), ("uv.lock", lock), ("knowledge-catalog.json", catalog)):
+        path = directory / name
+        if path.is_symlink():
+            raise EnvironmentError("frozen capability input must not be a symlink")
+        with path.open("wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        result[name] = hashlib.sha256(data).hexdigest()
+    return result
+
+
+def frozen_bundle_inputs(receipt: dict):
+    """Recover the original task's inputs, never the caller's current checkout."""
+    from vaws_environment import EnvironmentError, READY_NAME, _access_path, _inputs
+    expected = receipt.get("frozen_inputs")
+    if not expected:
+        raise EnvironmentError("legacy fixed selection has no saved knowledge inputs; restore its original ready "
+                               "knowledge environment or prepare the original matching locked sources")
+    root = _access_path(receipt["store"]) / receipt["key"]
+    if _access_path(receipt["receipt"]).absolute() != (root / READY_NAME).absolute():
+        raise EnvironmentError("fixed selection input root differs")
+    directory = root / "inputs"
+    if root.resolve() != root.absolute() or directory.resolve() != directory.absolute():
+        raise EnvironmentError("frozen capability inputs must not traverse a symlink")
+    try:
+        if any((directory / name).is_symlink() for name in ("pyproject.toml", "uv.lock")):
+            raise EnvironmentError("frozen capability input must not be a symlink")
+        frozen = _inputs(directory)
+        project, lock, document, input_id, lock_sha = frozen
+        for name, data in (("pyproject.toml", project), ("uv.lock", lock)):
+            if hashlib.sha256(data).hexdigest() != expected[name]:
+                raise EnvironmentError("frozen capability input hash differs: " + name)
+        if input_id != receipt["input_id"] or lock_sha != receipt["lock_sha256"]:
+            raise EnvironmentError("frozen capability input identity differs")
+        selected = bundle_selection(document, lock, receipt["selection"], receipt["python_identity"])
+        if selected != receipt["selection"]:
+            raise EnvironmentError("frozen capability closure differs from the task's fixed selection")
+        return directory, frozen
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        raise EnvironmentError("cannot read the fixed knowledge preparation inputs: " + str(exc)) from exc

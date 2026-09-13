@@ -64,6 +64,17 @@ def test_missing_environment_does_not_interrupt_client():
         invoke({"hook_event_name": "Stop"})
 
 
+def test_optional_preparation_has_real_stderr_for_child_processes():
+    import subprocess
+    def prepare(**kwargs):
+        result = subprocess.run([sys.executable, "-c", "import sys;print('quiet install',file=sys.stderr)"],
+                                stderr=sys.stderr, stdout=subprocess.DEVNULL, check=False)
+        assert result.returncode == 0
+        raise SystemExit(2)
+    with mock.patch.object(hook, "ensure_workspace_interpreter", side_effect=prepare):
+        invoke({"hook_event_name": "Stop"})
+
+
 def test_foreign_or_unknown_project_does_not_capture(tmp_path):
     for payload in ({"cwd": str(tmp_path)}, {}, {"cwd": "."}):
         with mock.patch.object(hook, "ensure_workspace_interpreter"), \

@@ -60,7 +60,8 @@ def launch_plan(kind: str, target: Path, options: list[str], environment: dict) 
             path = ROOT / ".agents/hooks" / name
         arguments = [str(path), "--client", "claude", "--project", str(target),
                      "--environment-receipt", receipt["receipt"], *options]
-    owner = capability_receipt(receipt, "knowledge" if kind in ("knowledge", "summary") else "runtime")
+    knowledge = kind in ("knowledge", "summary")
+    owner = capability_receipt(receipt, "knowledge" if knowledge else "runtime", prepare_missing=knowledge)
     return [owner["python"], *arguments], environment
 
 

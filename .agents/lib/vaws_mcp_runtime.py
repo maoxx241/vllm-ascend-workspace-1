@@ -276,14 +276,27 @@ class Provider:
             self.backends[key] = Backend(self.kind, selected, self.root, self.environment)
         return self.backends[key]
 
+    async def tools_for(self, selected: Selection):
+        if self.kind == "knowledge":
+            from vaws_knowledge_catalog import frozen_catalog
+            receipt = read_receipt(selected.receipt)
+            projected = frozen_catalog(receipt)
+            if projected is not None:
+                from mcp.types import Tool
+                return {row["name"]: Tool.model_validate(row) for row in projected["tools"]}
+            if receipt.get("schema_version") == 2:
+                # Legacy selections can use an existing backend, but cannot
+                # invent either its catalog or missing installation inputs.
+                capability_receipt(receipt, "knowledge")
+        return await self.backend(selected).tools()
+
     async def list_tools(self, metadata: dict | None = None):
         context = (caller_context({}, metadata, state_dir=self.environment.get("VAWS_AGENT_SESSIONS_DIR", ""))
                    if metadata else None)
         # A list request carrying a native association can describe that task's
         # fixed version. Unscoped clients still get the current catalog.
         selected = selection(self.root, context, catalog=context is None, require_prepared=False)
-        backend = self.backend(selected)
-        catalog = await backend.tools()
+        catalog = await self.tools_for(selected)
         if context is not None:
             self.scoped_catalogs[context["context_file"]] = selected.key
         else:
@@ -314,12 +327,11 @@ class Provider:
             values["context_file"] = context["context_file"]
         elif self.kind != "task":
             values.pop("context_file", None)
-        backend = self.backend(selected)
         catalog_selection = self.scoped_catalogs.get(context["context_file"], self.catalog_selection) if context else self.catalog_selection
-        if catalog_selection is not None and catalog_selection != selected.key:
+        if self.kind == "knowledge" or (catalog_selection is not None and catalog_selection != selected.key):
             # A long-lived native client may retain a newer schema than this
             # task. Check the fixed backend before sending a possible mutation.
-            catalog = await backend.tools()
+            catalog = await self.tools_for(selected)
             tool = catalog.get(name)
             problem = "tool is unavailable in this task's fixed environment" if tool is None else None
             if tool is not None:
@@ -336,6 +348,12 @@ class Provider:
                          "available_tools": sorted(catalog) if tool is None else None}
                 return CallToolResult(isError=True, structuredContent=facts,
                                       content=[TextContent(type="text", text=json.dumps(facts))])
+        if self.kind == "knowledge":
+            # Keyed local preparation can take time. Other providers and
+            # cancellation remain responsive; no tool has been submitted yet.
+            await asyncio.to_thread(capability_receipt, read_receipt(selected.receipt),
+                                    "knowledge", prepare_missing=True)
+        backend = self.backend(selected)
         result = await backend.request("call_tool", name=name, arguments=values, meta=metadata)
         result.meta = {**(result.meta or {}), "vaws_provider": {
             "environment": selected.key, "workspace": str(selected.workspace),

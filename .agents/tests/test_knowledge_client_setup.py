@@ -142,8 +142,11 @@ def test_generated_knowledge_owner_and_paths_migrate_without_changing_custom_val
     text = plan["files"][path]
     servers = json.loads(text)["mcpServers"] if client in {"claude", "cursor"} else setup.tomllib.loads(text)["mcp_servers"]
     assert servers["vaws_knowledge"]["command"] == desired["command"]
-    assert servers["vaws_knowledge"]["env"] == {**desired["env"], "CUSTOM": "keep"}
-    assert servers["vaws_knowledge"]["enabled_tools"] == ["knowledge_query"]
+    if client == "codex":
+        assert servers["vaws_knowledge"] == desired
+    else:
+        assert servers["vaws_knowledge"]["env"] == {**desired["env"], "CUSTOM": "keep"}
+        assert servers["vaws_knowledge"]["enabled_tools"] == ["knowledge_query"]
     assert servers["other"] == {"command": "untouched"}
     for output, content in plan["files"].items():
         output.parent.mkdir(parents=True, exist_ok=True)

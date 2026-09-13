@@ -29,7 +29,7 @@ def fixture(monkeypatch, tmp_path, name):
     return existing, desired
 
 
-@pytest.mark.parametrize("client", ["codex", "grok"])
+@pytest.mark.parametrize("client", ["grok"])
 @pytest.mark.parametrize("name", ["remote-dev", "vaws-knowledge"])
 def test_generated_venv_provider_migrates_once_and_retains_user_fields(client, name, tmp_path, monkeypatch):
     existing, desired = fixture(monkeypatch, tmp_path, name)
@@ -68,10 +68,10 @@ def test_custom_provider_does_not_acquire_legacy_ownership(case, tmp_path, monke
     text = body if case == "no-marker" else setup.managed_toml_text("", "remote-dev", body)
     if case == "marker-suffix":
         text = text.replace("# END VAWS remote-dev", "# END VAWS remote-dev-custom")
-    path = tmp_path / ".codex/config.toml"
+    path = tmp_path / ".grok/config.toml"
     path.parent.mkdir()
     path.write_text(text)
-    assert setup.build_plan("codex", tmp_path)["files"].get(path, text) == text
+    assert setup.build_plan("grok", tmp_path)["files"].get(path, text) == text
 
 
 def test_recognized_legacy_provider_keeps_custom_environment_locations(tmp_path, monkeypatch):
@@ -79,10 +79,10 @@ def test_recognized_legacy_provider_keeps_custom_environment_locations(tmp_path,
     custom = {"REMOTE_DEV_DEFAULT_ROOT": "/user-root", "REMOTE_DEV_DEFAULT_CWD": "/user-cwd",
               "REMOTE_DEV_RUNTIME_ENV_FILE": "/user-runtime.sh", "REMOTE_DEV_RESOLVERS": "user_plugin:setup"}
     existing["env"].update(custom)
-    path = tmp_path / ".codex/config.toml"
+    path = tmp_path / ".grok/config.toml"
     path.parent.mkdir()
     path.write_text(setup.managed_toml_text("", "remote-dev", setup.toml_server_body("remote_dev", existing)))
-    value = setup.tomllib.loads(setup.build_plan("codex", tmp_path)["files"][path])["mcp_servers"]["remote_dev"]
+    value = setup.tomllib.loads(setup.build_plan("grok", tmp_path)["files"][path])["mcp_servers"]["remote_dev"]
     assert value["command"] == desired["command"]
     assert all(value["env"][key] == item for key, item in custom.items())
 

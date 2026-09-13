@@ -1,8 +1,9 @@
-# Business input example
+# Existing-evidence report input example
 
-This is an illustrative configuration shape. Select cases and values for the
-actual task. The tool generates report metadata internally; observed output
-files are produced by the relevant execution or measurement harness.
+This is the optional report configuration for supplied observations. For actual
+execution inputs, use [callable inputs](../../ascend-operator-debug/references/callable-runner.md).
+The report generates its own metadata; reuse results from the relevant execution
+or measurement harness.
 
 ```json
 {

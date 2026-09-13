@@ -427,9 +427,9 @@ def tensor_metrics(
 ) -> dict[str, Any]:
     """Compute comparison metrics in plain Python.
 
-    Non-finite values are reported, not folded into the metrics: once one side
-    has a NaN the answer is already "this stage", and averaging over it would
-    hide that.
+    Non-finite values are counted and make these metrics non-comparable.
+    Their presence locates an observation, not its cause; initialization and
+    the actual consumed region must be checked before attributing a defect.
     """
     left_nonfinite = sum(1 for value in left if not math.isfinite(value))
     right_nonfinite = sum(1 for value in right if not math.isfinite(value))

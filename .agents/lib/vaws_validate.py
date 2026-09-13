@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path, PurePosixPath
 
 ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,63}$")
@@ -29,22 +28,6 @@ def require_safe_id(value: str, *, label: str = "id") -> str:
             "no slashes, spaces, path traversal, or absolute paths"
         )
     return value
-
-
-def require_remote_leaf(value: str, *, label: str = "id") -> str:
-    safe = require_safe_id(value, label=label)
-    path = PurePosixPath(safe)
-    if path.is_absolute() or ".." in path.parts or len(path.parts) != 1:
-        raise ValidationError(f"invalid {label}: must be one remote path segment")
-    return safe
-
-
-def ensure_child_path(root: Path, child: Path) -> Path:
-    root_resolved = root.expanduser().resolve()
-    child_resolved = child.expanduser().resolve()
-    if root_resolved != child_resolved and root_resolved not in child_resolved.parents:
-        raise ValidationError(f"path escapes state dir: {child_resolved}")
-    return child_resolved
 
 
 def parse_device_csv(value: str | None, *, label: str = "devices") -> list[int] | None:

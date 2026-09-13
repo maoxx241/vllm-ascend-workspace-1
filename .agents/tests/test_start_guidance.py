@@ -19,6 +19,20 @@ def plan(project, client, files=None):
     return files, notes
 
 
+@pytest.mark.parametrize("client,relative", [
+    ("codex", "AGENTS.md"),
+    ("cursor", ".cursor/rules/vaws-session-start.mdc"),
+    ("claude", "CLAUDE.md"),
+])
+def test_tracked_startup_projections_match_canonical_guidance(client, relative):
+    path = ROOT / relative
+    observed = path.read_text(encoding="utf-8")
+    planned, _ = plan(ROOT, client)
+    # The existing generator preserves user text and an existing @AGENTS.md
+    # import. Only an out-of-date owned block should require a tracked update.
+    assert planned.get(path, observed) == observed, f"stale tracked startup projection: {relative}"
+
+
 def test_all_clients_share_one_agents_block_and_resume_contract(tmp_path):
     original = "# Project rules\n\nKeep this user's instructions.\n"
     (tmp_path / "AGENTS.md").write_text(original)

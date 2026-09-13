@@ -1,4 +1,9 @@
-# Agent call
+# Report from existing evidence
+
+For actual candidate execution, use the `run` entry in [the Skill](../SKILL.md)
+and [callable inputs](../../ascend-operator-debug/references/callable-runner.md).
+The command below only summarizes supplied observations and is optional when
+existing evidence is sufficient.
 
 From the repository root:
 

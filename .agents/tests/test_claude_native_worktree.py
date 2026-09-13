@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
 import sys
+from unittest import mock
 
 import pytest
 from test_native_worktree_setup import make_repository, setup as preparation
@@ -152,6 +154,72 @@ def test_hook_uses_actual_target_and_selected_environment(repository, monkeypatc
     argv, _ = entry.launch_plan("session", repository, ["--agent-sessions-dir", "/registry"], {})
     assert argv == ["/new/python", str(repository / ".agents/hooks/vaws_session.py"), "--client", "claude",
                     "--project", str(repository), "--environment-receipt", "/new/receipt", "--agent-sessions-dir", "/registry"]
+
+
+@pytest.mark.parametrize("kind,capability,prepare_missing", [
+    ("summary", "runtime", False), ("session", "runtime", False),
+    ("task", "runtime", False), ("remote", "runtime", False),
+    ("knowledge", "knowledge", True),
+])
+def test_launch_plan_prepares_only_explicit_knowledge_provider(repository, monkeypatch, kind, capability, prepare_missing):
+    receipt = {"python": sys.executable, "receipt": "/selected/receipt"}
+    monkeypatch.setattr(entry, "saved_ready", lambda target: receipt)
+    select = mock.Mock(return_value={"python": "/selected/owner-python"})
+    monkeypatch.setattr(entry, "capability_receipt", select)
+    argv, environment = entry.launch_plan(kind, repository, [], {})
+    select.assert_called_once_with(receipt, capability, prepare_missing=prepare_missing)
+    assert argv[0] == "/selected/owner-python"
+    assert environment["VAWS_ENV_RECEIPT"] == receipt["receipt"]
+    if kind == "summary":
+        assert argv[1:5] == [str(repository / ".agents/hooks/knowledge_summary.py"),
+                            "--client", "claude", "--project"]
+
+
+@pytest.mark.parametrize("event", ["invalid-json", "no-final", "foreign"])
+def test_actual_summary_entry_reaches_shared_hook_without_preparing_knowledge(tmp_path, event):
+    """Run the native exec boundary and real hook with no optional receipt."""
+    target = tmp_path / "selected 用户"
+    hook = target / ".agents/hooks/knowledge_summary.py"
+    hook.parent.mkdir(parents=True)
+    hook.write_bytes((ROOT / ".agents/hooks/knowledge_summary.py").read_bytes())
+    receipt = {"python": sys.executable, "receipt": str(tmp_path / "missing-selection.json")}
+    calls = tmp_path / "owner-selection.jsonl"
+    runner = tmp_path / "entry_runner.py"
+    runner.write_text(
+        "import importlib.util,json\nfrom pathlib import Path\n"
+        f"spec=importlib.util.spec_from_file_location('entry', {str(ROOT / '.agents/scripts/vaws_claude_entry.py')!r})\n"
+        "entry=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(entry)\n"
+        f"entry.workspace=lambda *args,**kwargs: Path({str(target)!r})\n"
+        f"entry.saved_ready=lambda target: {receipt!r}\n"
+        "def select(receipt,capability,*,prepare_missing=False):\n"
+        f"    with Path({str(calls)!r}).open('a',encoding='utf-8') as stream:\n"
+        "        stream.write(json.dumps({'capability':capability,'prepare_missing':prepare_missing})+'\\n')\n"
+        "    if capability=='knowledge': raise RuntimeError('optional knowledge must stay unprepared')\n"
+        "    return receipt\n"
+        "entry.capability_receipt=select\n"
+        "raise SystemExit(entry.main(['summary']))\n", encoding="utf-8")
+    raw = "{" if event == "invalid-json" else json.dumps({
+        "hook_event_name": "Stop", "cwd": str(tmp_path if event == "foreign" else target),
+        "last_assistant_message": "Useful final text belongs to another workspace." if event == "foreign" else ""})
+    environment = dict(os.environ)
+    for key in ("VAWS_SKIP_VENV_REEXEC", "VAWS_VENV_REEXEC", "VAWS_ENV_RECEIPT", "PYTHONHOME"):
+        environment.pop(key, None)
+    environment["PYTHONPATH"] = str(ROOT / ".agents/lib")
+    environment["PYTHONIOENCODING"] = "utf-8"
+    result = subprocess.run([sys.executable, "-I", "-S", str(runner)], cwd=tmp_path,
+                            input=raw, capture_output=True, encoding="utf-8", env=environment, timeout=15)
+    observed = [json.loads(line) for line in calls.read_text(encoding="utf-8").splitlines()]
+    assert result.returncode == 0, (result.stdout, result.stderr, observed)
+    assert result.stdout == "{}\n", result.stdout + result.stderr
+    assert observed == [{"capability": "runtime", "prepare_missing": False}]
+    facts = [json.loads(line) for line in result.stderr.splitlines()]
+    assert facts[0]["vaws_claude_provider"] == "summary"
+    if event == "no-final":
+        assert len(facts) == 2 and facts[1]["status"] == "no_summary"
+    else:
+        assert len(facts) == 1
+    assert not (target / ".vaws-local").exists()
+    assert not Path(receipt["receipt"]).exists()
 
 
 def plan(repository, *, custom_create=False):

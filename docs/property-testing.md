@@ -9,7 +9,7 @@ Run the affected suites through the ordinary local runner:
 uv run --no-project python .agents/scripts/local_tests.py .agents/tests/test_property_validate.py .agents/tests/test_property_run_manifest.py
 ```
 
-- Shared validation checks identifier, environment-name, device-list and child-path rules.
+- Shared validation checks identifier, environment-name and device-list rules.
 - Run Manifest tests exercise the installed coordinator implementation against its schema, including round trips and invalid evidence.
 
 The helper `.agents/tests/test_property_support.py` derives each case's seed from

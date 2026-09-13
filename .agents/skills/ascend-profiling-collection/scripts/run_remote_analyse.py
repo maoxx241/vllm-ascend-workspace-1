@@ -244,7 +244,7 @@ def build_parallel_analyse_script(
       the wall timeout fired).
 
     ``preamble`` / ``py_code`` are injectable so the command shape can be
-    exercised locally (see selftest_parallel_analyse.py) without torch_npu.
+    exercised locally (see tests/test_parallel_analyse.py) without torch_npu.
     When ``py_code`` is None the payload is built from ``export_mode`` via
     ``build_analyse_py`` (default: db export).
     """
@@ -460,7 +460,7 @@ def verify_outputs_local(
 ) -> dict[str, Any]:
     """Local-filesystem twin of ``verify_outputs``.
 
-    Used by selftest_parallel_analyse.py to exercise the db/text
+    Used by tests/parallel_analyse_checks.py to exercise the db/text
     verification branches against fake ``*_ascend_pt`` trees without a
     remote container. Keep the artifact rules in lockstep with
     ``verify_outputs``.

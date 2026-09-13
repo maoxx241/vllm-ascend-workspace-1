@@ -106,6 +106,40 @@ def updater(fixture):
     return updates.WorkspaceUpdater(fixture["root"], client=fixture["api"])
 
 
+def test_repository_root_finds_nested_directory_and_linked_gitfile(fixture):
+    root = fixture["root"]
+    target = root.parent / "linked"
+    git(root, "worktree", "add", "--detach", str(target), "HEAD")
+    for checkout in (root, target):
+        nested = checkout / "nested/source"
+        nested.mkdir(parents=True)
+        assert updates.repository_root(nested) == checkout.resolve()
+
+
+@pytest.mark.parametrize("kind", ["directory", "gitfile", "dangling_link"])
+def test_repository_root_never_skips_broken_nearest_git_boundary(fixture, kind):
+    root = fixture["root"]
+    before = ((root / ".git/HEAD").read_bytes(), (root / ".git/index").read_bytes(),
+              (root / ".git/config").read_bytes())
+    boundary = root / "nested checkout"
+    nested = boundary / "source"
+    nested.mkdir(parents=True)
+    if kind == "directory":
+        (boundary / ".git").mkdir()
+    elif kind == "gitfile":
+        (boundary / ".git").write_text("gitdir: missing-git-storage\n", encoding="utf-8")
+    else:
+        try:
+            (boundary / ".git").symlink_to("missing-git-storage")
+        except OSError:
+            pytest.skip("symlink creation is unavailable")
+    with pytest.raises(updates.Deferred):
+        updates.repository_root(nested)
+    after = ((root / ".git/HEAD").read_bytes(), (root / ".git/index").read_bytes(),
+             (root / ".git/config").read_bytes())
+    assert after == before
+
+
 def test_apply_uses_default_branch_head_even_with_older_release_tag(fixture):
     result = updater(fixture).step(apply=True)
     assert result["status"] == "applied"

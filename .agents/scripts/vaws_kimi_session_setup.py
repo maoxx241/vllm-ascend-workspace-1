@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
 sys.path.insert(0, str(ROOT / ".agents/scripts"))
 from vaws_environment import PIN_ENV, MANAGED_PIN_ENV, saved_ready
-from vaws_workspace_update import common_dir, git
+from vaws_workspace_update import common_dir, repository_root
 from vaws_worktree_setup import prepare_worktree, unpinned_environment
 from vaws_native_task_env import task_env
 from vaws_local_state import prepared_workspace, read_preparation, shared_workspace_root
@@ -30,7 +30,7 @@ def scoped_source(project: Path, cwd: Path) -> Path | None:
         prepared = prepared_workspace(cwd, project)
         if prepared is not None:
             return prepared
-        source = Path(git(cwd, "rev-parse", "--show-toplevel")).resolve()
+        source = repository_root(cwd)
         return source if common_dir(source).resolve() == common_dir(project).resolve() else None
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
         return None

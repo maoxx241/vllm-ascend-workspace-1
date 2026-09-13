@@ -61,6 +61,22 @@ def git(root: Path, *args: str, check=True) -> str:
                cwd=root, env=environment, check=check).stdout.strip()
 
 
+def repository_root(path: Path) -> Path:
+    """Find a checkout from a subdirectory without skipping a broken boundary."""
+    path = Path(path).resolve(strict=True)
+    if not path.is_dir():
+        raise Deferred("repository_directory_required", str(path))
+    for candidate in (path, *path.parents):
+        if os.path.lexists(candidate / ".git"):
+            # gitfiles and dangling .git links are boundaries too. A failed
+            # discovery here must not select a different ancestor checkout.
+            found = Path(git(candidate, "rev-parse", "--show-toplevel")).resolve()
+            if found != candidate:
+                raise Deferred("repository_root_changed", str(candidate))
+            return found
+    raise Deferred("repository_not_found", str(path))
+
+
 def read_json(path: Path) -> dict:
     if not path.exists():
         return {}

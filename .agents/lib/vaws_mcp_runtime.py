@@ -84,9 +84,9 @@ def selection(root: Path, context: dict | None = None, *, catalog: bool = False,
             if prepared is not None:
                 target = prepared.resolve(strict=True)
             else:
-                from vaws_workspace_update import common_dir, git
+                from vaws_workspace_update import common_dir, git, repository_root
                 shared_git = common_dir(root)
-                target = Path(git(target, "rev-parse", "--show-toplevel")).resolve()
+                target = repository_root(target)
                 actual_git = Path(git(target, "rev-parse", "--absolute-git-dir")).resolve()
                 selected_file = target / ".vaws-local/environment-selection" / f"{sys.platform}.json"
                 if (common_dir(target) != shared_git or not selected_file.is_file()

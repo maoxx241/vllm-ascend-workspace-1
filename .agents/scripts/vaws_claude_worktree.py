@@ -15,7 +15,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
-from vaws_workspace_update import git, write_json, Deferred
+from vaws_workspace_update import repository_root, write_json, Deferred
 from vaws_local_state import prepared_workspace, read_preparation, shared_workspace_root
 
 
@@ -33,7 +33,7 @@ def create_worktree(payload: dict) -> tuple[Path, dict]:
     if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,100}", name) or ".." in name:
         raise ValueError("Claude worktree name must be a single Git-compatible slug")
     source = Path(payload["cwd"]).resolve()
-    source = Path(git(source, "rev-parse", "--show-toplevel")).resolve()
+    source = repository_root(source)
     owner = shared_workspace_root(source)
     for ancestor in (source, *source.parents):
         record = read_preparation(ancestor)

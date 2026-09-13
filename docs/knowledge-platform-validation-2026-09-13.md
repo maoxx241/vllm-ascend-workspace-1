@@ -114,6 +114,19 @@ The archive checker reread the XML/log hashes. The new summary is
 As before, the test summary does not embed runtime revisions; the final
 selection and isolated installed probes establish the package identity.
 
+The first full consumer CI at head `65c3a51c2811ecd85c7164f0eb5dbfd404a21935`
+([run 34749942633](https://github.com/vllm-ascend-workspace/vllm-ascend-workspace/actions/runs/34749942633))
+caught a separate dependency-reporting defect: `vaws-knowledge[code]==0.7.0`
+was reported without its exact required version. Linux and macOS each had
+one failing dependency test group and 89 passing groups. The failure is retained
+separately from the successful installed package tests. The consumer requirement
+parser now recognizes optional extras before the exact-version specifier;
+its final revision's complete checks remain attached to PR 169.
+The dependency and environment test group passed 32 tests and five subtests;
+one existing platform test retained its UTF-8-mode precondition skip. An actual
+installed status call now reports required, locked and installed versions all
+as 0.7.0, commit `c57e7fb3`, ready with no problems.
+
 The actual Grok export, fixed exporter, personal Git feed, independent wheel,
 and natural 16:00 Windows synchronization are preserved in
 [component and deployment evidence](validation/knowledge-component-2026-09-13.md).

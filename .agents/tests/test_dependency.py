@@ -20,6 +20,24 @@ import vaws_dependency as deps  # noqa: E402
 
 
 class SpecLockTests(unittest.TestCase):
+    def test_required_versions_preserves_pins_with_extras(self) -> None:
+        cases = (
+            ("vaws-knowledge[code]==0.7.0", "vaws-knowledge", "0.7.0"),
+            ("VAWS_KNOWLEDGE [ code, debug-tools ] == 0.7.0 ; python_version >= '3.11'", "vaws-knowledge", "0.7.0"),
+            ("Pillow[formats]>=11", "pillow", None),
+            ("Pillow[formats] ; python_version >= '3.11'", "pillow", None),
+            ("mcp==1.30.0 ; python_version >= '3.11'", "mcp", "1.30.0"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for requirement, name, version in cases:
+                with self.subTest(requirement=requirement):
+                    (root / "pyproject.toml").write_text(
+                        "[project]\ndependencies = " + json.dumps([requirement]) + "\n",
+                        encoding="utf-8",
+                    )
+                    self.assertEqual(deps.required_versions(root), {name: version})
+
     def test_pyproject_requires_the_three_packages(self) -> None:
         versions = deps.required_versions()
         self.assertEqual(set(versions), {"vaws-remote-dev", "vaws-coordinator", "vaws-knowledge", "pillow", "mcp"})

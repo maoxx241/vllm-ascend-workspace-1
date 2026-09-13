@@ -21,8 +21,9 @@ The reference/coverage audit was refreshed at
 `75a886eb145d2f624f9c9b15748a892a8c317210`, after the earlier integration audit
 at `d14f5af40bcf1b9fd02906be08fb29ea211db60d`. This checkout includes the final
 source-workspace evidence in PR 168, merged at
-`71cd235560c59ea1f82936de11e9a42e666c9ca4`. Knowledge component PRs 30 and 31
-are merged; later PR 32 and the final consumer pin remain outside this cutoff.
+`71cd235560c59ea1f82936de11e9a42e666c9ca4`. Subsequent knowledge component
+evidence includes merged PRs 30–32 and actual cloud-feed/local scheduled return;
+PR 33 and the final consumer pin/installed acceptance remain outside this cutoff.
 These facts do not relabel earlier device or performance runs.
 
 ## Versioned evidence
@@ -39,7 +40,7 @@ These facts do not relabel earlier device or performance runs.
 | [Windows/WSL platform pass](../windows-validation-2026-09-11.md) | Three owner suites, all then-current skill suites, 120 ordinary live SSH calls, real dense knowledge release/import/switch and fleet process lifecycle | owner commits are listed in that report; no NPU work, live ModelScope authentication/download, macOS or ARM64 acceptance |
 | [Six scenarios](../six-scenario-performance-2026-09-13.md) | Actual source/native reuse, fixed inputs, owned kernel and release evidence; independent direct/managed Agent samples | vLLM `e7739c8720974cdd442c0f051cc08a41a4e799c2`, Ascend `88398f3c885d1264cde65069dc8a3e9adf6487f0`; each arm keeps its own coordinator/version and timer; universal six-case speed target not met |
 | [Knowledge 0.6.0 adoption](../knowledge-adoption-2026-09-13.md) | Optional three-tool contract, lexical/vector fusion, source excerpt evidence and bounded owner worklist | consumed commit `485ddc0d71e86915487a1204032426a3d874ba0e`; current catalog/curation/media/release work needs its own final-revision acceptance |
-| [Knowledge component PRs 30 and 31](knowledge-component-2026-09-13.md) | Exact CI checkout/counts and retained local catalog/curation JUnit integrity; both PRs merged | canonical 0.7.0 commit `24b652de`; CI merge-test refs, local source snapshots and squash commits are distinct; PR 32, feed deployment and consumer-pin acceptance remain separate |
+| [Knowledge component PRs 30–32](knowledge-component-2026-09-13.md) | Exact component/intake CI checkout/counts, retained local JUnit integrity, actual Grok export, live feed import and successful natural 16:00 Windows trigger | PR 32 merge `52754b5e`; cloud/installed-wheel revisions remain explicit; PR 33, final consumer-pin acceptance and future scheduled Grok runs remain separate |
 
 GitHub was read again during this audit. Coordinator PR 33 and consumer PR 165
 were merged. Their exact tested heads were successful in
@@ -142,7 +143,7 @@ remain covered below. Counts describe this audit, not an API quota.
 |---|---|---|
 | remote-dev | 8 read/write/search/patch tools; Bash and 4 job tools; 3 artifact tools; probe/context | Actual 18-tool gateway and four-container tests; endpoint transport, process/stream and byte preservation. No implied device admission |
 | coordinator | `vaws_session`, `vaws_run`, `vaws_execution`, `vaws_finish`, `vaws_message` | Fixed input, resource ownership, wait/control, quiet/release, real isolated messaging; final correctness and measured candidates remain separate |
-| knowledge | query/explain/capture; explicit owner maintenance/publication | Earlier optional/inert-provider evidence plus independently archived PR30/31 component CI and local JUnit; later feed/PR32/consumer integration remains separate |
+| knowledge | query/explain/capture; explicit owner maintenance/publication | Earlier optional/inert-provider evidence plus PR30–32 CI, local JUnit and actual independent cloud/local feed transport; PR33/final installed integration remains separate |
 | vaws-top | package fleet queries; local deploy/start/status/restart/stop | Historical released monitor lifecycle and current launcher tests; observation never proves allocation. This checkout selects release `v0.1.2`, not necessarily the running instance |
 | local dependencies | status/doctor/sync, immutable environment selection | Existing platform and source-workspace checks; package-only sync and no knowledge preparation are covered by merged PR166 and its three-platform control-plane CI |
 | source preparation | requested initialization/forks/update, exact source-lock pairs, independent clones and resume | Current `sources.lock.json` supplies official development/release-vLLM pairs with the same Ascend revision; actual capture/migration and exact-head CI are retained. A declared pair is not an NPU compatibility result |

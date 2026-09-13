@@ -35,6 +35,7 @@ command recipe. Superseded designs and duplicate inventories are retained in Git
 ## Dated design and validation evidence
 
 - [validation/README.md](validation/README.md) — separate VAWS engineering archive: versioned evidence, all runtime/tool families and 18 business skills, measured limits and explicit gaps; not development-domain knowledge.
+- [validation/knowledge-component-2026-09-13.md](validation/knowledge-component-2026-09-13.md) — knowledge PR30–32 exact CI provenance, retained local results and actual Grok export/Windows scheduled feed return; later final installation remains separate.
 - [validation/coverage.json](validation/coverage.json) — bounded capability-to-source/test/evidence index used only by archive maintenance.
 - [validation/check_archive.py](validation/check_archive.py) and [validation/test_check_archive.py](validation/test_check_archive.py) — read-only archive and retained-JUnit integrity checks; no runtime startup or test replay.
 - [source-workspace-validation-2026-09-13.md](source-workspace-validation-2026-09-13.md) — final installed four-machine source validation, three-platform CI, Kimi review, actual migration and task reuse, measured costs, and automatic source-lock PR validation and merge.

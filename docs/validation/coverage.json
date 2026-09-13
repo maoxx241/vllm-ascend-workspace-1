@@ -141,18 +141,26 @@
         "pr30_merge": "4bdc37571e0ddb9c7312aabf64eaa22aabea2b9d",
         "pr31_head": "cc91e1eb573f503f864633402781117d6f11dbc3",
         "pr31_ci_checkout": "0623dc174e5479e2c1cd001942c8fa13526ef0a8",
+        "pr32_head": "b3eb681ef3ca5d20fb66ed56113b6968d3965cdc",
+        "pr32_intake_ci_checkout": "2a135380f4cb77aba83316cff5df85454acf8c07",
+        "pr32_intake_ci_run": "34746454502",
+        "pr32_merge": "52754b5e5a714b9c60b4fa840daba5ecde97cb37",
+        "cloud_exporter": "cc1a1d76fdee2c90b129f6ba56c171d500c158af",
+        "public_feed_commit": "4ca634c8d0e54f07d831feffaaec633adb5eca9b",
+        "public_feed_manifest_sha256": "5b66c3ce0032d43a3ff53cdb0110d69dd836469ccf4d5166e485a704d5a82ce7",
+        "persistent_feed_wheel_sha256": "f346bcbdb1d7973fca19b550dbedfed9791282ba6af628e9d5f8330794512e5e",
         "local_catalog_snapshot": "7105a2cc8b488948a14475891f25cbfacd85cdd3",
         "local_curation_snapshot": "95185f3cf71984a39c22f18d1caf14d56f1edc18"
       },
-      "scope": "Merged PR30/31 package and native Windows/macOS CI with actual merge-test checkout/counts. Retained local JUnit verified: catalog455 and curation517 entries including subtests,4 skips each,no failures/errors; source/test/pyproject snapshots match108/127 committed blobs. Native retained XML has2 passing lifecycle cases.",
-      "limits": "CI merge-test refs differ from branch heads and squash commits. Retained XML has no runtime-dependency snapshot; current native XML does not retain the earlier36-test result. PR32, public feed deployment, final consumer pin and their affected acceptance remain separate; no new NPU or final-performance claim."
+      "scope": "Merged PR30/31 package/native CI and PR32 independent-intake four-platform matrix at actual merge-test checkouts. Retained catalog455/curation517 JUnit entries include subtests; source snapshots match108/127 committed blobs. Actual Grok public export, installed live Git feed import,80-note incremental return and natural Windows16:00 scheduled unchanged run succeeded (LastTaskResult0,1.357s,zero downloads).",
+      "limits": "CI merge-test refs differ from heads and squash commits. Historical XML has no runtime-dependency snapshot and current native XML retains2 cases,not an earlier36-test run. Cloud UI facts are attributed to retained owner records; actual Windows task/receipts were reread. PR33/final consumer installed acceptance and future scheduled Grok runs remain separate; no NPU,held-out relevance,physical16GiB or maximum-size remote deadline claim."
     }
   ],
   "gaps": [
     {
       "id": "G1",
       "scope": "final integrated revisions",
-      "required": "PR166/168 source-workspace and merged knowledge PR30/31 CI are retained at their actual checkout revisions. Later PR32 and final consumer integration need their own affected checks and CI; do not relabel historical raw runs as final-pin execution or source declarations as NPU compatibility."
+      "required": "PR166/168 source-workspace and merged knowledge PR30–32 CI are retained at their actual checkout revisions. PR33 and final consumer integration still need their own affected checks and installed acceptance; do not relabel historical raw runs as final-pin execution or source declarations as NPU compatibility."
     },
     {
       "id": "G2",
@@ -177,7 +185,7 @@
     {
       "id": "G6",
       "scope": "knowledge platform",
-      "required": "Merged catalog/context/shared-reference and curation/public-export component PR30/31 evidence is recorded separately. Later PR32/feed deployment and final consumer pin still need their actual owner acceptance. Keep engineering validation outside the vLLM/Ascend/NPU/AI/Infra domain corpus."
+      "required": "Merged PR30–32 and actual Grok public export/live import/natural Windows scheduled return are recorded separately. PR33/final consumer installed acceptance and subsequent scheduled Grok runs remain unverified here. Keep engineering validation outside the vLLM/Ascend/NPU/AI/Infra domain corpus."
     },
     {
       "id": "G7",

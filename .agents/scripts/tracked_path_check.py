@@ -337,7 +337,7 @@ def scripts_exists(
     if path_exists(repo_root, ".agents/" + token, tracked):
         return True
     parts = Path(referring).parts
-    if len(parts) >= 3 and parts[0] in {".agents", ".trae"} and parts[1] == "skills":
+    if len(parts) >= 3 and parts[0] == ".agents" and parts[1] == "skills":
         return path_exists(repo_root, f"{parts[0]}/skills/{parts[2]}/{token}", tracked)
     return False
 

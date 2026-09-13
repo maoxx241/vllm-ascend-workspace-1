@@ -109,7 +109,9 @@ Generated hooks and the native MCP gateway start in a prepared environment.
 The gateway selects each task, remote-dev or knowledge backend from the task's
 fixed workspace receipt, using an existing `context_file` or supported native
 request metadata. It never selects identity from cwd or a recent task. Official
-Kimi carries `context_file` explicitly in all three providers' calls. Different
+Kimi task calls require an explicit `context_file`. Remote-dev and knowledge
+accept it optionally to reuse the task's fixed environment; without it they use
+the configured workspace's saved environment without task preparation. Different
 tasks can use different retained backend processes through one gateway; a newer
 catalog does not replace an existing task's loaded packages. The native client
 also pins its managed owner environment independently, so a later lock edit in a

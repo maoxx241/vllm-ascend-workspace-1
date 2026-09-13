@@ -34,7 +34,7 @@ as data.
 ## Detection
 
 Path-like tokens that start with `.agents/`, `.remote-dev/`, `.claude/`,
-`.codex/`, `.cursor/`, `.grok/`, `.trae/`, `.github/`, `docs/`, or
+`.codex/`, `.cursor/`, `.grok/`, `.github/`, `docs/`, or
 `scripts/` and contain at least one `/`. Tokens are cut at whitespace and
 wrappers; trailing punctuation, `:line`, `:line-line`, `#anchor`, and
 `.py:attr` suffixes are stripped. A glob is checked by the directory before

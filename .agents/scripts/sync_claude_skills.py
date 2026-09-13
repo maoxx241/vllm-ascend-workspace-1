@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Generate Claude Code skill shims and the ModelScope Trae projection.
+"""Generate Claude Code skill shims from `.agents/skills`.
 
-`.claude/skills/<name>/SKILL.md` shims come from `.agents/skills`. The seven
-`.trae/skills/modelscope` files are copied byte-for-byte from
-`.agents/skills/modelscope`. Edit ModelScope only in that canonical package;
-this command regenerates the Trae projection.
+`.claude/skills/<name>/SKILL.md` exposes the canonical skill's metadata and
+points to its instructions. Edit skills in `.agents/skills`, then regenerate.
 
     python3 .agents/scripts/sync_claude_skills.py          # regenerate
     python3 .agents/scripts/sync_claude_skills.py --check  # verify, exit 1 on drift
@@ -31,18 +29,7 @@ import yaml  # noqa: E402
 
 AGENTS_SKILLS = ROOT / ".agents" / "skills"
 CLAUDE_SKILLS = ROOT / ".claude" / "skills"
-TRAE_SKILLS = ROOT / ".trae" / "skills"
 MAX_SHIM_LINES = 60
-MODELSCOPE_SKILL = "modelscope"
-MODELSCOPE_TRAE_PATHS = (
-    "SKILL.md",
-    "agents/openai.yaml",
-    "scripts/_modelscope_common.py",
-    "scripts/download_from_modelscope.py",
-    "scripts/modelscope_auto.py",
-    "scripts/modelscope_download_status.py",
-    "scripts/verify_modelscope_sha256.py",
-)
 
 
 def parse_frontmatter(source: Path) -> dict[str, str]:
@@ -84,18 +71,6 @@ def source_skill_dirs() -> list[Path]:
     return sorted(path for path in AGENTS_SKILLS.iterdir() if path.is_dir() and (path / "SKILL.md").exists())
 
 
-def modelscope_source_dir() -> Path:
-    return AGENTS_SKILLS / MODELSCOPE_SKILL
-
-
-def modelscope_trae_dir() -> Path:
-    return TRAE_SKILLS / MODELSCOPE_SKILL
-
-
-def _exec_bits(path: Path) -> int:
-    return path.stat().st_mode & 0o111
-
-
 class ProjectionConflict(RuntimeError):
     """A generated target is linked or contains user-owned content."""
 
@@ -117,26 +92,6 @@ def _require_projection_path(root: Path, target: Path) -> None:
 
 def _shim_marker(name: str) -> str:
     return f"<!-- Generated from .agents/skills/{name}/SKILL.md. Do not edit. -->"
-
-
-def _copy_projected_file(source: Path, target: Path) -> None:
-    _require_projection_path(TRAE_SKILLS.parent, target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(source.read_bytes())
-    updated_mode = (target.stat().st_mode & ~0o111) | _exec_bits(source)
-    if updated_mode != target.stat().st_mode:
-        target.chmod(updated_mode)
-
-
-def _projected_file_relpaths(root: Path) -> list[str]:
-    if not root.is_dir():
-        return []
-    relative: list[str] = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or "__pycache__" in path.parts:
-            continue
-        relative.append(path.relative_to(root).as_posix())
-    return relative
 
 
 def check_shims() -> list[str]:
@@ -162,32 +117,6 @@ def check_shims() -> list[str]:
         if len(observed.splitlines()) > MAX_SHIM_LINES:
             errors.append(f"Claude skill shim is too large: {skill_dir.name}")
     return errors
-
-
-def check_modelscope_trae() -> list[str]:
-    errors: list[str] = []
-    source_root = modelscope_source_dir()
-    target_root = modelscope_trae_dir()
-    owned = set(MODELSCOPE_TRAE_PATHS)
-    for relative in MODELSCOPE_TRAE_PATHS:
-        source = source_root / relative
-        target = target_root / relative
-        if not source.is_file():
-            errors.append(f"missing canonical modelscope source: {relative}")
-            continue
-        if not target.is_file():
-            errors.append(f"missing Trae modelscope projection: {relative}")
-            continue
-        if source.read_bytes() != target.read_bytes() or _exec_bits(source) != _exec_bits(target):
-            errors.append(f"stale Trae modelscope projection: {relative}")
-    for relative in _projected_file_relpaths(target_root):
-        if relative not in owned:
-            errors.append(f"unexpected file in Trae modelscope projection: {relative}")
-    return errors
-
-
-def check_generated() -> list[str]:
-    return check_shims() + check_modelscope_trae()
 
 
 def sync_shims() -> None:
@@ -221,44 +150,23 @@ def sync_shims() -> None:
             existing.rmdir()
 
 
-def sync_modelscope_trae() -> None:
-    source_root = modelscope_source_dir()
-    target_root = modelscope_trae_dir()
-    for relative in MODELSCOPE_TRAE_PATHS:
-        source = source_root / relative
-        if not source.is_file():
-            raise FileNotFoundError(f"missing canonical modelscope source: {relative}")
-        _copy_projected_file(source, target_root / relative)
-
-
-def sync_generated() -> None:
-    sync_shims()
-    sync_modelscope_trae()
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description=(
-            "Sync generated Claude Code skill shims and the ModelScope Trae "
-            "projection from .agents/skills."
-        )
+        description="Sync generated Claude Code skill shims from .agents/skills."
     )
     parser.add_argument(
         "--check",
         action="store_true",
-        help=(
-            "Only verify that .claude/skills shims and the "
-            ".trae/skills/modelscope projection are synchronized."
-        ),
+        help="Only verify that .claude/skills shims are synchronized.",
     )
     args = parser.parse_args(argv)
     if args.check:
-        errors = check_generated()
+        errors = check_shims()
         for error in errors:
             print(error)
         return 1 if errors else 0
     try:
-        sync_generated()
+        sync_shims()
     except ProjectionConflict as exc:
         print(str(exc), file=sys.stderr)
         return 1

@@ -75,10 +75,12 @@ def origin_repo_from_git(repo_root: Path) -> str:
     try:
         proc = subprocess.run(
             ["git", "-C", str(repo_root), "remote", "get-url", "origin"],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
+            timeout=5,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return "local/unpublished"
     if proc.returncode != 0:
         return "local/unpublished"

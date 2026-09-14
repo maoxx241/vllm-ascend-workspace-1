@@ -28,6 +28,15 @@ def test_local_knowledge_defaults_to_bundled_model_metadata(tmp_path, monkeypatc
     assert knowledge.knowledge_server_env(tmp_path)["LITELLM_LOCAL_MODEL_COST_MAP"] == "false"
 
 
+def test_origin_probe_does_not_inherit_mcp_stdin_and_is_bounded(tmp_path, monkeypatch):
+    def timeout(command, **kwargs):
+        assert kwargs["stdin"] == subprocess.DEVNULL
+        assert kwargs["timeout"] == 5
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+    monkeypatch.setattr(knowledge.subprocess, "run", timeout)
+    assert knowledge.origin_repo_from_git(tmp_path) == "local/unpublished"
+
+
 def test_mounted_workspace_reserves_windows_owner_before_it_is_installed(monkeypatch):
     monkeypatch.setattr(owner, "os", SimpleNamespace(name="posix", environ={"WSL_DISTRO_NAME": "test"}))
     root = PurePosixPath("/mnt/d/work")

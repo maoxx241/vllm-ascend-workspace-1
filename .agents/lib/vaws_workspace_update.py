@@ -42,9 +42,14 @@ def redact(value: str) -> str:
 
 def run(argv: list[str], *, cwd: Path, timeout: int = 120, env=None, check=True):
     try:
-        result = subprocess.run(argv, cwd=cwd, env=context_environment(os.environ if env is None else env), stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True, encoding="utf-8",
-                                errors="replace", timeout=timeout, check=False)
+        environment = context_environment(os.environ if env is None else env)
+        if argv[0] == "git":
+            from vaws_process_wait import run_captured
+            result = run_captured(argv, cwd=cwd, env=environment, stage="workspace_git", timeout=timeout, limit=None)
+        else:
+            result = subprocess.run(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
+                                    capture_output=True, text=True, encoding="utf-8",
+                                    errors="replace", timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
         def output(value):
             return redact(value.decode("utf-8", "replace") if isinstance(value, bytes) else value or "")

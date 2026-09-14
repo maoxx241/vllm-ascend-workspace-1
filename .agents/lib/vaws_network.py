@@ -232,6 +232,19 @@ def select(results: list[dict]) -> dict | None:
     return inherited if inherited and inherited["seconds"] <= best["seconds"] * 1.25 else best
 
 
+def inherited_reference(url: str, routes: list[Route]) -> str:
+    """Materialize urllib's inherited route so native Git uses the same route."""
+    from urllib.request import getproxies, proxy_bypass
+    parsed = urlsplit(url)
+    if proxy_bypass(parsed.hostname):
+        return "direct"
+    value = getproxies().get(parsed.scheme, "")
+    if not value:
+        return "direct"
+    normalized = _proxy(value)
+    return next((route.source for route in routes if route.proxy and route.proxy == normalized), "inherited")
+
+
 def check(root: Path, *, targets=("github", "pypi", "models"), apply=False) -> dict:
     root = owner(root.resolve())
     routes, discovery = discover(root)
@@ -261,7 +274,9 @@ def check(root: Path, *, targets=("github", "pypi", "models"), apply=False) -> d
         choices = {**previous.get("routes", {})}
         for group, endpoint in (("github", "github"), ("pypi", "pypi_artifact"), ("models", "models")):
             if endpoint in selected or group in selected:
-                choices[group] = selected.get(endpoint, selected.get(group))
+                key = endpoint if endpoint in selected else group
+                source = selected[key]
+                choices[group] = inherited_reference(targets[key], routes) if source == "inherited" else source
         bypass = list(previous.get("no_proxy", []))
         for name, source in selected.items():
             if source == "direct":
@@ -271,6 +286,7 @@ def check(root: Path, *, targets=("github", "pypi", "models"), apply=False) -> d
                    "checked_at": report["checked_at"]}
         atomic(root / PROFILE, profile)
         report["applied"] = True
+        report["applied_routes"] = choices
     elif apply:
         report["applied"] = False
     atomic(root / REPORT, report)

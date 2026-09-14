@@ -44,12 +44,24 @@ def owned(command, **kwargs):
             process.wait(timeout=5)
 
 
-def run_captured(command, *, stage, timeout, env=None, cwd=None):
+def run_captured(command, *, stage, timeout, env=None, cwd=None, encoding="utf-8", limit=65536, input_data=None):
     """No pipe deadlocks, periodic progress and a deadline for the owned tree."""
-    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-        with owned(command, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr) as process:
-            code = wait_with_progress(process, stage=stage, timeout=timeout)
+    with tempfile.TemporaryFile() as source, tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        if input_data is not None:
+            source.write(input_data)
+            source.seek(0)
+        try:
+            with owned(command, env=env, cwd=cwd, stdin=source if input_data is not None else subprocess.DEVNULL,
+                       stdout=stdout, stderr=stderr) as process:
+                code = wait_with_progress(process, stage=stage, timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            stdout.seek(0)
+            stderr.seek(0)
+            exc.output, exc.stderr = stdout.read(65536), stderr.read(65536)
+            raise
         stdout.seek(0)
         stderr.seek(0)
-        return subprocess.CompletedProcess(command, code, stdout.read(65536).decode("utf-8", "replace"),
-                                           stderr.read(65536).decode("utf-8", "replace"))
+        out, err = stdout.read(-1 if limit is None else limit), stderr.read(-1 if limit is None else limit)
+        if encoding:
+            out, err = out.decode(encoding, "replace"), err.decode(encoding, "replace")
+        return subprocess.CompletedProcess(command, code, out, err)

@@ -30,3 +30,10 @@ def test_timeout_stops_child_heartbeat_too(tmp_path):
 def test_large_output_does_not_deadlock_and_evidence_is_bounded():
     result = run_captured([sys.executable, "-c", "print('x'*1000000)"], stage="test_output", timeout=10)
     assert result.returncode == 0 and len(result.stdout) == 65536
+
+
+def test_binary_git_input_and_complete_output_are_preserved():
+    content = bytes(range(256)) * 1000
+    result = run_captured([sys.executable, "-c", "import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())"],
+                          stage="binary_input", timeout=10, encoding=None, limit=None, input_data=content)
+    assert result.returncode == 0 and result.stdout == content

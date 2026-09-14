@@ -155,3 +155,20 @@ def test_all_failed_checks_preserve_previous_profile(tmp_path, monkeypatch):
 def test_metadata_read_has_hard_deadline_too(server):
     with pytest.raises(ValueError, match="deadline"):
         network.fetch_bytes(server + "/drip", deadline=.5)
+
+
+def test_inherited_http_route_is_materialized_for_git(tmp_path, monkeypatch):
+    from urllib import request
+    proxy = "http://proxy.example:8080"
+    monkeypatch.setattr(request, "getproxies", lambda: {"https": proxy})
+    monkeypatch.setattr(request, "proxy_bypass", lambda host: False)
+    routes = [network.Route("inherited"), network.Route("env:HTTPS_PROXY", proxy), network.Route("git:https", "http://broken.example:8080")]
+    monkeypatch.setattr(network, "discover", lambda root: (routes, {}))
+    monkeypatch.setattr(network, "endpoints", lambda *args: {"github": "https://api.github.com/meta"})
+    monkeypatch.setattr(network, "probe", lambda url, route, **kwargs: {"source": route.source, "status": "ok", "category": "ok", "seconds": 1})
+    result = network.check(tmp_path, apply=True)
+    assert result["selected"]["github"] == "inherited"
+    assert result["applied_routes"]["github"] == "env:HTTPS_PROXY"
+    env = network.environment_for(tmp_path, {"HTTPS_PROXY": proxy})
+    assert env["GIT_CONFIG_KEY_0"] == "http.https://github.com.proxy"
+    assert env["GIT_CONFIG_VALUE_0"] == proxy

@@ -60,7 +60,8 @@ def _python_identity(python: str | None) -> tuple[str, dict]:
     candidate = python or getattr(sys, "_base_executable", sys.executable)
     executable = shutil.which(candidate) or (str(Path(candidate).absolute()) if Path(candidate).is_file() else None)
     if executable is None:
-        result = subprocess.run(["uv", "python", "find", candidate], capture_output=True, text=True, check=False)
+        result = subprocess.run(["uv", "python", "find", candidate], stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, check=False, timeout=30)
         if result.returncode:
             raise EnvironmentError(result.stderr.strip() or f"cannot find Python {candidate!r}")
         executable = result.stdout.strip()
@@ -73,7 +74,8 @@ def _python_identity(python: str | None) -> tuple[str, dict]:
             "'python_version':platform.python_version(),'implementation':sys.implementation.name,"
             "'cache_tag':sys.implementation.cache_tag,'sysconfig_platform':sysconfig.get_platform(),"
             "'build':sys.version}))")
-    result = subprocess.run([executable, "-I", "-c", code], capture_output=True, text=True, check=False)
+    result = subprocess.run([executable, "-I", "-c", code], stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, check=False, timeout=15)
     if result.returncode:
         raise EnvironmentError(result.stderr.strip() or "cannot inspect the selected Python")
     identity = json.loads(result.stdout)
@@ -434,17 +436,21 @@ def _key_lock(store: Path, key: str):
 
 @_diagnostic_measured('environment.install')
 def _install(command: list[str], environment: dict, lock_fd: int) -> None:
+    from vaws_process_wait import wait_with_progress
+    timeout = float(environment.get("VAWS_INSTALL_TIMEOUT", "900"))
+    if not 1 <= timeout <= 86400:
+        raise EnvironmentError("VAWS_INSTALL_TIMEOUT must be between 1 and 86400 seconds")
     if os.name == "nt":
         from vaws_windows import owned_process
-        with owned_process(command, env=environment, stdout=sys.stderr, stderr=sys.stderr) as process:
-            code = process.wait()
+        with owned_process(command, env=environment, stdin=subprocess.DEVNULL, stdout=sys.stderr, stderr=sys.stderr) as process:
+            code = wait_with_progress(process, stage="locked_install", timeout=timeout)
     else:
         # The child retains the lock if this process is killed. A second builder
         # cannot clean its unfinished root until that installer has exited.
         process = subprocess.Popen(command, env=environment, stdout=sys.stderr, stderr=sys.stderr,
-                                   start_new_session=True, pass_fds=(lock_fd,))
+                                   stdin=subprocess.DEVNULL, start_new_session=True, pass_fds=(lock_fd,))
         try:
-            code = process.wait()
+            code = wait_with_progress(process, stage="locked_install", timeout=timeout)
         except BaseException:
             os.killpg(process.pid, signal.SIGTERM)
             try: process.wait(timeout=5)
@@ -532,7 +538,9 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
             with tempfile.TemporaryDirectory(prefix="vaws-locked-inputs-") as temporary:
                 frozen = Path(temporary)
                 from vaws_download_source import select_pypi_transport
-                install_lock, source_options, source_evidence = select_pypi_transport(lock, offline="--offline" in transport)
+                from vaws_network import network_scope, environment_for
+                with network_scope(repo_root, target="pypi"):
+                    install_lock, source_options, source_evidence = select_pypi_transport(lock, offline="--offline" in transport)
                 timings["download_source"] = source_evidence
                 if source_evidence.get("probe") not in {"not_configured", "no_pypi_artifacts"}:
                     print("VAWS download source: " + json.dumps(source_evidence), file=sys.stderr, flush=True)
@@ -548,7 +556,7 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
                     command.extend(("--no-install-package", name))
                 command.extend(transport)
                 command.extend(source_options)
-                environment = {name: value for name, value in os.environ.items()
+                environment = {name: value for name, value in environment_for(repo_root, target="pypi").items()
                                if (not name.startswith("UV_") or name in UV_TRANSPORT_ENV)
                                and name not in ("VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH", PIN_ENV)}
                 environment["UV_PROJECT_ENVIRONMENT"] = str(root)
@@ -560,7 +568,7 @@ def prepare_environment(repo_root: Path, *, groups=None, extras=(), python=None,
             with phase("environment.verify_interpreter"):
                 verification = subprocess.run([str(environment_python), "-I", "-X", "utf8", "-c",
                                               "import importlib.metadata,sys,json;list(importlib.metadata.distributions());print(json.dumps({'prefix':sys.prefix,'base':sys._base_executable}))"],
-                                             capture_output=True, encoding="utf-8", check=False)
+                                             stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", check=False, timeout=30)
                 facts = json.loads(verification.stdout) if verification.returncode == 0 else {}
                 if (verification.returncode or Path(facts["prefix"]).resolve() != root.resolve()
                         or Path(facts["base"]).resolve() != Path(executable)):

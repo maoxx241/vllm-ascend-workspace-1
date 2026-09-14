@@ -63,6 +63,9 @@ def run(argv: list[str], *, cwd: Path, timeout: int = 120, env=None, check=True)
 def git(root: Path, *args: str, check=True) -> str:
     environment = {**os.environ, "GIT_CEILING_DIRECTORIES": str(Path(root).resolve().parent)}
     action = args[0] if args else "unknown"
+    if action in {"fetch", "clone", "push", "ls-remote"}:
+        from vaws_network import environment_for
+        environment = environment_for(root, environment)
     measured = action in {"fetch", "clone", "checkout", "reset", "push", "ls-remote"}
     with phase("source.git", action=action, level="INFO" if measured else "DEBUG"):
         return run(["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []), *args],

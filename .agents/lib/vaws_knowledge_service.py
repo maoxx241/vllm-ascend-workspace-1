@@ -160,6 +160,8 @@ def _run_knowledge(repo_root: Path, arguments: Sequence[str], *, receipt: dict |
         if prepare:
             shared_project_config(repo_root)
         environment = {key: value for key, value in os.environ.items() if key not in LOCATION_ENV}
+        from vaws_network import environment_for
+        environment = environment_for(repo_root, environment, target="models")
         environment.update(knowledge_owner_env(repo_root, receipt=receipt) if receipt else knowledge_owner_env(repo_root))
         if receipt:
             environment["VAWS_ENV_RECEIPT"] = receipt["receipt"]

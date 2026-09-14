@@ -18,11 +18,11 @@ def configure_windows_runtime(repo_root: Path) -> None:
     """
     if os.name != "nt":
         return
-    from vaws_local_state import read_preparation, shared_workspace_root
-
     # Ordinary checkouts without a selection need no Git subprocess on startup.
     owner = repo_root
-    if read_preparation(repo_root) is not None or (repo_root / ".git").is_file():
+    prepared = (repo_root / ".vaws-local/native-workspace.json").is_file()
+    if prepared or (repo_root / ".git").is_file():
+        from vaws_local_state import shared_workspace_root
         owner = shared_workspace_root(repo_root)
     config = owner / ".vaws-local/windows-runtime.json"
     if not config.is_file():

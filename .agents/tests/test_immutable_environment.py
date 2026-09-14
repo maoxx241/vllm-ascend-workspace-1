@@ -59,7 +59,7 @@ def write_project(root, version="1"):
         "[project.optional-dependencies]\nexample = []\n[dependency-groups]\ndev = []\nother = []\n[tool.uv]\npackage = false\n",
         encoding="utf-8")
     result = subprocess.run(["uv", "lock", "--project", str(root), "--python", BASE],
-                            capture_output=True, text=True, timeout=30)
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
 
 

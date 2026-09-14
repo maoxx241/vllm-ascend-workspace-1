@@ -9,7 +9,6 @@ import re
 import time
 import tomllib
 from urllib.parse import urljoin, urlsplit
-from urllib.request import Request, urlopen
 
 PYPI = "https://pypi.org/simple"
 FILES = "https://files.pythonhosted.org/packages/"
@@ -28,11 +27,9 @@ class _Links(HTMLParser):
 
 
 def _mirror_prefix(index: str, package: str, artifact: dict) -> str:
+    from vaws_network import fetch_bytes
     page = index.rstrip("/") + "/" + package + "/"
-    with urlopen(Request(page, headers={"Accept": "text/html"}), timeout=PROBE_SECONDS) as response:
-        content = response.read(4 * 1024 * 1024 + 1)
-    if len(content) > 4 * 1024 * 1024:
-        raise ValueError("mirror index response is too large")
+    content = fetch_bytes(page, deadline=PROBE_SECONDS + 1)
     parser = _Links()
     parser.feed(content.decode("utf-8"))
     suffix = artifact["url"][len(FILES):]
@@ -52,21 +49,11 @@ def _mirror_prefix(index: str, package: str, artifact: dict) -> str:
 
 
 def _probe(url: str) -> dict:
-    started = time.monotonic()
-    count = 0
-    try:
-        request = Request(url, headers={"Range": f"bytes=0-{PROBE_BYTES-1}"})
-        with urlopen(request, timeout=PROBE_SECONDS) as response:
-            while count < PROBE_BYTES and time.monotonic() - started < PROBE_SECONDS:
-                data = response.read1(min(64 * 1024, PROBE_BYTES-count))
-                if not data:
-                    break
-                count += len(data)
-        seconds = max(time.monotonic()-started, 0.001)
-        return {"bytes": count, "seconds": round(seconds, 3), "bytes_per_second": count/seconds}
-    except Exception as exc:
-        return {"bytes": count, "seconds": round(time.monotonic()-started, 3),
-                "bytes_per_second": 0, "error": type(exc).__name__}
+    from vaws_network import probe, Route
+    result = probe(url, Route("inherited"), deadline=PROBE_SECONDS + 1, size=PROBE_BYTES)
+    return {"bytes": result.get("bytes", 0), "seconds": result.get("seconds", 0),
+            "bytes_per_second": result.get("bytes_per_second", 0),
+            **({"error": result["category"]} if result["status"] != "ok" else {})}
 
 
 def select_pypi_transport(lock: bytes, *, offline: bool = False) -> tuple[bytes, list[str], dict]:

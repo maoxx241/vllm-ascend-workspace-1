@@ -86,6 +86,32 @@ Git revisions, artifact SHA256 values and environment key stay unchanged. uv sti
 enforces `--locked` and rejects modified artifacts. This setting covers locked
 PyPI packages; GitHub and knowledge model downloads use their own transports.
 
+## Knowledge startup and the Microsoft C++ runtime
+
+An installed knowledge environment can still fail at `import onnxruntime` with
+Windows status `0xC0000005` when an old system `msvcp140.dll` is loaded. Inspect
+the first native error and the installed Microsoft Visual C++ runtime version
+before reinstalling Python packages. Updating the official Microsoft Visual C++
+Redistributable is the normal system repair.
+
+When a compatible, Microsoft-signed runtime is already installed in a protected
+directory and a system update is unavailable, an explicit workspace selection is
+also supported. Write `.vaws-local/windows-runtime.json` in the shared workspace
+owner with `msvc_directory` set to that absolute directory. Verify its architecture
+matches Python and verify the Microsoft signature before selecting it. Do not use
+a download directory or an untrusted DLL location.
+
+VAWS keeps the selected library loaded and makes its directory available to
+Python extension imports and inherited child processes, including knowledge
+daemons. This changes only the VAWS process tree; it does not replace system DLLs,
+edit immutable environments, or change locked package versions. Resume
+`vaws_init.py apply`, then reopen the native client so its MCP processes use the
+selection. Recheck the path if Windows updates remove that runtime package.
+
+Local knowledge also defaults `LITELLM_LOCAL_MODEL_COST_MAP=true` so importing its
+backend uses bundled provider metadata without a pricing download. An explicit
+environment value takes precedence; the local embedding model is unchanged.
+
 ## Prepare an offline bundle while online
 
 First complete the online sync above for the exact checkout and target Python.

@@ -97,7 +97,10 @@ def knowledge_server_env(repo_root: Path) -> dict[str, str]:
 
     repo_root = shared_workspace_root(repo_root)
     identity = knowledge_identity(repo_root)
-    result = {"VAWS_KNOWLEDGE_ORIGIN_REPO": identity["origin_repo"]}
+    result = {"VAWS_KNOWLEDGE_ORIGIN_REPO": identity["origin_repo"],
+              # Local CPU embeddings and disabled generation need no live
+              # provider pricing download during OpenViking/LiteLLM import.
+              "LITELLM_LOCAL_MODEL_COST_MAP": os.environ.get("LITELLM_LOCAL_MODEL_COST_MAP", "true")}
     config_path = repo_root / ".vaws-local/knowledge/service.json"
     if config_path.is_file():
         result["VAWS_KNOWLEDGE_CONFIG"] = str(config_path)
@@ -150,6 +153,8 @@ def _run_knowledge(repo_root: Path, arguments: Sequence[str], *, receipt: dict |
         return 1, {"status": "pending", "ready": False,
                    "reason": "knowledge owner interpreter is not installed", "interpreter": executable}
     try:
+        from vaws_windows_runtime import configure_windows_runtime
+        configure_windows_runtime(repo_root)
         if prepare:
             shared_project_config(repo_root)
         environment = {key: value for key, value in os.environ.items() if key not in LOCATION_ENV}
@@ -161,6 +166,12 @@ def _run_knowledge(repo_root: Path, arguments: Sequence[str], *, receipt: dict |
             command, cwd=str(repo_root), env=environment,
             stdout=subprocess.PIPE, stderr=sys.stderr, text=True, encoding="utf-8", check=False, timeout=900,
         )
+        if completed.returncode and not completed.stdout.strip():
+            status = completed.returncode & 0xFFFFFFFF
+            reason = f"knowledge process exited with status 0x{status:08X} without a JSON response; inspect stderr"
+            if status == 0xC0000005:
+                reason += "; on Windows, check the Microsoft Visual C++ runtime (docs/windows-installation.md)"
+            return completed.returncode, {"status": "pending", "ready": False, "reason": reason}
         payload = json.loads(completed.stdout)
         if not isinstance(payload, dict):
             raise ValueError("knowledge command returned no JSON object")

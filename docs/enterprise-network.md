@@ -42,6 +42,9 @@ GitHub 的显式选择还通过子进程 `GIT_CONFIG_COUNT` 配置 URL 级 `http
 Git/OpenSSL、uv 可能使用不同证书库。系统已经信任企业代理 CA 时，开发工具报错通常
 需要连接这些信任来源，无需用户重新取得 CA，也无需管理员权限。
 
+独立分发的 Python 还可能保留构建机器的 OpenSSL 路径。默认上下文没有加载根证书时，
+VAWS 会读取操作系统维护的标准 CA bundle 路径，再生成工作区证书包。
+
 `certificates` 从系统有效信任上下文导出公开 CA，记录组合包 SHA256；后续子进程使用
 SSL_CERT_FILE、REQUESTS_CA_BUNDLE、CURL_CA_BUNDLE、GIT_SSL_CAINFO，并为 uv 开启系统证书。
 显式客户端覆盖值保留。文件缺失、无法解析或保存后的证书包被修改会明确失败。

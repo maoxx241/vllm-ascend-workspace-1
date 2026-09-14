@@ -172,16 +172,15 @@ def probe(url: str, route: Route, *, environment: dict | None = None, deadline: 
         env.pop("VAWS_PROBE_CA", None)
     command = [sys.executable, "-I", str(worker or Path(__file__).with_name("vaws_network_probe.py"))]
     started = time.monotonic()
+    from vaws_process_wait import owned
     try:
-        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                   env=env, **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}))
+        with owned(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env) as process:
+            output, _ = process.communicate(json.dumps({"url": url, "bytes": size, "operation": operation}).encode(), timeout=deadline)
     except OSError as exc:
         return {"source": route.source, "status": "failed", "category": "probe_process", "error_type": type(exc).__name__}
-    try:
-        output, _ = process.communicate(json.dumps({"url": url, "bytes": size, "operation": operation}).encode(), timeout=deadline)
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.communicate(timeout=5)
+        # The owner closes the whole tree before this result, including a
+        # Windows venv redirector's actual interpreter and inherited pipes.
         return {"source": route.source, "status": "failed", "category": "deadline",
                 "seconds": round(time.monotonic() - started, 3), "child_reaped": True}
     try:

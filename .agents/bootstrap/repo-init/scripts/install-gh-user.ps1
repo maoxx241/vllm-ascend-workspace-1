@@ -61,8 +61,8 @@ function Save-BoundedWeb([string]$Uri, [string]$Destination, [int]$Deadline = 18
     if ($env:HTTPS_PROXY) {
       $address = [UriBuilder]::new($env:HTTPS_PROXY)
       if ($address.UserName) {
-        $secret = ConvertTo-SecureString ([Uri]::UnescapeDataString($address.Password)) -AsPlainText -Force
-        $options.ProxyCredential = [PSCredential]::new([Uri]::UnescapeDataString($address.UserName),$secret)
+        $secureValue = ConvertTo-SecureString ([Uri]::UnescapeDataString($address.Password)) -AsPlainText -Force
+        $options.ProxyCredential = [PSCredential]::new([Uri]::UnescapeDataString($address.UserName),$secureValue)
       }
       $address.UserName=''; $address.Password=''
       $options.Proxy = $address.Uri.AbsoluteUri

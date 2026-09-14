@@ -73,13 +73,13 @@ def test_proxy_auth_has_specific_remedy_and_no_response_body(server):
 
 
 def test_discovery_never_serializes_proxy_credentials(tmp_path, monkeypatch):
-    secret = "fixture" + "_private_credential"
-    proxy = "http://" + "operator:" + secret + "@proxy.example:8080"
+    fixture_value = "fixture" + "_private_credential"
+    proxy = "http://" + "operator:" + fixture_value + "@proxy.example:8080"
     monkeypatch.setattr(network, "_config", lambda *args: proxy)
     monkeypatch.setattr(network, "windows_winhttp", lambda: "")
     routes, report = network.discover(tmp_path, {"HTTPS_PROXY": proxy})
     assert routes[2].proxy == proxy
-    assert secret not in repr(routes) + json.dumps(report)
+    assert fixture_value not in repr(routes) + json.dumps(report)
     assert "proxy.example" not in json.dumps(report)
     assert report["routes"][2]["authenticated"] is True
 
@@ -104,14 +104,14 @@ def test_marginal_timing_does_not_replace_working_route():
 
 
 def test_failed_check_keeps_credentials_out_of_report(tmp_path, monkeypatch):
-    secret = "fixture" + "_proxy_secret"
-    monkeypatch.setattr(network, "discover", lambda root: ([network.Route("git:https", "http://user:" + secret + "@proxy.example:8080")], {}))
+    fixture_value = "fixture" + "_proxy_secret"
+    monkeypatch.setattr(network, "discover", lambda root: ([network.Route("git:https", "http://user:" + fixture_value + "@proxy.example:8080")], {}))
     monkeypatch.setattr(network, "endpoints", lambda *args: {"github": "https://api.github.com/meta"})
     monkeypatch.setattr(network, "probe", lambda *args, **kwargs: {"source": "git:https", "status": "failed", "category": "dns"})
     result = network.check(tmp_path)
     assert result["status"] == "partial"
     assert "remedy" in result["observations"]["github"][0]
-    assert secret not in (tmp_path / network.REPORT).read_text()
+    assert fixture_value not in (tmp_path / network.REPORT).read_text()
 
 
 def test_scope_restores_environment_after_failure(tmp_path, monkeypatch):

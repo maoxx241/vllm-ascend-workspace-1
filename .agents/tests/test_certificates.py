@@ -80,9 +80,16 @@ def test_bad_explicit_override_is_visible_and_not_silently_ignored(tmp_path):
         certificates.environment_for(tmp_path, {"REQUESTS_CA_BUNDLE": bad}, {})
 
 
-def test_profile_bundle_changes_require_reconfiguration(tmp_path):
-    certificates.configure(tmp_path)
+def test_profile_bundle_changes_require_reconfiguration(tmp_path, tls_server):
+    certificates.configure(tmp_path, tls_server[1])
     with (tmp_path / certificates.BUNDLE).open("ab") as output:
         output.write(b"\n")
     with pytest.raises(ValueError, match="changed"):
         network.environment_for(tmp_path, {})
+
+
+def test_standalone_python_recovers_existing_os_bundle(tls_server, monkeypatch):
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.setattr(certificates.ssl, "create_default_context", lambda: ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT))
+    monkeypatch.setattr(certificates, "system_bundle_candidates", lambda: [tls_server[1]])
+    assert certificates.system_roots()

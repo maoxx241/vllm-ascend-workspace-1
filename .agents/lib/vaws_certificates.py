@@ -14,6 +14,24 @@ CA_ENV = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAIN
 BUNDLE = ".vaws-local/certificates/ca-bundle.pem"
 
 
+def system_bundle_candidates():
+    # Standalone Python distributions can retain build-machine OpenSSL paths.
+    # These are OS-maintained bundles, not certificates harvested from a server.
+    return (Path("/etc/ssl/certs/ca-certificates.crt"), Path("/etc/pki/tls/certs/ca-bundle.crt"),
+            Path("/etc/ssl/cert.pem")) if os.name != "nt" else ()
+
+
+def system_roots():
+    context = ssl.create_default_context()
+    roots = set(context.get_ca_certs(binary_form=True))
+    if not roots and not os.environ.get("SSL_CERT_FILE"):
+        for path in system_bundle_candidates():
+            if path.is_file():
+                context.load_verify_locations(cafile=str(path))
+                roots.update(context.get_ca_certs(binary_form=True))
+    return roots
+
+
 def inspect(environment=None):
     env = os.environ if environment is None else environment
     result = []
@@ -35,8 +53,7 @@ def configure(root: Path, ca_bundle: Path | None = None) -> dict:
     """
     from vaws_network import atomic, owner, read_profile, PROFILE, DEFAULTS
     root = owner(root)
-    context = ssl.create_default_context()
-    roots = set(context.get_ca_certs(binary_form=True))
+    roots = system_roots()
     supplied_hash = None
     if ca_bundle is not None:
         data = ca_bundle.read_bytes()
@@ -50,7 +67,7 @@ def configure(root: Path, ca_bundle: Path | None = None) -> dict:
         roots.update(certificates)
         supplied_hash = hashlib.sha256(data).hexdigest()
     if not roots:
-        raise ValueError("No trusted roots available; obtain the enterprise PEM CA bundle from IT")
+        raise ValueError("No trusted roots available; select a verified-source PEM CA bundle")
     content = "".join(ssl.DER_cert_to_PEM_cert(cert) for cert in sorted(roots))
     # Check the exact combined output before making it available to children.
     ssl.create_default_context(cadata=content)

@@ -11,6 +11,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / ".agents/lib"))
 from vaws_network import REPORT, check, discover, owner, read_profile, native_check, atomic, environment_for
 
+if __name__ == "__main__":
+    from vaws_diagnostics_adapter import bootstrap
+    _vaws_entry = bootstrap(__file__)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -60,7 +64,7 @@ def main():
 if __name__ == "__main__":
     import subprocess
     try:
-        raise SystemExit(main())
+        raise SystemExit(_vaws_entry.run(main))
     except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
         print(json.dumps({"status": "failed", "category": "deadline" if isinstance(exc, subprocess.TimeoutExpired) else "local_configuration",
                           "error_type": type(exc).__name__, "remedy": "Inspect network status and explicit proxy/CA settings; no TLS bypass was applied."}))
